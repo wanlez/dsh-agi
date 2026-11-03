@@ -35,9 +35,8 @@ describe('profile preferences', () => {
     assert.equal(store.ballEnabled(), true)
     assert.equal(store.avatarVersion(), 0)
     assert.equal(store.readAvatar(), undefined)
-    // Nothing has been checked yet: no remembered version, and the shipped build leaves the
-    // automatic check off until the user turns it on (TEMP-AUTOCHECK-OFF).
-    assert.deepEqual(store.updateRecord(), { checkedAt: 0, latestVersion: '', notifiedVersion: '', autoCheck: false, lastError: '' })
+    // Nothing has been checked yet: no remembered version, and the automatic check is on.
+    assert.deepEqual(store.updateRecord(), { checkedAt: 0, latestVersion: '', notifiedVersion: '', autoCheck: true, lastError: '' })
   })
 
   it('follows the shared fallback on both tracks until the ball picks one', () => {
@@ -92,12 +91,12 @@ describe('profile preferences', () => {
     const store = new ProfileStore(path)
     store.setUpdateRecord({ checkedAt: 1700000000000, latestVersion: '0.2.0', notifiedVersion: '0.2.0' })
     const stored = JSON.parse(readFileSync(join(path, 'agi-update.json'), 'utf8')) as { autoCheck: boolean }
-    assert.equal(stored.autoCheck, false, 'an untouched field keeps its default')
+    assert.equal(stored.autoCheck, true, 'an untouched field keeps its default')
     assert.deepEqual(new ProfileStore(path).updateRecord(), {
       checkedAt: 1700000000000,
       latestVersion: '0.2.0',
       notifiedVersion: '0.2.0',
-      autoCheck: false,
+      autoCheck: true,
       lastError: '',
     })
     store.setUpdateRecord({ lastError: 'incompatible-version' })

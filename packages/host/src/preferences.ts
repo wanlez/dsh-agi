@@ -86,8 +86,8 @@ export interface UpdateRecord {
   readonly lastError: string
 }
 
-// 分享版默认不自动检查更新（TEMP-AUTOCHECK-OFF）；恢复官方行为时改回 true。
-const DEFAULT_UPDATE: UpdateRecord = { checkedAt: 0, latestVersion: '', notifiedVersion: '', autoCheck: false, lastError: '' }
+// 默认自动检查更新。
+const DEFAULT_UPDATE: UpdateRecord = { checkedAt: 0, latestVersion: '', notifiedVersion: '', autoCheck: true, lastError: '' }
 
 /**
  * Retention for the floating-ball workspace history. `retentionDays` of 0 means forever,
@@ -546,7 +546,7 @@ function readUpdate(dir: string): UpdateRecord {
     checkedAt: typeof stored.checkedAt === 'number' && Number.isFinite(stored.checkedAt) ? stored.checkedAt : 0,
     latestVersion: typeof stored.latestVersion === 'string' ? stored.latestVersion : '',
     notifiedVersion: typeof stored.notifiedVersion === 'string' ? stored.notifiedVersion : '',
-    autoCheck: typeof stored.autoCheck === 'boolean' ? stored.autoCheck : false,
+    autoCheck: typeof stored.autoCheck === 'boolean' ? stored.autoCheck : true,
     lastError: typeof stored.lastError === 'string' ? stored.lastError : '',
   }
 }

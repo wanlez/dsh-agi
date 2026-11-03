@@ -280,13 +280,14 @@ async function handle(deps: RouteDeps, req: IncomingMessage, res: ServerResponse
     return
   }
   if (method === 'POST' && path === `${PREFIX}/update/check`) {
-    // 分享版禁用更新检查（TEMP-UPDATE-OFF）：恢复官方行为时删掉这段，让 checkUpdate 照常跑。
-    sendJson(res, 409, { error: 'update-disabled' })
+    await deps.control.checkUpdate()
+    sendJson(res, 200, await snapshot(deps))
     return
   }
   if (method === 'POST' && path === `${PREFIX}/update/install`) {
-    // 分享版禁用一键升级（TEMP-UPDATE-OFF）：恢复官方行为时删掉这段。
-    sendJson(res, 409, { error: 'update-disabled' })
+    const builds = stringListField(await readJson(req), 'approvedBuilds')
+    deps.control.installUpdate(builds)
+    sendJson(res, 200, await snapshot(deps))
     return
   }
   if (method === 'POST' && path === `${PREFIX}/update/auto`) {
@@ -295,8 +296,7 @@ async function handle(deps: RouteDeps, req: IncomingMessage, res: ServerResponse
       sendJson(res, 400, { error: 'invalid-auto-check' })
       return
     }
-    // 分享版只允许关闭自动检查（TEMP-AUTOCHECK-LOCK）：恢复官方行为时改回 setAutoCheck(enabled)。
-    deps.control.setAutoCheck(false)
+    deps.control.setAutoCheck(enabled)
     sendJson(res, 200, await snapshot(deps))
     return
   }

@@ -1117,17 +1117,13 @@ window.__ModuleLoader__.load({
         ? h('button', {
           type: 'button',
           className: 'dsh-agi-set-button dsh-agi-set-primary',
-          // TEMP-UPDATE-DISABLED: 本地魔改版，恢复时改回 disabled: update.updating
-          disabled: true,
-          title: '本地修改版：更新已临时禁用',
+          disabled: update.updating,
           onClick: () => { void mutate('/.dsh-agi/update/install', {}) },
         }, update.updating ? text.updating.replaceAll('{version}', update.latestVersion || installed) : text.updateNow)
         : h('button', {
           type: 'button',
           className: 'dsh-agi-set-button dsh-agi-set-ghost',
-          // TEMP-UPDATE-DISABLED: 恢复时改回 disabled: update.checking
-          disabled: true,
-          title: '本地修改版：更新已临时禁用',
+          disabled: update.checking,
           onClick: () => { void mutate('/.dsh-agi/update/check', {}) },
         }, update.checking ? text.updateChecking : text.updateCheck)
       const allowBuilds = update.error === 'build-blocked' && Array.isArray(update.pendingBuilds) && update.pendingBuilds.length > 0
@@ -1155,8 +1151,6 @@ window.__ModuleLoader__.load({
                 h(Toggle, {
                   checked: update.autoCheck === true,
                   label: text.updateAuto,
-                  // TEMP-AUTOCHECK-LOCK: 分享版锁死自动检查更新，只允许保持关闭（改代码才能恢复）
-                  disabled: true,
                   onChange: (enabled) => { void mutate('/.dsh-agi/update/auto', { enabled }) },
                 })))),
           update.canUpdate ? null : h('p', { className: 'dsh-agi-set-banner', role: 'status' }, text.updateManual)))

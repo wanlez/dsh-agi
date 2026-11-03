@@ -473,26 +473,21 @@ describe('settings routes', () => {
     assert.equal(state.status, 200)
     assert.equal((JSON.parse(state.body.toString('utf8')) as { currentVersion: string }).currentVersion, '0.1.0')
 
-    // The shipped build refuses both the check and the install (TEMP-UPDATE-OFF), so neither
-    // reaches the control surface. Restoring the routes flips these two answers to 200.
     const checked = response()
     await handler(request('POST', '/.dsh-agi/update/check', '{}', { 'x-dsh-user': 'ok' }), checked)
-    assert.equal(checked.status, 409)
-    assert.equal(JSON.parse(checked.body.toString('utf8')).error, 'update-disabled')
-    assert.equal(calls.includes('check'), false, 'a disabled build never asks the network')
+    assert.equal(checked.status, 200)
+    assert.equal(calls.includes('check'), true, 'the manual check reaches the control surface')
 
     // The install answers at once with a snapshot: the page polls instead of waiting it out.
     const installed = response()
     await handler(request('POST', '/.dsh-agi/update/install', JSON.stringify({ approvedBuilds: ['koffi'] }), { 'x-dsh-user': 'ok' }), installed)
-    assert.equal(installed.status, 409)
-    assert.equal(JSON.parse(installed.body.toString('utf8')).error, 'update-disabled')
-    assert.equal(calls.some((call) => Array.isArray(call) && call[0] === 'install'), false)
+    assert.equal(installed.status, 200)
+    assert.deepEqual(calls.at(-1), ['install', ['koffi']])
 
-    // The automatic check can be turned off but never on (TEMP-AUTOCHECK-LOCK).
     const auto = response()
     await handler(request('POST', '/.dsh-agi/update/auto', JSON.stringify({ enabled: true }), { 'x-dsh-user': 'ok' }), auto)
     assert.equal(auto.status, 200)
-    assert.deepEqual(calls.at(-1), ['auto', false])
+    assert.deepEqual(calls.at(-1), ['auto', true])
 
     const invalid = response()
     await handler(request('POST', '/.dsh-agi/update/auto', JSON.stringify({ enabled: 'yes' }), { 'x-dsh-user': 'ok' }), invalid)
