@@ -22,7 +22,7 @@ The release tarball contains code only. The Electron runtime and the speech mode
 - **Images**: paste a screenshot (Ctrl+V) into the panel's composer, up to nine per message, and send it with your text.
 - **Persona cards**: Settings → Floating ball → Persona cards. Create or pick a card; the agent then answers in that character every turn.
 - **Knowledge library**: Settings → Floating ball → Knowledge library. Pick a folder; a screenshot plus one sentence is saved as `<process>/<process>.md` with numbered images under `screenshots/`.
-- **Wake word**: the code supports a wake word, but its model is not auto-downloaded by default. Use the click-to-talk flow above.
+- **Wake word**: with the ball collapsed, say 你好大肥鱼 (or your configured phrase). The panel opens and pins itself, and the ball answers 我在呢 locally. The wake phrase, reply, threshold, decision granularity and the 1.5 s cooldown are all editable. The 9 MB wake model downloads from this repository on first use. Say 大肥鱼 to interject while the agent works, or 退下吧 to stop and unpin.
 
 ## Models
 
