@@ -45,56 +45,36 @@ export type { OrbContext }
  * @param profileDir - profile directory that may still hold `orb-*.json` files.
  */
 function migrateLegacyOrbData(profileDir: string): void {
-  try {
-    const home = dshHomePath()
-    for (const [legacyName, nextName] of [['dsh-orb', 'dsh-agi'], ['dsh_orb', 'dsh_agi']] as const) {
-      const legacy = join(home, legacyName)
-      const next = join(home, nextName)
-      if (!existsSync(legacy) || existsSync(next)) continue
-      try {
-        renameSync(legacy, next)
-      } catch {
-        // A folder held open somewhere cannot be renamed; a copy still saves the data.
-        try {
-          cpSync(legacy, next, { recursive: true })
-        } catch {
-          // Left for the next start.
-        }
-      }
-      console.error(`dsh-agi: migrated ${legacyName} -> ${nextName}`)
+  const home = dshHomePath()
+  // 只复制，绝不改名：DSH 的会话文件里记录着 cwd（旧工作区路径），workspaceRegistry
+  // 用「bucket 目录名 == header.cwd」做身份校验；把 dsh_orb 目录改名会让校验失败，
+  // workspaceController 起不来，会话列表和新建工作区全部不可用。
+  const copy = (from: string, to: string): void => {
+    try {
+      if (!existsSync(from) || existsSync(to)) return
+      cpSync(from, to, { recursive: true })
+      console.error(`dsh-agi: copied ${from} -> ${to}`)
+    } catch {
+      // Held open or out of space: the next start tries again.
     }
-    // Session folders are named after the workspace path, so their names carry the old
-    // spelling; renaming them is what makes the old conversations findable again.
-    const sessionsRoot = join(home, 'sessions')
-    for (const name of readdirSync(sessionsRoot)) {
-      if (!name.includes('dsh_orb')) continue
-      const next = name.split('dsh_orb').join('dsh_agi')
-      if (existsSync(join(sessionsRoot, next))) continue
-      try {
-        renameSync(join(sessionsRoot, name), join(sessionsRoot, next))
-        console.error(`dsh-agi: migrated sessions dir ${name}`)
-      } catch {
-        // A folder in use stays where it is.
-      }
-    }
-  } catch {
-    // No harness home or no sessions root yet: nothing to migrate.
   }
+  copy(join(home, 'dsh-orb'), join(home, 'dsh-agi'))
+  // Workspace config is safe to copy; its sessions belong to the old bucket and stay there.
+  const oldWorkspace = join(home, 'dsh_orb')
+  const newWorkspace = join(home, 'dsh_agi')
+  for (const name of ['AGENTS.md', 'personas', 'knowledge', 'cursor-baseline.txt']) {
+    copy(join(oldWorkspace, name), join(newWorkspace, name))
+  }
+  // Profile settings keep their old file names; copy them under the new prefix.
   try {
     for (const name of readdirSync(profileDir)) {
       const match = /^orb-(.+)\.json$/.exec(name)
       if (match === null) continue
       const next = join(profileDir, `agi-${match[1]}.json`)
-      if (existsSync(next)) continue
-      try {
-        // Copied, not moved: an older build of the plugin still needs its own file.
-        cpSync(join(profileDir, name), next)
-      } catch {
-        // The setting falls back to its default.
-      }
+      if (!existsSync(next)) cpSync(join(profileDir, name), next)
     }
   } catch {
-    // An unreadable profile directory only costs the migration.
+    // A profile without settings yet is fine.
   }
 }
 
