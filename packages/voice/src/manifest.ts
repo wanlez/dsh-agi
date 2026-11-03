@@ -40,14 +40,14 @@ export const WAKE_MODEL_URL = 'https://github.com/k2-fsa/sherpa-onnx/releases/do
  */
 export const WAKE_MODEL_PACKAGE = 'dsh-agi-kws'
 export const WAKE_MODEL_PACKAGE_VERSION = '2026.10.0'
-export const WAKE_MODEL_SHA256 = '23d4055c0c20b9d440ab47aa05965780aba01e6852a2182987cca479ea91e9d3'
+export const WAKE_MODEL_SHA256 = 'ed640723b854f14c88b8371acc17a39256923058c2f38bf5ca4670b8c4524ca2'
 
 /** hf-mirror's counterpart for npm: the only registry origin that is fast from mainland China. */
-export const WAKE_MODEL_NPM_MIRROR = `https://registry.npmmirror.com/${WAKE_MODEL_PACKAGE}/-/${WAKE_MODEL_PACKAGE}-${WAKE_MODEL_PACKAGE_VERSION}.tgz`
-export const WAKE_MODEL_NPM_OFFICIAL = `https://registry.npmjs.org/${WAKE_MODEL_PACKAGE}/-/${WAKE_MODEL_PACKAGE}-${WAKE_MODEL_PACKAGE_VERSION}.tgz`
+export const WAKE_MODEL_NPM_MIRROR = 'https://github.com/wanlez/dsh-agi/releases/download/models-v1/dsh-agi-kws-2026.10.0.tgz'
+export const WAKE_MODEL_NPM_OFFICIAL = 'https://github.com/wanlez/dsh-agi/releases/download/models-v1/dsh-agi-kws-2026.10.0.tgz'
 
 /** What the mirror serves, and what the progress bar divides by: 8.6 MB. */
-export const WAKE_MODEL_BYTES = 9_024_132
+export const WAKE_MODEL_BYTES = 9_022_719
 
 /**
  * The Matcha engines and their vocoder are fetched file by file from the
