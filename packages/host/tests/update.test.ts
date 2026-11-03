@@ -8,7 +8,7 @@ import { after, describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { deferredDir, type DeferredInstall } from '../src/deferred-install.ts'
 import { ProfileStore } from '../src/preferences.ts'
-import { AUTO_CHECK_INTERVAL_MS, compareVersions, exemptReleaseAge, installRegistry, installSpec, ownPackage, registryTarballUrl, releaseTarballUrl, renameWithRetry, UpdateChecker, versionFromRegistry, versionFromRelease, withReleaseAgeExclusion } from '../src/update.ts'
+import { AUTO_CHECK_INTERVAL_MS, compareVersions, exemptReleaseAge, installRegistry, installSpec, ownPackage, registryTarballUrl, releaseTarballUrl, renameWithRetry, UPDATE_REPO, UpdateChecker, versionFromRegistry, versionFromRelease, withReleaseAgeExclusion } from '../src/update.ts'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
 
@@ -20,7 +20,12 @@ function store(): ProfileStore {
   counter += 1
   const path = join(root, `profile-${counter}`)
   mkdirSync(path, { recursive: true })
-  return new ProfileStore(path)
+  const profile = new ProfileStore(path)
+  // The shipped build leaves the automatic check off (TEMP-AUTOCHECK-OFF), so these tests
+  // stand for the profile of a user who turned it on; the dedicated test below still covers
+  // the off branch by writing `autoCheck: false` itself.
+  profile.setUpdateRecord({ autoCheck: true })
+  return profile
 }
 
 /** A manager that records the spec it was handed and answers with a scripted result. */
@@ -182,7 +187,9 @@ describe('update versions', () => {
     assert.equal(versionFromRelease('not json'), undefined)
     assert.equal(
       releaseTarballUrl('0.2.0'),
-      'https://github.com/mini-yifan/dsh-orb-cordis/releases/download/plugin-v0.2.0/dsh-agi-0.2.0.tgz',
+      // Built from the module's own repository constant: the shipped build blanks it
+      // (TEMP-UPDATE-OFF), and restoring it must not need a second edit here.
+      `https://github.com/${UPDATE_REPO}/releases/download/plugin-v0.2.0/dsh-agi-0.2.0.tgz`,
     )
     process.env.DSH_AGI_UPDATE_URL = 'http://127.0.0.1:9/downloads/dsh-agi-0.2.0.tgz'
     assert.equal(releaseTarballUrl('0.2.0'), 'http://127.0.0.1:9/downloads/dsh-agi-0.2.0.tgz')

@@ -15,6 +15,8 @@ import { avatarPresetSrc } from './avatar-presets.ts'
 import type { ModelCatalog } from './catalog.ts'
 import { cancelRuntimeDownload, isRuntimeDownloadCancelled, purgeRuntimeArtifacts, resolveElectronBinary } from './electron-runtime.ts'
 import { helperMain } from './helper-path.ts'
+import { imageDebug } from './debug-log.ts'
+import { detectImageType, imageSizeOf } from './image-bytes.ts'
 import {
   HistoryCleaner,
   type HistoryPersistence,
@@ -24,6 +26,7 @@ import {
   type WorkspaceSafety,
 } from './history.ts'
 import { moveToOsTrash, osTrashAvailable } from './os-trash.ts'
+import { personaForPrompt } from './persona.ts'
 import { refreshModelFallback } from './model-defaults.ts'
 import { openMainWindow } from './open-main.ts'
 import { isDesktopHost, isTccRight, TccMonitor, type TccRight, type TccStatus } from './tcc.ts'
@@ -53,6 +56,61 @@ import { publishScreenOwner } from './screen-owner.ts'
 import { selectModelKeepDefault } from './select-model.ts'
 import { createForegroundMemory } from './windows-foreground.ts'
 import { EMPTY_UPDATE_STATE, type UpdateChecker, type UpdateState } from './update.ts'
+
+/** One line of user text in a submitted prompt. */
+export interface PromptTextBlock {
+  readonly type: 'text'
+  readonly text: string
+}
+
+/** One screenshot in a submitted prompt, already durably stored. */
+export interface PromptImageBlock {
+  readonly type: 'image'
+  readonly attachment: PromptImageRef
+}
+
+/** One model-facing content block the ball submits: a line of text, or one stored screenshot. */
+export type PromptBlock = PromptTextBlock | PromptImageBlock
+
+/** The durable image reference the attachment store answers with; sizes may be omitted. */
+export interface PromptImageRef {
+  readonly attachmentId: string
+  readonly mediaType: string
+  readonly bytes: number
+  readonly width: number
+  readonly height: number
+  readonly name?: string
+}
+
+/** The slice of `ctx.attachments` the composer saves screenshots through. */
+export interface AttachmentService {
+  saveImage(input: { readonly data: Uint8Array; readonly mediaType: string; readonly name?: string }): Promise<{
+    readonly attachmentId: string
+    readonly mediaType?: string
+    readonly bytes?: number
+    readonly width?: number
+    readonly height?: number
+    readonly name?: string
+  }>
+}
+
+/**
+ * One message a pre-step listener appends to the step. It is a user-role message with a
+ * source of its own, so the transcript shows where it came from instead of a bare bubble.
+ */
+export interface PreStepMessage {
+  readonly role: 'user'
+  readonly id: string
+  readonly content: readonly PromptBlock[]
+  readonly source: { readonly kind: 'computer-use'; readonly form: 'notice'; readonly summary: string }
+}
+
+/** What the next `agent/pre-step` handler proposes: refuse the step, or enter with messages. */
+export interface PreStepDecision {
+  readonly kind?: 'reject' | 'enter'
+  readonly messages?: readonly PreStepMessage[]
+  readonly startsRequestSeries?: true
+}
 
 /** Host services the plugin injects. Shapes match the official 0.1.7-rc.2 controllers. */
 export interface OrbContext {
@@ -106,7 +164,7 @@ export interface OrbContext {
       readonly requestId: string
       readonly sessionId: string
       readonly mode: 'queue' | 'steer'
-      readonly content: readonly { readonly type: 'text'; readonly text: string }[]
+      readonly content: readonly PromptBlock[]
       readonly clientTimeZone?: string
     }, signal: AbortSignal): Promise<{ readonly accepted: true }>
     list(request: object, signal: AbortSignal): Promise<{ readonly items?: readonly unknown[] } | readonly unknown[]>
@@ -137,6 +195,11 @@ export interface OrbContext {
       readonly reasoningEffort?: string
     }): Promise<void>
   }
+  /**
+   * The official attachment store. Present on a Host that ships it; the composer then
+   * uploads screenshots through it instead of dropping them. Absent keeps text-only.
+   */
+  readonly attachments?: AttachmentService
   effect(execute: () => void | (() => void)): void
   get(name: string): unknown
   provide(name: string, value: unknown): void
@@ -159,6 +222,19 @@ export interface OrbContext {
       readonly frame?: unknown
     }) => void,
     options?: { readonly global?: boolean },
+  ): (() => void) | void
+  /**
+   * The loop asks what this step should be entered with. `next()` carries the answer the
+   * rest of the plugin stack produced; a listener may append messages the model must see.
+   */
+  on(
+    name: 'agent/pre-step',
+    listener: (
+      payload: {
+        readonly agent?: { readonly session?: { readonly id?: unknown; readonly sessionId?: unknown } }
+      },
+      next: () => Promise<PreStepDecision>,
+    ) => Promise<PreStepDecision>,
   ): (() => void) | void
   on(
     name: 'settings/document-updated',
@@ -288,6 +364,13 @@ interface ShownQuestion {
   readonly multiSelect?: true
 }
 
+/** Screenshots one turn carries into its next step, plus the copies staged for the library. */
+export interface PendingImages {
+  readonly sessionId: string
+  readonly blocks: readonly PromptImageBlock[]
+  readonly paths: readonly string[]
+}
+
 /** One host lifetime of the ball: socket, helper process, and one Computer Use session. */
 export class OrbRuntime {
   private readonly token = randomBytes(32).toString('hex')
@@ -308,6 +391,11 @@ export class OrbRuntime {
   private pendingPrompt: { text: string; key: string; sessionId?: string } | undefined
   /** Steps whose first tool-call delta already told voice that the preceding text was mid-turn. */
   private readonly toolVoiceSteps = new Set<string>()
+  /**
+   * Screenshots the next model call of the running turn must carry. The prompt itself is
+   * text-only, so the images ride the pre-step hook and are dropped when the turn ends.
+   */
+  private pendingImages: PendingImages | undefined
   private child: ChildProcess | undefined
   private binary = ''
   private failures = 0
@@ -532,8 +620,27 @@ export class OrbRuntime {
     for (const key of tracked) this.dropBlock(key)
   }
 
+  /**
+   * Clear the "a turn is running / a line is playing" state a previous process left behind,
+   * so a fresh panel does not open on a stop button nothing is behind. Called on every start,
+   * including the restart after the ball was switched off mid-turn.
+   */
+  resetTransientState(): void {
+    try {
+      this.turnRunning = false
+      this.pendingImages = undefined
+      this.voice.haltSpeech()
+      this.voice.setVoiceArmed(false)
+      this.broadcast({ type: 'turn', running: false })
+      this.broadcast({ type: 'voice-hold', hold: false })
+    } catch {
+      // A reset that fails must not keep the ball from starting.
+    }
+  }
+
   /** Open the socket, prepare a session, and spawn the helper. A halted ball can start again. */
   async start(): Promise<void> {
+    this.resetTransientState()
     if (process.platform === 'linux') return
     this.halted = false
     this.failures = 0
@@ -773,9 +880,14 @@ export class OrbRuntime {
           this.accept(socket, message)
           continue
         }
+        const record = asRecord(message)
         if (isPrompt(message)) void this.onPrompt(message.text)
         else if (isQuestionAnswer(message)) this.onQuestionAnswer(message.id, message.answers)
         else if (isQuestionCancel(message)) this.onQuestionCancel(message.id)
+        // Push-to-talk and the voice-input gesture belong to the live controller, not to the
+        // control menu: they change what the microphone feeds and nothing else.
+        else if (record?.type === 'ptt') this.voice.ptt(record.hold === true)
+        else if (record?.type === 'voice-arm') this.voice.setVoiceArmed(typeof record.on === 'boolean' ? record.on : undefined)
         else this.onControl(message, socket)
       }
     })
@@ -822,6 +934,7 @@ export class OrbRuntime {
         if (block) this.send(socket, block)
       }
     }
+    imageDebug(`accept state turn=${this.turnRunning} hold=${this.voice.holdState()} speech=${this.voice.speaking()} mode=${this.voice.listenMode()}`)
     this.send(socket, { type: 'turn', running: this.turnRunning })
     // A closing line or a queued question prompt may still be playing from before a page
     // reload. The page starts with no hold, so say what the current speaker wants.
@@ -848,8 +961,13 @@ export class OrbRuntime {
     await this.preempt(trimmed, key)
   }
 
-  /** Start one new turn on the current session. The caller owns the user bubble. */
-  private async submitPrompt(trimmed: string): Promise<void> {
+  /**
+   * Start one new turn on the current session. The caller owns the user bubble.
+   * @param trimmed - the text the user typed, which voice and the transcript also record.
+   * @param content - blocks to submit instead of that text alone; a screenshot turn passes
+   * the text plus the stored images here.
+   */
+  private async submitPrompt(trimmed: string, content?: readonly PromptBlock[]): Promise<void> {
     this.voice.activity()
     this.turnInterrupted = false
     this.beginTurn()
@@ -872,13 +990,14 @@ export class OrbRuntime {
         requestId: randomUUID(),
         sessionId,
         mode: 'queue',
-        content: [{ type: 'text', text: trimmed }],
+        content: content ?? [{ type: 'text', text: trimmed }],
         clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       }, new AbortController().signal)
       this.drain()
     } catch (error) {
       this.finishTurn()
       const message = error instanceof Error ? error.message : String(error)
+      imageDebug(`prompt failed: ${message}`)
       console.error(`dsh-agi: prompt failed: ${message}`)
       this.status(message)
     }
@@ -1369,6 +1488,8 @@ export class OrbRuntime {
 
   private finishTurn(): void {
     this.turnRunning = false
+    // The screenshots belonged to this turn; the next one starts from what the user sends.
+    this.pendingImages = undefined
     this.idleWarned = false
     this.selection.setSessionRunning(false)
     for (const key of [...this.blockOrder]) {
@@ -1942,12 +2063,176 @@ export class OrbRuntime {
     return this.history.state()
   }
 
+  /** The conversation the panel is on; undefined until one is minted. */
+  currentSessionId(): string | undefined {
+    return this.sessionId
+  }
+
+  /**
+   * Delete one conversation. The open one is replaced first, so the panel never keeps a
+   * pointer to a folder that just left for the trash.
+   * @param sessionId - conversation the page listed.
+   */
+  async deleteHistorySession(sessionId: string): Promise<void> {
+    try {
+      if (sessionId === this.sessionId) {
+        const previous = sessionId
+        await this.newSession()
+        await this.history.deleteSession(previous)
+      } else {
+        await this.history.deleteSession(sessionId)
+      }
+      await this.sendHistory()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const friendly: Record<string, string> = {
+        'cannot-delete-current': '这是当前对话，先切到别的对话再删',
+        'session-running': '这个对话还在跑，先停掉再删',
+        'session-not-found': '找不到这个对话',
+        'session-directory-not-found': '找不到会话目录，可能已经被删过',
+        'history-unavailable': '历史功能不可用',
+        'history-busy': '正在清理历史，稍后再试',
+      }
+      this.status(`删除失败：${friendly[message] ?? message}`)
+      throw error
+    }
+  }
+
   setHistoryRetention(days: number): void {
     this.history.setRetention(days)
   }
 
   previewHistory(days: number): Promise<HistoryPreview> {
     return this.history.preview(days)
+  }
+
+  /**
+   * A turn made of text plus at most nine screenshots.
+   *
+   * The prompt carries the text alone: every image is stored through the attachment
+   * service, and the stored blocks are handed to the next step by
+   * {@link peekPendingImages} and the `agent/pre-step` hook. A copy also lands under
+   * `records/<stamp>/` so the agent can file it into the experience library by path.
+   * @param text - the composer's text; empty falls back to the "organise these" wording.
+   * @param images - `{ data, mediaType }` entries from the page, in message order.
+   */
+  async onPromptImages(text: unknown, images: unknown): Promise<void> {
+    const trimmed = typeof text === 'string' ? text.trim().slice(0, 8_000) : ''
+    const list = Array.isArray(images) ? images.slice(0, 9) : []
+    if (list.length === 0) {
+      this.onPrompt(trimmed)
+      return
+    }
+    if (this.turnRunning) {
+      this.status('这一轮还在跑，等它结束再发图片')
+      return
+    }
+    const content: PromptBlock[] = [{
+      type: 'text',
+      text: trimmed || '看这些截图，把它整理成经验库里的操作步骤；没有可复用的流程就直说。',
+    }]
+    imageDebug(`prompt-images text=${trimmed.length} images=${list.length} sizes=${list.map((item) => String(asRecord(item)?.data ?? '').length).join(',')}`)
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const stagedDir = join(dshHomePath('dsh-agi'), 'records', stamp)
+    try {
+      await mkdir(stagedDir, { recursive: true })
+    } catch {
+      // A staging failure only costs the copy; the upload below still runs.
+    }
+    const stagedPaths: string[] = []
+    for (const item of list) {
+      const record = asRecord(item)
+      try {
+        const data = Buffer.from(String(record?.data ?? ''), 'base64')
+        // The page may hand over an empty slot or a screenshot far past the upload limit.
+        if (data.length === 0 || data.length > 4_000_000) continue
+        const declared = record?.mediaType === 'image/png' ? 'image/png' : 'image/jpeg'
+        // The declared type is a hint: the header decides what the service is handed.
+        const mediaType = detectImageType(data) ?? declared
+        const service = this.attachmentService()
+        if (service === undefined) throw new Error('attachments service unavailable')
+        const ordinal = content.filter((block) => block.type === 'image').length + 1
+        const staged = join(stagedDir, `${String(ordinal).padStart(2, '0')}.jpg`)
+        try {
+          await writeFile(staged, data)
+          stagedPaths.push(staged)
+        } catch {
+          // The staged copy is a convenience for the agent, never the source of truth.
+        }
+        const saved = await service.saveImage({ data, mediaType, name: 'composer-image' })
+        imageDebug(`saved id=${saved.attachmentId} type=${mediaType} w=${String(saved.width)} h=${String(saved.height)} bytes=${data.length}`)
+        const size = imageSizeOf(data)
+        content.push({
+          type: 'image',
+          attachment: {
+            attachmentId: saved.attachmentId,
+            mediaType: saved.mediaType ?? mediaType,
+            bytes: saved.bytes ?? data.length,
+            width: saved.width ?? size.width,
+            height: saved.height ?? size.height,
+            name: saved.name ?? 'composer-image',
+          },
+        })
+      } catch (error) {
+        const raw = String(record?.data ?? '')
+        let head = ''
+        try {
+          head = Buffer.from(raw, 'base64').subarray(0, 8).toString('hex')
+        } catch {
+          head = ''
+        }
+        const message = error instanceof Error ? error.message : String(error)
+        imageDebug(`attach failed: ${message} head=${head} b64=${raw.length}`)
+        console.error(`dsh-agi: image attach failed: ${message}`)
+      }
+    }
+    const imageBlocks = content.filter((block): block is PromptImageBlock => block.type === 'image')
+    if (imageBlocks.length === 0) {
+      imageDebug('all images rejected, fallback to text')
+      this.status('图片没被接受（已记到 image-debug.log）')
+      this.onPrompt(trimmed)
+      return
+    }
+    const sessionId = await this.ensureSession()
+    this.pendingImages = { sessionId, blocks: imageBlocks, paths: stagedPaths }
+    imageDebug(`pending images=${imageBlocks.length} session=${sessionId}`)
+    const key = `user:${randomUUID()}`
+    this.block(key, 'user', trimmed || '（图片）', false, 'set')
+    await this.submitPrompt(trimmed)
+  }
+
+  /**
+   * The screenshots the next step of {@link sessionId} must see, or undefined once they were
+   * consumed, the turn ended, or another conversation is asking.
+   * @param sessionId - the session the step belongs to; undefined skips the check.
+   */
+  peekPendingImages(sessionId: string | undefined): PendingImages | undefined {
+    const pending = this.pendingImages
+    if (pending === undefined || pending.blocks.length === 0) return undefined
+    if (sessionId !== undefined && sessionId !== pending.sessionId) return undefined
+    return pending
+  }
+
+  /** The active character card's body; empty when the card is off or nothing is selected. */
+  personaForPrompt(): string {
+    try {
+      return personaForPrompt(this.store.dir)
+    } catch {
+      return ''
+    }
+  }
+
+  /** The official attachment store, read directly or through the service container. */
+  private attachmentService(): AttachmentService | undefined {
+    try {
+      const direct = this.ctx.attachments
+      if (direct !== undefined && typeof direct.saveImage === 'function') return direct
+      const viaGet = asRecord(this.ctx.get('attachments'))
+      if (viaGet !== undefined && typeof viaGet.saveImage === 'function') return viaGet as unknown as AttachmentService
+    } catch {
+      // A Host without the service keeps the composer text-only.
+    }
+    return undefined
   }
 
   cleanHistory(): void {
@@ -1957,6 +2242,17 @@ export class OrbRuntime {
   private onControl(message: unknown, socket: Socket): void {
     const record = asRecord(message)
     if (!record || typeof record.type !== 'string') return
+    // The session id goes straight into a filesystem walk, so it must look like one.
+    if (record.type === 'history-delete' && typeof record.sessionId === 'string' && /^[A-Za-z0-9._:-]{1,200}$/.test(record.sessionId)) {
+      this.deleteHistorySession(record.sessionId).catch((error: unknown) => {
+        console.error(`dsh-agi: delete conversation failed: ${error instanceof Error ? error.message : String(error)}`)
+      })
+      return
+    }
+    if (record.type === 'prompt-images') {
+      void this.onPromptImages(record.text, record.images)
+      return
+    }
     if (record.type === 'chrome-windows') {
       this.chromeWindows.set(socket, readWindowIds(record.ids))
       return
@@ -1995,7 +2291,13 @@ export class OrbRuntime {
       this.run('permission', () => this.setPermission(preset))
       return
     }
+    if (record.type === 'silence') {
+      // The page hides the speaking indicator: drop the rest of the line without touching the turn.
+      this.voice.haltSpeech()
+      return
+    }
     if (record.type === 'stop') {
+      this.voice.setVoiceArmed(false)
       this.voice.haltSpeech()
       if (this.turnRunning) {
         const epoch = this.turnEpoch

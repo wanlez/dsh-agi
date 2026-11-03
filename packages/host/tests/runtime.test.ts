@@ -57,6 +57,8 @@ interface Harness {
   setCatalog: (groups: { id: string; name: string; models: { id: string; name: string }[] }[]) => void
   listItems: Row[]
   pins: { preset: string; cwd?: string }[]
+  /** What the composer stored through `ctx.attachments.saveImage`. */
+  savedImages: { mediaType: string; bytes: number; name?: string }[]
   inject: (sessionId: string, row: EventRow) => void
   stream: (sessionId: string, frame: Record<string, unknown>) => void
   question: (
@@ -99,6 +101,7 @@ function boot(extra: {
   const sessions = new Map<string, { events: EventRow[]; header: { cwd: string; agentPreset: string } }>()
   const pins: Harness['pins'] = []
   const listItems: Row[] = []
+  const savedImages: Harness['savedImages'] = []
   let promptGate = Promise.resolve()
   let releasePrompt = () => {}
   let cancelGate: Promise<void> | undefined
@@ -203,6 +206,20 @@ function boot(extra: {
         savedDefaults.push(selection)
       },
     },
+    // The official attachment store: accepts the bytes and answers with its own reference.
+    attachments: {
+      async saveImage(input: { data: Uint8Array; mediaType: string; name?: string }) {
+        savedImages.push({ mediaType: input.mediaType, bytes: input.data.length, ...input.name === undefined ? {} : { name: input.name } })
+        return {
+          attachmentId: `att-${savedImages.length}`,
+          mediaType: input.mediaType,
+          bytes: input.data.length,
+          width: 2,
+          height: 3,
+          ...input.name === undefined ? {} : { name: input.name },
+        }
+      },
+    },
     effect() {},
     get(name: string) {
       if (name === 'sessions') return ctx.sessions
@@ -247,6 +264,7 @@ function boot(extra: {
     setCatalog(groups) { catalogGroups = groups },
     listItems,
     pins,
+    savedImages,
     inject(sessionId, row) {
       const row0 = sessions.get(sessionId)
       if (row0) row0.events.push(row)
@@ -419,6 +437,39 @@ describe('ball control socket', { concurrency: 1 }, () => {
       client.send({ type: 'new' })
       await waitFor(() => chromeCount() > seen)
       assert.equal(harness.calls.create.length, 2, 'a conversation with a turn gets a fresh one')
+    } finally {
+      client.socket.destroy()
+    }
+  })
+
+  it('uploads a screenshot turn and hands the images to the step that follows', async () => {
+    const harness = boot()
+    const client = await connect(harness.runtime)
+    try {
+      // A real 2×3 PNG: the header decides the media type, not the page's claim.
+      const png = 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAYAAAC56t6BAAAAFElEQVR4nGP8z8Dwn4GBgYmBAQAeBQMBAAAAAElFTkSuQmCC'
+      client.send({ type: 'prompt-images', text: '看图', images: [{ data: png, mediaType: 'image/png' }] })
+      await waitFor(() => harness.calls.prompt.length === 1)
+      const sent = harness.calls.prompt[0]
+      assert.ok(sent?.sessionId)
+      assert.equal(sent.content?.length, 1, 'the prompt is text only; the images travel in the pre-step hook')
+      assert.equal(harness.savedImages.length, 1)
+      assert.equal(harness.savedImages[0]?.mediaType, 'image/png', 'the bytes decide the type')
+      assert.equal(harness.savedImages[0]?.name, 'composer-image')
+      assert.equal(harness.savedImages[0]?.bytes, 72)
+
+      const pending = harness.runtime.peekPendingImages(sent.sessionId)
+      assert.ok(pending, 'the turn keeps the stored blocks for its next step')
+      assert.equal(pending.blocks.length, 1)
+      assert.equal(pending.blocks[0]?.attachment.attachmentId, 'att-1')
+      assert.equal(pending.blocks[0]?.attachment.width, 2)
+      assert.equal(pending.blocks[0]?.attachment.height, 3)
+      assert.equal(pending.paths.length, 1)
+      assert.equal(existsSync(pending.paths[0] as string), true, 'a copy waits under records/<stamp>/')
+      assert.equal(harness.runtime.peekPendingImages('session-somewhere-else'), undefined, 'another conversation sees nothing')
+
+      harness.inject(sent.sessionId, { type: 'turn/end', seq: 1, data: { turn: 1 } })
+      await waitFor(() => harness.runtime.peekPendingImages(sent.sessionId) === undefined)
     } finally {
       client.socket.destroy()
     }
@@ -731,7 +782,7 @@ describe('ball control socket', { concurrency: 1 }, () => {
 
       client.send({ type: 'permission', preset: 'read-only' })
       await waitFor(() => harness.store.permission() === 'read-only')
-      assert.equal(JSON.parse(readFileSync(join(harness.profile, 'orb-permission.json'), 'utf8')).preset, 'read-only')
+      assert.equal(JSON.parse(readFileSync(join(harness.profile, 'agi-permission.json'), 'utf8')).preset, 'read-only')
       assert.equal(harness.pins.at(-1)?.preset, 'read-only')
 
       const selected = harness.calls.selectModel.length
@@ -806,7 +857,7 @@ describe('ball control socket', { concurrency: 1 }, () => {
       // The runtime must not push the API-key route or touch the saved default.
       assert.equal(harness.calls.selectModel[0]?.provider, 'deepseek-account')
       assert.deepEqual(harness.savedDefaults, [])
-      assert.equal(existsSync(join(harness.profile, 'orb-agent-models.json')), false)
+      assert.equal(existsSync(join(harness.profile, 'agi-agent-models.json')), false)
     } finally {
       client.socket.end()
       harness.runtime.halt()
@@ -831,7 +882,7 @@ describe('ball control socket', { concurrency: 1 }, () => {
       assert.equal(harness.calls.selectModel[0]?.reasoningEffort, 'high')
       // The free background track still follows the main window.
       assert.deepEqual(harness.store.models().background, { provider: 'deepseek-account', model: 'deepseek-flash' })
-      assert.deepEqual(JSON.parse(readFileSync(join(harness.profile, 'orb-agent-models.json'), 'utf8')), {
+      assert.deepEqual(JSON.parse(readFileSync(join(harness.profile, 'agi-agent-models.json'), 'utf8')), {
         overlay: { provider: 'deepseek-official', model: 'deepseek-pro', reasoningEffort: 'high' },
       })
     } finally {

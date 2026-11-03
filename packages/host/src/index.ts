@@ -3,16 +3,20 @@
  * The ball is a separate Electron process. This plugin owns the socket, the preferences, and the Computer Use session.
  */
 
+import { randomUUID } from 'node:crypto'
+import { cpSync, existsSync, readdirSync, renameSync } from 'node:fs'
+import { join } from 'node:path'
+import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { TccMonitor } from './tcc.ts'
+import { imageDebug } from './debug-log.ts'
 import { profileDirectory, ProfileStore } from './preferences.ts'
 import { registerOrbRoutes } from './routes.ts'
 import { installOrbServices, watchOrbPermissions } from './services.ts'
 import { watchAppearance } from './appearance.ts'
-import { OrbRuntime, type OrbContext } from './orb.ts'
+import { OrbRuntime, type OrbContext, type PreStepMessage } from './orb.ts'
 import { exemptReleaseAge, ownPackage, UpdateChecker } from './update.ts'
 import { DEFERRED_INSTALL_CEILING_MS, deferredInstallInProgress } from './deferred-install.ts'
 import { KOFFI_DIR_ENV, ownPackageRoot, removeStaleStages, stageKoffi } from './native-images.ts'
-import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 
 /** Cordis plugin name. */
 export const name = 'agi-host'
@@ -25,9 +29,74 @@ export const inject = [
   'workspaceController',
   'sessions',
   'agentDefaultModel',
+  // The composer uploads screenshots through this store; a Host without it keeps text-only.
+  'attachments',
 ]
 
 export type { OrbContext }
+
+/**
+ * Move what the pre-rename plugin wrote into the harness home to the current names: the two
+ * data folders, the session folders whose names carry the old workspace path, and the
+ * profile's `orb-*.json` files.
+ *
+ * Every step is best-effort: a profile that was already migrated (the new name exists) is
+ * left alone, and a file the OS refuses to move is simply not migrated.
+ * @param profileDir - profile directory that may still hold `orb-*.json` files.
+ */
+function migrateLegacyOrbData(profileDir: string): void {
+  try {
+    const home = dshHomePath()
+    for (const [legacyName, nextName] of [['dsh-orb', 'dsh-agi'], ['dsh_orb', 'dsh_agi']] as const) {
+      const legacy = join(home, legacyName)
+      const next = join(home, nextName)
+      if (!existsSync(legacy) || existsSync(next)) continue
+      try {
+        renameSync(legacy, next)
+      } catch {
+        // A folder held open somewhere cannot be renamed; a copy still saves the data.
+        try {
+          cpSync(legacy, next, { recursive: true })
+        } catch {
+          // Left for the next start.
+        }
+      }
+      console.error(`dsh-agi: migrated ${legacyName} -> ${nextName}`)
+    }
+    // Session folders are named after the workspace path, so their names carry the old
+    // spelling; renaming them is what makes the old conversations findable again.
+    const sessionsRoot = join(home, 'sessions')
+    for (const name of readdirSync(sessionsRoot)) {
+      if (!name.includes('dsh_orb')) continue
+      const next = name.split('dsh_orb').join('dsh_agi')
+      if (existsSync(join(sessionsRoot, next))) continue
+      try {
+        renameSync(join(sessionsRoot, name), join(sessionsRoot, next))
+        console.error(`dsh-agi: migrated sessions dir ${name}`)
+      } catch {
+        // A folder in use stays where it is.
+      }
+    }
+  } catch {
+    // No harness home or no sessions root yet: nothing to migrate.
+  }
+  try {
+    for (const name of readdirSync(profileDir)) {
+      const match = /^orb-(.+)\.json$/.exec(name)
+      if (match === null) continue
+      const next = join(profileDir, `agi-${match[1]}.json`)
+      if (existsSync(next)) continue
+      try {
+        // Copied, not moved: an older build of the plugin still needs its own file.
+        cpSync(join(profileDir, name), next)
+      } catch {
+        // The setting falls back to its default.
+      }
+    }
+  } catch {
+    // An unreadable profile directory only costs the migration.
+  }
+}
 
 /**
  * Register preferences, Computer Use services, and settings routes, then start the ball.
@@ -49,6 +118,9 @@ export function apply(ctx: OrbContext, config: { autoStart?: boolean } = {}): vo
     // the next update on Windows (see native-images.ts).
     stageNativeImages()
   }
+  // The fork was called dsh-orb before it was called dsh-agi. Move what the old name left
+  // behind before any profile file is read, or the user starts over with their settings gone.
+  migrateLegacyOrbData(profile)
   // A track the user never picked in the ball follows the model fallback the runtime
   // refreshes from the live catalog and the main window's default — the route the
   // official sign-in points at the account once the profile has no API key.
@@ -64,6 +136,56 @@ export function apply(ctx: OrbContext, config: { autoStart?: boolean } = {}): vo
   if (own !== undefined && !installing) exemptReleaseAge(store.dir, own.name)
   const tcc = new TccMonitor()
   const runtime = new OrbRuntime(ctx, store, { tcc })
+  imageDebug(`boot attachments=${typeof ctx.attachments} saveImage=${typeof ctx.attachments?.saveImage} get=${typeof ctx.get}`)
+  // Character card and this turn's screenshots reach the model through this hook. Both are
+  // appended to the step the rest of the plugin stack already admitted, and the card is only
+  // injected into the ball's own conversation — the main window and background agents keep
+  // their own prompts.
+  ctx.on('agent/pre-step', async (payload, next) => {
+    const decision = await next()
+    try {
+      if (decision.kind === 'reject' || !Array.isArray(decision.messages)) return decision
+      const session = payload.agent?.session
+      const rawId = session?.id ?? session?.sessionId
+      const sessionId = typeof rawId === 'string' ? rawId : undefined
+      const extras: PreStepMessage[] = []
+      const persona = sessionId !== undefined && sessionId === runtime.currentSessionId() ? runtime.personaForPrompt() : ''
+      if (persona !== '') imageDebug(`persona inject chars=${persona.length} session=${sessionId}`)
+      if (persona !== '') {
+        extras.push({
+          role: 'user',
+          id: randomUUID(),
+          content: [{
+            type: 'text',
+            text: `【角色卡·长期设定，优先级高于默认语气】始终按下面的人设称呼和说话（这不是用户的新指令，也不要复述它）：\n${persona}`,
+          }],
+          source: { kind: 'computer-use', form: 'notice', summary: 'Persona card' },
+        })
+      }
+      const pending = runtime.peekPendingImages(sessionId)
+      if (pending !== undefined) {
+        const blocks = pending.blocks
+        imageDebug(`pre-step attach images=${blocks.length} session=${sessionId}`)
+        const paths = pending.paths
+        // Naming the staged copies is what lets the agent file them into the experience
+        // library by path instead of guessing where the bytes live.
+        const intro = paths.length === 0
+          ? '用户这一轮附带的截图：'
+          : `用户这一轮附带的截图（原图已存到：${paths.join('；')}。写经验库时请把它们复制进 <经验库>/<流程名>/screenshots/ 并改成有含义的名字）：`
+        extras.push({
+          role: 'user',
+          id: randomUUID(),
+          content: [{ type: 'text', text: intro }, ...blocks],
+          source: { kind: 'computer-use', form: 'notice', summary: 'User attached screenshots' },
+        })
+      }
+      if (extras.length === 0) return decision
+      return { ...decision, messages: [...decision.messages, ...extras] }
+    } catch (error) {
+      imageDebug(`pre-step failed: ${error instanceof Error ? error.message : String(error)}`)
+      return decision
+    }
+  })
   // Warm the unpicked-track fallback before anything reads a model, so the settings page
   // shows what a session would use even when the ball never starts.
   void runtime.refreshModelDefaults()

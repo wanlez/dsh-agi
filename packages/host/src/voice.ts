@@ -34,13 +34,24 @@ export interface VoicePresence {
 }
 
 export interface VoicePageMessage {
-  readonly type: 'pin' | 'unpin' | 'voice-hold' | 'voice-prompt' | 'voice-mode' | 'voice-level' | 'voice-speech'
+  readonly type:
+    | 'pin'
+    | 'unpin'
+    | 'voice-hold'
+    | 'voice-prompt'
+    | 'voice-mode'
+    | 'voice-level'
+    | 'voice-speech'
+    /** The page opened or closed voice input (avatar click after the panel opened). */
+    | 'voice-armed'
   readonly hold?: boolean
   readonly text?: string
   readonly mode?: ListenMode
   readonly value?: number
   /** `voice-speech`: a VAD speech segment is open and this audio is going to ASR. */
   readonly open?: boolean
+  /** `voice-armed`: true while the microphone may feed the recognizer. */
+  readonly on?: boolean
 }
 
 export interface VoiceLink {
@@ -114,6 +125,13 @@ export class VoiceController {
   /** Slow retry for a child that could not start at all; cleared on every new lifecycle. */
   private slowRetry: ReturnType<typeof setTimeout> | undefined
   private pinned = false
+  /**
+   * The user opened voice input: the panel is up and the avatar was clicked. A pinned ball
+   * without this listens to nothing — opening the panel is not a request to be recorded.
+   */
+  private voiceArmed = false
+  /** A push-to-talk hold is open; the child is collecting samples for one utterance. */
+  private pttActive = false
   private agentBusy = false
   private questionOpen = false
   private speechOpen = false
@@ -260,9 +278,48 @@ export class VoiceController {
   setPinned(pinned: boolean): void {
     if (this.pinned === pinned) return
     this.pinned = pinned
-    if (!pinned) this.idle = createIdle()
+    if (!pinned) {
+      // Collapsing the panel ends the listening gesture with it.
+      this.setVoiceArmed(false)
+      this.idle = createIdle()
+    }
     this.pushListen(false)
     this.poll()
+  }
+
+  /**
+   * Open or close voice input. The panel must already be pinned: the page sends this on the
+   * avatar click that follows the panel opening, and a wake word arms it by itself.
+   * @param on - true arms, false disarms, undefined toggles.
+   */
+  setVoiceArmed(on?: boolean | null): void {
+    const next = on === true || on === false ? on : !this.voiceArmed
+    if (this.voiceArmed === next) return
+    this.voiceArmed = next
+    debug(`voice armed=${next} pinned=${this.pinned}`)
+    this.options.send({ type: 'voice-armed', on: next })
+    this.pushListen(true)
+    this.poll()
+  }
+
+  /** Push-to-talk: hold collects one utterance in the child, release transcribes it. */
+  ptt(on: boolean): void {
+    if (on === true) {
+      // Hold-to-talk from the collapsed ball: the panel opens so the user can see it listening.
+      if (!this.pinned) {
+        this.pinned = true
+        this.options.send({ type: 'pin' })
+      }
+      this.pttActive = true
+      this.pushListen(true)
+      this.link?.send({ type: 'ptt', hold: true })
+      debug('ptt start')
+      return
+    }
+    if (this.pttActive !== true) return
+    this.pttActive = false
+    this.link?.send({ type: 'ptt', hold: false })
+    debug('ptt stop')
   }
 
   /** A keystroke, or a text command that was just sent. */
@@ -513,6 +570,9 @@ export class VoiceController {
   private onWake(): void {
     if (this.mode !== 'wake') return
     this.pinned = true
+    // Waking is the user asking for voice: the panel opens with the microphone armed.
+    this.voiceArmed = true
+    this.options.send({ type: 'voice-armed', on: true })
     this.options.send({ type: 'pin' })
     const reply = this.localReply(this.settings().wakeReply)
     // The reply is about to play in the same room; do not hand its tail to the recognizer.
@@ -535,6 +595,8 @@ export class VoiceController {
       if (!spoken) return this.poll()
       if (isDismiss(spoken, settings.dismissPhrases)) return this.dismiss()
       this.options.send({ type: 'voice-prompt', text: spoken })
+      // One utterance per click: after the command is handed over, wait for the next click.
+      this.setVoiceArmed(false)
       this.activity()
       return this.poll()
     }
@@ -777,6 +839,7 @@ export class VoiceController {
       // An empty wake list means there is no wake word, even when the switch and the model are ready.
       wakeEnabled: settings.wakeEnabled && hasWakeWord(settings.wakeWords) && presence.wake,
       commandEnabled: this.commandEnabled(),
+      voiceArmed: this.voiceArmed,
       interjectEnabled: this.interjectEnabled(),
       echoCancel: this.echoCancel,
       micOpen: this.micOpen,

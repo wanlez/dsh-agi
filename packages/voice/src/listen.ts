@@ -54,6 +54,11 @@ export interface ListenInput {
   readonly wakeEnabled: boolean
   /** Voice-input switch is on and the official ASR model files are complete. */
   readonly commandEnabled: boolean
+  /**
+   * 语音输入已由用户显式开启：面板展开后点头像，或唤醒词唤醒。
+   * 只固定面板不算——展开面板不是「开始录音」的授权。
+   */
+  readonly voiceArmed: boolean
   /** commandEnabled, and the interject keyword is not empty. */
   readonly interjectEnabled: boolean
   /** This capture of the child process includes echo cancellation. */
@@ -69,7 +74,7 @@ export interface ListenInput {
  * microphone wins. A busy agent or agent body audio listens for an interjection
  * when that column is on and, while body audio is playing, echo cancellation is
  * present. Otherwise an unpinned ball listens for the wake word, and a pinned
- * ball listens for a command.
+ * ball whose voice input the user opened listens for a command.
  */
 export function listenMode(input: ListenInput): ListenMode {
   if (input.questionOpen || input.localBusy || input.stopping || !input.micOpen) return 'off'
@@ -80,7 +85,7 @@ export function listenMode(input: ListenInput): ListenMode {
     return 'interject'
   }
   if (!input.pinned && input.wakeEnabled) return 'wake'
-  if (input.pinned && input.commandEnabled) return 'command'
+  if (input.pinned && input.commandEnabled && input.voiceArmed) return 'command'
   return 'off'
 }
 

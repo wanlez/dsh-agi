@@ -2,7 +2,7 @@
  * Profile files the ball and the settings page share.
  * Names match the desktop fork so an existing profile keeps its choices.
  *
- * `orb-agent-models.json` records only the tracks the user picked in the ball. A track
+ * `agi-agent-models.json` records only the tracks the user picked in the ball. A track
  * without an entry follows the shared fallback in {@link ProfileStore.applyModelFallback},
  * which `model-defaults.ts` resolves from the live catalog and the main window's default
  * model — the route the official sign-in points at the account once the profile has no
@@ -15,19 +15,19 @@ import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { parseVoiceSettings, type VoiceSettings } from '@dsh-agi/voice/settings'
 import { isAvatarPresetId } from './avatar-presets.ts'
 
-const PERMISSION_FILE = 'orb-permission.json'
-const MODELS_FILE = 'orb-agent-models.json'
+const PERMISSION_FILE = 'agi-permission.json'
+const MODELS_FILE = 'agi-agent-models.json'
 const MILLIFRACTION_FILE = 'millifraction-coordinates.json'
 const OBSERVATION_FRAME_FILE = 'observation-frame.json'
 const SELECTION_FILE = 'selection-toolbar.json'
 const BALL_FILE = 'ball-enabled.json'
-const AVATAR_FILE = 'orb-avatar'
-const AVATAR_META_FILE = 'orb-avatar.json'
-const UPDATE_FILE = 'orb-update.json'
-const HISTORY_FILE = 'orb-history.json'
-const WORKSPACE_FILE = 'orb-workspace.json'
-const VOICE_FILE = 'orb-voice.json'
-const WHATS_NEW_FILE = 'orb-whats-new.json'
+const AVATAR_FILE = 'agi-avatar'
+const AVATAR_META_FILE = 'agi-avatar.json'
+const UPDATE_FILE = 'agi-update.json'
+const HISTORY_FILE = 'agi-history.json'
+const WORKSPACE_FILE = 'agi-workspace.json'
+const VOICE_FILE = 'agi-voice.json'
+const WHATS_NEW_FILE = 'agi-whats-new.json'
 
 /** Retention choices shown in the settings select; 0 means forever. */
 export const HISTORY_RETENTION_DAYS = [0, 1, 7, 14, 30, 60] as const
@@ -86,7 +86,8 @@ export interface UpdateRecord {
   readonly lastError: string
 }
 
-const DEFAULT_UPDATE: UpdateRecord = { checkedAt: 0, latestVersion: '', notifiedVersion: '', autoCheck: true, lastError: '' }
+// 分享版默认不自动检查更新（TEMP-AUTOCHECK-OFF）；恢复官方行为时改回 true。
+const DEFAULT_UPDATE: UpdateRecord = { checkedAt: 0, latestVersion: '', notifiedVersion: '', autoCheck: false, lastError: '' }
 
 /**
  * Retention for the floating-ball workspace history. `retentionDays` of 0 means forever,
@@ -369,7 +370,7 @@ export class ProfileStore {
 
   /**
    * The workspace the ball creates its conversations in. The future workspace setting
-   * writes `orb-workspace.json`; missing or relative paths keep the shipped default.
+   * writes `agi-workspace.json`; missing or relative paths keep the shipped default.
    */
   workspaceDirectory(): string {
     const stored = record(readJson(join(this.dir, WORKSPACE_FILE)))?.path
@@ -545,7 +546,7 @@ function readUpdate(dir: string): UpdateRecord {
     checkedAt: typeof stored.checkedAt === 'number' && Number.isFinite(stored.checkedAt) ? stored.checkedAt : 0,
     latestVersion: typeof stored.latestVersion === 'string' ? stored.latestVersion : '',
     notifiedVersion: typeof stored.notifiedVersion === 'string' ? stored.notifiedVersion : '',
-    autoCheck: typeof stored.autoCheck === 'boolean' ? stored.autoCheck : true,
+    autoCheck: typeof stored.autoCheck === 'boolean' ? stored.autoCheck : false,
     lastError: typeof stored.lastError === 'string' ? stored.lastError : '',
   }
 }

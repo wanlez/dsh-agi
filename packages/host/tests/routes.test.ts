@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
@@ -473,24 +473,25 @@ describe('settings routes', () => {
     assert.equal(state.status, 200)
     assert.equal((JSON.parse(state.body.toString('utf8')) as { currentVersion: string }).currentVersion, '0.1.0')
 
+    // The shipped build refuses both the check and the install (TEMP-UPDATE-OFF), so neither
+    // reaches the control surface. Restoring the routes flips these two answers to 200.
     const checked = response()
     await handler(request('POST', '/.dsh-agi/update/check', '{}', { 'x-dsh-user': 'ok' }), checked)
-    assert.equal(checked.status, 200)
-    assert.equal(calls.includes('check'), true)
-    assert.deepEqual((JSON.parse(checked.body.toString('utf8')) as { update: { currentVersion: string } }).update.currentVersion, '0.1.0')
+    assert.equal(checked.status, 409)
+    assert.equal(JSON.parse(checked.body.toString('utf8')).error, 'update-disabled')
+    assert.equal(calls.includes('check'), false, 'a disabled build never asks the network')
 
     // The install answers at once with a snapshot: the page polls instead of waiting it out.
     const installed = response()
     await handler(request('POST', '/.dsh-agi/update/install', JSON.stringify({ approvedBuilds: ['koffi'] }), { 'x-dsh-user': 'ok' }), installed)
-    assert.equal(installed.status, 200)
-    assert.deepEqual(calls.at(-1), ['install', ['koffi']])
+    assert.equal(installed.status, 409)
+    assert.equal(JSON.parse(installed.body.toString('utf8')).error, 'update-disabled')
+    assert.equal(calls.some((call) => Array.isArray(call) && call[0] === 'install'), false)
 
-    const bare = response()
-    await handler(request('POST', '/.dsh-agi/update/install', '{}', { 'x-dsh-user': 'ok' }), bare)
-    assert.deepEqual(calls.at(-1), ['install', undefined])
-
+    // The automatic check can be turned off but never on (TEMP-AUTOCHECK-LOCK).
     const auto = response()
-    await handler(request('POST', '/.dsh-agi/update/auto', JSON.stringify({ enabled: false }), { 'x-dsh-user': 'ok' }), auto)
+    await handler(request('POST', '/.dsh-agi/update/auto', JSON.stringify({ enabled: true }), { 'x-dsh-user': 'ok' }), auto)
+    assert.equal(auto.status, 200)
     assert.deepEqual(calls.at(-1), ['auto', false])
 
     const invalid = response()
@@ -498,6 +499,105 @@ describe('settings routes', () => {
     assert.equal(invalid.status, 400)
     assert.equal(JSON.parse(invalid.body.toString('utf8')).error, 'invalid-auto-check')
     dispose()
+  })
+
+  it('edits the character card and the experience library from the settings page', async () => {
+    const profile = join(root, 'profile-cards')
+    mkdirSync(profile, { recursive: true })
+    const store = new ProfileStore(profile)
+    const home = mkdtempSync(join(root, 'home-'))
+    const previousHome = process.env.DSH_HOME
+    process.env.DSH_HOME = home
+    const control: OrbControl = {
+      helperAuthorized: () => false,
+      takeJump: () => null,
+      confirmJump() {},
+      takeSettingsOpen: () => null,
+      confirmSettingsOpen() {},
+      async publishChrome() {},
+      async setOverlayModel() {},
+      async setBackgroundModel() {},
+      async setSelectionEnabled() {},
+      async setMillifractionEnabled() {},
+      async setObservationFrameEnabled() {},
+      async setBallEnabled() {},
+      updateState: () => EMPTY_UPDATE_STATE,
+      async checkUpdate() {},
+      installUpdate() {},
+      setAutoCheck() {},
+    }
+    let handler: ((req: IncomingMessage, res: ServerResponse) => Promise<void>) | undefined
+    const dispose = registerOrbRoutes({
+      ctx: {
+        webServer: { register(route) { handler = route.handler; return () => { handler = undefined } } },
+        connection: { admit: () => ({ peer: { id: 'local' } }) },
+        sessionController: { modelCatalog: () => ({ groups: [] }) },
+      },
+      store,
+      tcc: new TccMonitor(),
+      control,
+    })
+    assert.ok(handler)
+    try {
+      // Character cards: the built-ins are seeded on the first look, and a save from an empty
+      // selection creates the default card instead of refusing.
+      const initial = response()
+      await handler(request('GET', '/.dsh-agi/persona'), initial)
+      assert.equal(initial.status, 200)
+      const first = JSON.parse(initial.body.toString('utf8')) as { cards: { name: string }[]; dir: string; agents: string }
+      assert.deepEqual(first.cards.map((card) => card.name), ['技术支持.md', '耐心老师.md', '默认助手.md'])
+      assert.equal(first.dir.startsWith(home), true, 'the cards live under the harness home')
+
+      const saved = response()
+      await handler(request('POST', '/.dsh-agi/persona', JSON.stringify({ text: '# 我的\n\n说话短一点。' })), saved)
+      assert.equal(saved.status, 200)
+      const afterSave = JSON.parse(saved.body.toString('utf8')) as { active: string; text: string; enabled: boolean }
+      assert.equal(afterSave.active, '默认.md')
+      assert.equal(afterSave.text, '# 我的\n\n说话短一点。')
+      assert.equal(afterSave.enabled, true)
+      assert.equal(existsSync(join(first.dir, '默认.md')), true)
+
+      const unnamed = response()
+      await handler(request('POST', '/.dsh-agi/persona', JSON.stringify({ create: '///' })), unnamed)
+      assert.equal(unnamed.status, 400)
+      assert.equal(JSON.parse(unnamed.body.toString('utf8')).error, 'invalid-persona-name')
+
+      // Experience library: on by default, switched off with a marker, and moved to a picked
+      // folder only when the path is absolute.
+      const library = response()
+      await handler(request('GET', '/.dsh-agi/knowledge'), library)
+      const state = JSON.parse(library.body.toString('utf8')) as { dir: string; enabled: boolean; isDefault: boolean }
+      assert.equal(state.isDefault, true)
+      assert.equal(state.enabled, true)
+
+      const off = response()
+      await handler(request('POST', '/.dsh-agi/knowledge', JSON.stringify({ enabled: false })), off)
+      assert.equal(JSON.parse(off.body.toString('utf8')).enabled, false)
+
+      const badEnabled = response()
+      await handler(request('POST', '/.dsh-agi/knowledge', JSON.stringify({ enabled: 'yes' })), badEnabled)
+      assert.equal(badEnabled.status, 400)
+      assert.equal(JSON.parse(badEnabled.body.toString('utf8')).error, 'invalid-enabled')
+
+      const relative = response()
+      await handler(request('POST', '/.dsh-agi/knowledge/dir', JSON.stringify({ dir: 'relative/notes' })), relative)
+      assert.equal(relative.status, 400)
+      assert.equal(JSON.parse(relative.body.toString('utf8')).error, 'knowledge-invalid-path')
+
+      const target = join(home, 'notes')
+      const moved = response()
+      await handler(request('POST', '/.dsh-agi/knowledge/dir', JSON.stringify({ dir: target })), moved)
+      assert.equal(moved.status, 200)
+      const afterMove = JSON.parse(moved.body.toString('utf8')) as { dir: string; isDefault: boolean; migration: { moved: number; failed: string[] } }
+      assert.equal(afterMove.dir, target)
+      assert.equal(afterMove.isDefault, false)
+      assert.equal(afterMove.migration.moved, 1, 'the OFF marker travelled with the library')
+      assert.deepEqual(afterMove.migration.failed, [])
+    } finally {
+      dispose()
+      if (previousHome === undefined) delete process.env.DSH_HOME
+      else process.env.DSH_HOME = previousHome
+    }
   })
 
   it('offers the release note once, and remembers the dismissal on the profile', async () => {

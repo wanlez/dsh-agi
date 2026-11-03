@@ -64,7 +64,7 @@ describe('agi-host plugin', () => {
       console.error = original
     }
     assert.equal(name, 'agi-host')
-    assert.deepEqual(inject, ['webServer', 'connection', 'sessionController', 'workspaceController', 'sessions', 'agentDefaultModel'])
+    assert.deepEqual(inject, ['webServer', 'connection', 'sessionController', 'workspaceController', 'sessions', 'agentDefaultModel', 'attachments'])
     assert.deepEqual(started.routes, [{ kind: 'prefix', path: '/.dsh-agi' }])
     assert.deepEqual(started.provided, ['computerUseOverlayGuard', 'orbCodeAgentModel', 'orbCoordinateMode'])
     assert.equal(started.listeners.some((item) => item.name === 'user-questions/request' && item.prepend === true), true)

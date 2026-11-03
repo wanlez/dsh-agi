@@ -11,6 +11,7 @@ const ready: ListenInput = {
   stopping: false,
   wakeEnabled: true,
   commandEnabled: true,
+  voiceArmed: true,
   interjectEnabled: true,
   echoCancel: true,
   micOpen: true,

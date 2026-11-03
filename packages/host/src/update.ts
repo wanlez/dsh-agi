@@ -15,8 +15,12 @@ import { deferredInstallInProgress, pendingDeferredInstall, scheduleInstallAfter
 import { mappedImages, ownPackageRoot } from './native-images.ts'
 import type { ProfileStore } from './preferences.ts'
 
-/** The GitHub repository that publishes plugin releases, `plugin-v<version>` tags. */
-export const UPDATE_REPO = 'mini-yifan/dsh-orb-cordis'
+/**
+ * The GitHub repository that publishes plugin releases, `plugin-v<version>` tags.
+ * 分享版不再指向发布仓库（TEMP-UPDATE-OFF）：置空后 GitHub Releases 这一路取不到东西，
+ * 升级入口也由路由直接拒绝；恢复官方行为时填回仓库名。
+ */
+export const UPDATE_REPO = ''
 
 /** Registry sources probed before GitHub, in order. npmmirror syncs minutes after a publish. */
 export const REGISTRY_BASES = ['https://registry.npmmirror.com', 'https://registry.npmjs.org']

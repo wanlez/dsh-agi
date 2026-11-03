@@ -35,8 +35,9 @@ describe('profile preferences', () => {
     assert.equal(store.ballEnabled(), true)
     assert.equal(store.avatarVersion(), 0)
     assert.equal(store.readAvatar(), undefined)
-    // Nothing has been checked yet: no remembered version, and the automatic check is on.
-    assert.deepEqual(store.updateRecord(), { checkedAt: 0, latestVersion: '', notifiedVersion: '', autoCheck: true, lastError: '' })
+    // Nothing has been checked yet: no remembered version, and the shipped build leaves the
+    // automatic check off until the user turns it on (TEMP-AUTOCHECK-OFF).
+    assert.deepEqual(store.updateRecord(), { checkedAt: 0, latestVersion: '', notifiedVersion: '', autoCheck: false, lastError: '' })
   })
 
   it('follows the shared fallback on both tracks until the ball picks one', () => {
@@ -52,7 +53,7 @@ describe('profile preferences', () => {
     assert.deepEqual(store.models().overlay, { provider: 'deepseek-official', model: 'deepseek-v4-pro' })
     assert.deepEqual(store.models().background, account, 'the untouched track keeps following')
     // Only the picked track is written, and it never reaches the fallback.
-    assert.deepEqual(JSON.parse(readFileSync(join(path, 'orb-agent-models.json'), 'utf8')), {
+    assert.deepEqual(JSON.parse(readFileSync(join(path, 'agi-agent-models.json'), 'utf8')), {
       overlay: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
     })
     const other = { provider: 'other', model: 'switched-in-the-main-window' }
@@ -60,7 +61,7 @@ describe('profile preferences', () => {
     assert.deepEqual(store.models().overlay, { provider: 'deepseek-official', model: 'deepseek-v4-pro' })
     assert.deepEqual(store.models().background, other, 'a later switch still reaches the free track')
     store.setBackground({ provider: 'background', model: 'chosen' })
-    assert.deepEqual(JSON.parse(readFileSync(join(path, 'orb-agent-models.json'), 'utf8')), {
+    assert.deepEqual(JSON.parse(readFileSync(join(path, 'agi-agent-models.json'), 'utf8')), {
       overlay: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
       background: { provider: 'background', model: 'chosen' },
     })
@@ -74,7 +75,7 @@ describe('profile preferences', () => {
 
   it('keeps the shipped pair when the fallback or a stored track is unusable', () => {
     const stored = dir('follow-broken')
-    writeFileSync(join(stored, 'orb-agent-models.json'), JSON.stringify({
+    writeFileSync(join(stored, 'agi-agent-models.json'), JSON.stringify({
       overlay: { provider: 'kept', model: 'kept' },
       background: { provider: '', model: '' },
     }))
@@ -90,20 +91,20 @@ describe('profile preferences', () => {
     const path = dir('update')
     const store = new ProfileStore(path)
     store.setUpdateRecord({ checkedAt: 1700000000000, latestVersion: '0.2.0', notifiedVersion: '0.2.0' })
-    const stored = JSON.parse(readFileSync(join(path, 'orb-update.json'), 'utf8')) as { autoCheck: boolean }
-    assert.equal(stored.autoCheck, true, 'an untouched field keeps its default')
+    const stored = JSON.parse(readFileSync(join(path, 'agi-update.json'), 'utf8')) as { autoCheck: boolean }
+    assert.equal(stored.autoCheck, false, 'an untouched field keeps its default')
     assert.deepEqual(new ProfileStore(path).updateRecord(), {
       checkedAt: 1700000000000,
       latestVersion: '0.2.0',
       notifiedVersion: '0.2.0',
-      autoCheck: true,
+      autoCheck: false,
       lastError: '',
     })
     store.setUpdateRecord({ lastError: 'incompatible-version' })
     assert.equal(new ProfileStore(path).updateRecord().lastError, 'incompatible-version')
     store.setUpdateRecord({ autoCheck: false })
     assert.equal(new ProfileStore(path).updateRecord().autoCheck, false)
-    writeFileSync(join(path, 'orb-update.json'), '{')
+    writeFileSync(join(path, 'agi-update.json'), '{')
     assert.equal(new ProfileStore(path).updateRecord().latestVersion, '')
   })
 
@@ -113,16 +114,16 @@ describe('profile preferences', () => {
     assert.equal(store.whatsNewDismissed('0.2.0'), false, 'a fresh profile has not seen it')
     store.dismissWhatsNew('0.2.0')
     assert.equal(store.whatsNewDismissed('0.2.0'), true)
-    assert.deepEqual(JSON.parse(readFileSync(join(path, 'orb-whats-new.json'), 'utf8')), { dismissed: ['0.2.0'] })
+    assert.deepEqual(JSON.parse(readFileSync(join(path, 'agi-whats-new.json'), 'utf8')), { dismissed: ['0.2.0'] })
     // Closing it twice is a no-op, and a later note is kept next to it.
     store.dismissWhatsNew('0.2.0')
     store.dismissWhatsNew('0.2.1')
-    assert.deepEqual(JSON.parse(readFileSync(join(path, 'orb-whats-new.json'), 'utf8')), { dismissed: ['0.2.0', '0.2.1'] })
+    assert.deepEqual(JSON.parse(readFileSync(join(path, 'agi-whats-new.json'), 'utf8')), { dismissed: ['0.2.0', '0.2.1'] })
     const reloaded = new ProfileStore(path)
     assert.equal(reloaded.whatsNewDismissed('0.2.0'), true)
     assert.equal(reloaded.whatsNewDismissed('0.2.1'), true)
     // A half-written file is not a dismissal: the note must be offered again.
-    writeFileSync(join(path, 'orb-whats-new.json'), '{')
+    writeFileSync(join(path, 'agi-whats-new.json'), '{')
     assert.equal(new ProfileStore(path).whatsNewDismissed('0.2.0'), false)
   })
 
@@ -138,7 +139,7 @@ describe('profile preferences', () => {
     store.setOverlay({ provider: 'deepseek-official', model: 'deepseek-pro', reasoningEffort: 'high' })
     store.setBackground({ provider: 'other', model: 'background-model' })
     store.setSelectionEnabled(true)
-    const models = JSON.parse(readFileSync(join(path, 'orb-agent-models.json'), 'utf8')) as {
+    const models = JSON.parse(readFileSync(join(path, 'agi-agent-models.json'), 'utf8')) as {
       overlay: { model: string }
       background: { model: string; reasoningEffort?: string }
     }
@@ -172,7 +173,7 @@ describe('profile preferences', () => {
     const store = new ProfileStore(path)
     store.setPermission('read-only')
     store.setBallEnabled(false)
-    assert.equal(JSON.parse(readFileSync(join(path, 'orb-permission.json'), 'utf8')).preset, 'read-only')
+    assert.equal(JSON.parse(readFileSync(join(path, 'agi-permission.json'), 'utf8')).preset, 'read-only')
     assert.equal(JSON.parse(readFileSync(join(path, 'ball-enabled.json'), 'utf8')).enabled, false)
     assert.equal(new ProfileStore(path).ballEnabled(), false)
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00])
@@ -185,14 +186,14 @@ describe('profile preferences', () => {
     store.writeAvatar(png, 'image/png')
     assert.equal(store.readAvatar()?.mime, 'image/png')
     assert.ok(store.avatarVersion() > 0)
-    writeFileSync(join(path, 'orb-avatar.json'), JSON.stringify({ mime: 'image/gif' }))
+    writeFileSync(join(path, 'agi-avatar.json'), JSON.stringify({ mime: 'image/gif' }))
     assert.equal(new ProfileStore(path).readAvatar(), undefined)
     store.restoreAvatar()
-    writeFileSync(join(path, 'orb-permission.json'), '{')
+    writeFileSync(join(path, 'agi-permission.json'), '{')
     const broken = new ProfileStore(path)
     assert.equal(broken.permission(), 'workspace-write')
     assert.equal(broken.permissionFallback(), true)
-    writeFileSync(join(path, 'orb-permission.json'), JSON.stringify({ preset: 'nope' }))
+    writeFileSync(join(path, 'agi-permission.json'), JSON.stringify({ preset: 'nope' }))
     assert.equal(new ProfileStore(path).permissionFallback(), true)
     broken.setPermission('read-only')
     assert.equal(new ProfileStore(path).permission(), 'read-only')
@@ -216,21 +217,21 @@ describe('profile preferences', () => {
     assert.deepEqual(store.avatarSelection(), { kind: 'custom', mime: 'image/png' })
 
     store.selectAvatarPreset('point')
-    assert.equal(existsSync(join(path, 'orb-avatar')), false)
+    assert.equal(existsSync(join(path, 'agi-avatar')), false)
     assert.deepEqual(new ProfileStore(path).avatarSelection(), { kind: 'preset', id: 'point' })
 
     // A preset that this build no longer ships falls back to the shipped GIF.
-    writeFileSync(join(path, 'orb-avatar.json'), JSON.stringify({ kind: 'preset', preset: 'gone' }))
+    writeFileSync(join(path, 'agi-avatar.json'), JSON.stringify({ kind: 'preset', preset: 'gone' }))
     assert.deepEqual(new ProfileStore(path).avatarSelection(), { kind: 'default' })
 
     // Meta written by the older shape still means "uploaded image".
-    writeFileSync(join(path, 'orb-avatar'), png)
-    writeFileSync(join(path, 'orb-avatar.json'), JSON.stringify({ mime: 'image/png' }))
+    writeFileSync(join(path, 'agi-avatar'), png)
+    writeFileSync(join(path, 'agi-avatar.json'), JSON.stringify({ mime: 'image/png' }))
     assert.deepEqual(new ProfileStore(path).avatarSelection(), { kind: 'custom', mime: 'image/png' })
 
     // Half-written state: the meta claims an upload the disk does not have.
-    writeFileSync(join(path, 'orb-avatar.json'), JSON.stringify({ kind: 'custom', mime: 'image/png' }))
-    rmSync(join(path, 'orb-avatar'))
+    writeFileSync(join(path, 'agi-avatar.json'), JSON.stringify({ kind: 'custom', mime: 'image/png' }))
+    rmSync(join(path, 'agi-avatar'))
     assert.deepEqual(new ProfileStore(path).avatarSelection(), { kind: 'default' })
 
     store.restoreAvatar()
@@ -265,12 +266,12 @@ describe('profile preferences', () => {
       lastMovedBytes: 4096,
       restoredSessionIds: ['session-restored'],
     })
-    writeFileSync(join(path, 'orb-history.json'), JSON.stringify({ retentionDays: 99999, lastDeletedSessions: -1 }))
+    writeFileSync(join(path, 'agi-history.json'), JSON.stringify({ retentionDays: 99999, lastDeletedSessions: -1 }))
     assert.equal(new ProfileStore(path).history().retentionDays, 0)
     assert.equal(new ProfileStore(path).history().lastDeletedSessions, 0)
-    writeFileSync(join(path, 'orb-history.json'), JSON.stringify({ restoredSessionIds: ['ok-id', '../bad', 4] }))
+    writeFileSync(join(path, 'agi-history.json'), JSON.stringify({ restoredSessionIds: ['ok-id', '../bad', 4] }))
     assert.deepEqual(new ProfileStore(path).history().restoredSessionIds, ['ok-id'])
-    writeFileSync(join(path, 'orb-history.json'), '{')
+    writeFileSync(join(path, 'agi-history.json'), '{')
     assert.equal(new ProfileStore(path).history().retentionDays, 0)
   })
 
@@ -283,12 +284,12 @@ describe('profile preferences', () => {
     assert.equal(new ProfileStore(path).workspaceDirectory(), custom)
     store.setWorkspaceDirectory(null)
     assert.equal(store.workspaceDirectory(), defaultWorkspaceDirectory())
-    assert.equal(existsSync(join(path, 'orb-workspace.json')), false)
-    writeFileSync(join(path, 'orb-workspace.json'), JSON.stringify({ path: custom }))
+    assert.equal(existsSync(join(path, 'agi-workspace.json')), false)
+    writeFileSync(join(path, 'agi-workspace.json'), JSON.stringify({ path: custom }))
     assert.equal(new ProfileStore(path).workspaceDirectory(), custom)
-    writeFileSync(join(path, 'orb-workspace.json'), JSON.stringify({ path: 'relative/workspace' }))
+    writeFileSync(join(path, 'agi-workspace.json'), JSON.stringify({ path: 'relative/workspace' }))
     assert.equal(new ProfileStore(path).workspaceDirectory(), defaultWorkspaceDirectory())
-    writeFileSync(join(path, 'orb-workspace.json'), JSON.stringify({ path: 42 }))
+    writeFileSync(join(path, 'agi-workspace.json'), JSON.stringify({ path: 42 }))
     assert.equal(new ProfileStore(path).workspaceDirectory(), defaultWorkspaceDirectory())
   })
 
@@ -323,7 +324,7 @@ describe('profile preferences', () => {
     assert.equal(again.voice().ttsSpeed, 2)
     assert.equal(again.voice().ttsVolume, 0.55)
     assert.deepEqual(again.voice().wakeWords, ['你好大肥鱼'])
-    writeFileSync(join(path, 'orb-voice.json'), '{')
+    writeFileSync(join(path, 'agi-voice.json'), '{')
     assert.equal(new ProfileStore(path).voice().voiceEnabled, false)
     assert.equal(new ProfileStore(path).voice().wakeEnabled, true)
     assert.equal(new ProfileStore(path).voice().idleMs, 30_000)
@@ -331,7 +332,7 @@ describe('profile preferences', () => {
 
   it('keeps the old effective state for a voice file written before the master switch', () => {
     const path = dir('legacy-voice')
-    writeFileSync(join(path, 'orb-voice.json'), JSON.stringify({
+    writeFileSync(join(path, 'agi-voice.json'), JSON.stringify({
       wakeEnabled: true,
       commandEnabled: false,
       ttsEnabled: false,
@@ -345,7 +346,7 @@ describe('profile preferences', () => {
     assert.equal(store.voice().idleMs, 45_000)
 
     const quiet = dir('legacy-voice-off')
-    writeFileSync(join(quiet, 'orb-voice.json'), JSON.stringify({
+    writeFileSync(join(quiet, 'agi-voice.json'), JSON.stringify({
       wakeEnabled: false,
       commandEnabled: false,
       ttsEnabled: false,

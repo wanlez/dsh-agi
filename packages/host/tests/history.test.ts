@@ -648,6 +648,46 @@ describe('history retention', () => {
   })
 })
 
+describe('history deletion', () => {
+  it('deletes one conversation: archives it, then hands only its folder to the trash', async () => {
+    const case_ = fixture()
+    const keep = case_.add({ id: 'session-keep', updatedAt: NOW - 30 * DAY })
+    const gone = case_.add({ id: 'session-gone', updatedAt: NOW - 20 * DAY })
+    case_.setCurrent(keep.id)
+    await case_.cleaner.deleteSession(gone.id)
+    assert.equal(case_.archived.has(gone.id), true, 'the row is archived on the way out')
+    assert.equal(case_.archived.has(keep.id), false)
+    assert.equal(existsSync(join(case_.sessionsRoot, 'proj-2', gone.id)), false, 'the folder left the sessions root')
+    assert.equal(existsSync(join(case_.sessionsRoot, 'proj-1', keep.id)), true, 'the other conversation stays')
+    assert.deepEqual(case_.trashed, [join(case_.trashDir, gone.id)])
+    assert.equal(case_.cleaner.state().lastDeletedSessions, 0, 'a manual delete is not a retention cleanup')
+  })
+
+  it('refuses to delete the open conversation, a running one, or one it cannot find', async () => {
+    const case_ = fixture()
+    const current = case_.add({ id: 'session-current', updatedAt: NOW - DAY })
+    const running = case_.add({ id: 'session-running', updatedAt: NOW - DAY, running: true })
+    case_.add({ id: 'session-dirless', updatedAt: NOW - DAY })
+    case_.setCurrent(current.id)
+    await assert.rejects(() => case_.cleaner.deleteSession(current.id), /cannot-delete-current/)
+    await assert.rejects(() => case_.cleaner.deleteSession(running.id), /session-running/)
+    await assert.rejects(() => case_.cleaner.deleteSession('session-nowhere'), /session-not-found/)
+    // The last row exists in the list, but its folder is already gone from the sessions root.
+    rmSync(join(case_.sessionsRoot, 'proj-3', 'session-dirless'), { recursive: true, force: true })
+    await assert.rejects(() => case_.cleaner.deleteSession('session-dirless'), /session-directory-not-found/)
+    assert.equal(case_.trashed.length, 0, 'a refused delete moves nothing')
+  })
+
+  it('deletes a conversation whose archive flag the controller refuses to set', async () => {
+    const case_ = fixture()
+    const gone = case_.add({ id: 'session-stubborn', updatedAt: NOW - DAY })
+    case_.archiveFails.add(gone.id)
+    await case_.cleaner.deleteSession(gone.id)
+    assert.equal(existsSync(join(case_.sessionsRoot, 'proj-1', gone.id)), false, 'the files still leave')
+    assert.deepEqual(case_.trashed, [join(case_.trashDir, gone.id)])
+  })
+})
+
 async function waitFor(ready: () => boolean): Promise<void> {
   for (let attempt = 0; attempt < 200; attempt += 1) {
     if (ready()) return

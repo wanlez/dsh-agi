@@ -662,6 +662,45 @@ export class HistoryCleaner {
     return swept
   }
 
+  /**
+   * Delete one conversation: archive it, then hand its session directory to the operating
+   * system's trash. The current conversation is refused here — the caller switches away and
+   * deletes it afterwards, so the panel never points at a directory that just left.
+   * @param sessionId - conversation to remove.
+   * @throws `history-unavailable`, `history-busy`, `cannot-delete-current`, `session-not-found`,
+   * `session-running`, or `session-directory-not-found`.
+   */
+  async deleteSession(sessionId: string): Promise<void> {
+    if (!this.available()) throw new HistoryUnavailableError('history-unavailable')
+    if (this.cleaning) throw new Error('history-busy')
+    if (sessionId === this.deps.currentSession()) throw new Error('cannot-delete-current')
+    const rows = await this.deps.listSessions()
+    const row = rows.find((candidate) => candidate.sessionId === sessionId)
+    if (row === undefined) throw new Error('session-not-found')
+    if (row.running === true) throw new Error('session-running')
+    // The workspace folder is part of the path, and the plugin does not know which one the
+    // row belongs to: the id is unique, so the first folder that carries it is the one.
+    const root = this.deps.sessionsRoot
+    let dir: string | undefined
+    try {
+      for (const entry of await readdir(root, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue
+        const candidate = join(root, entry.name, sessionId)
+        if (existsSync(candidate)) {
+          dir = candidate
+          break
+        }
+      }
+    } catch {
+      // No sessions root: answered as a missing directory below.
+    }
+    if (dir === undefined) throw new Error('session-directory-not-found')
+    // A row the controller refuses to archive still gets its folder removed; the archive flag
+    // is bookkeeping, the files are what the user asked to delete.
+    await this.deps.archive(sessionId).catch(() => undefined)
+    await this.deps.trash(dir)
+  }
+
   /** Pack one conversation tree into its root directory and hand that directory to the OS trash. */
   private async trashTree(tree: CandidateTree, images: ReadonlyMap<string, number>): Promise<TrashOutcome> {
     const rootDir = tree.dirs.get(tree.root.sessionId)

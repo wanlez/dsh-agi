@@ -12,6 +12,7 @@
  *   dist/computer-use/             @dsh-agi/computer-use, including the ScreenCaptureKit helper
  *   dist/helper/                   Electron entry, preload scripts, assets
  *   dist/native-selection/         selection monitor sources and prebuilt library
+ *   dist/persona-presets/          role cards the settings page offers
  */
 
 import { chmod, cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
@@ -64,6 +65,9 @@ await rewrite(clientFile, OLD_CLIENT_ID, NEW_CLIENT_ID, 1)
 
 // Host and Computer Use are flat copies of their lib folders.
 await copyFrom('host', 'lib', join(dist, 'host'))
+// The host reads its built-in character cards from ../persona-presets beside itself:
+// dist/host/index.js -> dist/persona-presets.
+await copyFrom('host', 'persona-presets', join(dist, 'persona-presets'))
 await copyFrom('computer-use', 'lib', join(dist, 'computer-use'))
 await chmod(join(dist, 'computer-use', 'macos-sck-capture'), 0o755)
 

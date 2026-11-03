@@ -9,7 +9,18 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { AVATAR_PRESETS, avatarPresetPath, isAvatarPresetId } from './avatar-presets.ts'
 import { normalizeCatalog, type ModelCatalog } from './catalog.ts'
+import { imageDebug } from './debug-log.ts'
 import { EMPTY_HISTORY_STATE, type HistoryPreview, type HistoryState } from './history.ts'
+import { knowledgeState, openKnowledgeFolder, setKnowledgeDir, setKnowledgeEnabled } from './knowledge.ts'
+import {
+  ensurePersonaCard,
+  openPersonaFolder,
+  personaState,
+  readPersonaConfig,
+  safePersonaName,
+  writePersonaCard,
+  writePersonaConfig,
+} from './persona.ts'
 import {
   isAgentModelSelection,
   isHistoryRetentionDays,
@@ -176,6 +187,81 @@ async function handle(deps: RouteDeps, req: IncomingMessage, res: ServerResponse
     }
   }
   const method = req.method ?? 'GET'
+  // Character cards and the experience library sit above the platform gate: both are plain
+  // files the settings page edits, and Linux (which has no ball) still runs this host.
+  if (method === 'GET' && path === `${PREFIX}/persona`) {
+    sendJson(res, 200, await personaState(deps.store.dir))
+    return
+  }
+  if (method === 'POST' && path === `${PREFIX}/persona`) {
+    const body = asRecord(await readJson(req)) ?? {}
+    imageDebug(`persona post ${JSON.stringify(body).slice(0, 200)}`)
+    const config = readPersonaConfig(deps.store.dir)
+    if (typeof body.enabled === 'boolean') config.enabled = body.enabled
+    if (typeof body.active === 'string') config.active = body.active
+    if (typeof body.create === 'string') {
+      const name = safePersonaName(body.create)
+      if (!name) {
+        sendJson(res, 400, { error: 'invalid-persona-name' })
+        return
+      }
+      try {
+        await ensurePersonaCard(name)
+        config.active = name
+      } catch (error) {
+        sendJson(res, 500, { error: errorMessage(error) })
+        return
+      }
+    }
+    if (typeof body.text === 'string') {
+      // A save from an empty list creates the shipped default card rather than failing.
+      if (config.active === '') config.active = '默认.md'
+      try {
+        await writePersonaCard(config.active, body.text)
+      } catch (error) {
+        sendJson(res, 500, { error: errorMessage(error) })
+        return
+      }
+    }
+    writePersonaConfig(deps.store.dir, config)
+    imageDebug(`persona saved active=${config.active} enabled=${config.enabled}`)
+    sendJson(res, 200, await personaState(deps.store.dir))
+    return
+  }
+  if (method === 'POST' && path === `${PREFIX}/persona/open`) {
+    openPersonaFolder()
+    sendJson(res, 200, await personaState(deps.store.dir))
+    return
+  }
+  if (method === 'GET' && path === `${PREFIX}/knowledge`) {
+    sendJson(res, 200, await knowledgeState(deps.store.dir))
+    return
+  }
+  if (method === 'POST' && path === `${PREFIX}/knowledge`) {
+    const enabled = booleanField(await readJson(req))
+    if (enabled === undefined) {
+      sendJson(res, 400, { error: 'invalid-enabled' })
+      return
+    }
+    await setKnowledgeEnabled(deps.store.dir, enabled)
+    sendJson(res, 200, await knowledgeState(deps.store.dir))
+    return
+  }
+  if (method === 'POST' && path === `${PREFIX}/knowledge/dir`) {
+    const body = asRecord(await readJson(req))
+    try {
+      const migration = await setKnowledgeDir(deps.store.dir, body?.dir)
+      sendJson(res, 200, { ...(await knowledgeState(deps.store.dir)), migration })
+    } catch (error) {
+      sendJson(res, errorStatus(error) ?? 500, { error: errorMessage(error) })
+    }
+    return
+  }
+  if (method === 'POST' && path === `${PREFIX}/knowledge/open`) {
+    openKnowledgeFolder(deps.store.dir)
+    sendJson(res, 200, await knowledgeState(deps.store.dir))
+    return
+  }
   if (method === 'GET' && path === `${PREFIX}/settings`) {
     sendJson(res, 200, await snapshot(deps))
     return
@@ -194,14 +280,13 @@ async function handle(deps: RouteDeps, req: IncomingMessage, res: ServerResponse
     return
   }
   if (method === 'POST' && path === `${PREFIX}/update/check`) {
-    await deps.control.checkUpdate()
-    sendJson(res, 200, await snapshot(deps))
+    // 分享版禁用更新检查（TEMP-UPDATE-OFF）：恢复官方行为时删掉这段，让 checkUpdate 照常跑。
+    sendJson(res, 409, { error: 'update-disabled' })
     return
   }
   if (method === 'POST' && path === `${PREFIX}/update/install`) {
-    const builds = stringListField(await readJson(req), 'approvedBuilds')
-    deps.control.installUpdate(builds)
-    sendJson(res, 200, await snapshot(deps))
+    // 分享版禁用一键升级（TEMP-UPDATE-OFF）：恢复官方行为时删掉这段。
+    sendJson(res, 409, { error: 'update-disabled' })
     return
   }
   if (method === 'POST' && path === `${PREFIX}/update/auto`) {
@@ -210,7 +295,8 @@ async function handle(deps: RouteDeps, req: IncomingMessage, res: ServerResponse
       sendJson(res, 400, { error: 'invalid-auto-check' })
       return
     }
-    deps.control.setAutoCheck(enabled)
+    // 分享版只允许关闭自动检查（TEMP-AUTOCHECK-LOCK）：恢复官方行为时改回 setAutoCheck(enabled)。
+    deps.control.setAutoCheck(false)
     sendJson(res, 200, await snapshot(deps))
     return
   }

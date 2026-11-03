@@ -96,6 +96,9 @@ describe('voice controller with a script child', () => {
     voice.beginTurn()
     assert.equal(voice.listenMode(), 'interject')
     voice.endTurn()
+    // One utterance per click: the command closed the microphone, so the next question
+    // needs the avatar click the page sends as `voice-arm`.
+    voice.setVoiceArmed(true)
     await until(() => voice.listenMode() === 'command')
 
     emit({ type: 'utterance', text: '好的，你给我退下吧。' })
@@ -182,6 +185,7 @@ describe('voice controller with a script child', () => {
       voice.endTurn()
 
       voice.setPinned(true)
+      voice.setVoiceArmed(true)
       mark = listens(trace).length
       voice.questionOpened()
       await lastAfter(mark, (item) => item.mode === 'off' && item.device === false)
@@ -336,6 +340,7 @@ describe('voice lifecycle', () => {
     voice.start()
     child.emit({ type: 'mic', open: true })
     voice.setPinned(true)
+    voice.setVoiceArmed(true)
     assert.equal(voice.listenMode(), 'command')
     child.emit({ type: 'speech', open: true })
     voice.setPinned(false)
@@ -363,6 +368,7 @@ describe('voice lifecycle', () => {
     voice.start()
     child.emit({ type: 'mic', open: true })
     voice.setPinned(true)
+    voice.setVoiceArmed(true)
     assert.equal(page.some((message) => message.type === 'voice-mode' && message.mode === 'command'), true)
     child.emit({ type: 'level', value: 0.42 })
     assert.equal(page.some((message) => message.type === 'voice-level' && message.value === 0.42), true)
@@ -397,6 +403,7 @@ describe('voice lifecycle', () => {
     assert.equal(voice.speaking(), false)
 
     voice.setPinned(true)
+    voice.setVoiceArmed(true)
     assert.equal(voice.listenMode(), 'command')
     child.emit({ type: 'speech', open: true })
     assert.equal(voice.speaking(), true)
@@ -523,6 +530,7 @@ describe('voice lifecycle', () => {
     assert.equal(voice.microphone(), null, 'an intentionally released device is not a failure')
 
     voice.setPinned(true)
+    voice.setVoiceArmed(true)
     assert.equal(voice.listenMode(), 'command')
     assert.equal(lastListen().mode, 'command')
     assert.equal(lastListen().device, true)
@@ -709,7 +717,9 @@ describe('utterance judging', () => {
       assert.equal(page.some((message) => message.type === 'voice-mode' && message.mode === 'interject'), true)
       await until(() => {
         const last = listens(trace).at(-1)
-        return last?.mode === 'interject' && !(last.seedMs && last.seedMs > 0)
+        // The spoken command closed the microphone, so the turn's interjection window is a
+        // fresh entry into transcription and carries the normal 300 ms pre-roll.
+        return last?.mode === 'interject' && last.seedMs === 300
       }, () => readFileSync(trace, 'utf8'))
 
       voice.noteAssistant('b:1:0:0', '我去查一下今天的天气。')
@@ -734,6 +744,8 @@ describe('utterance judging', () => {
       voice.noteAssistant('b:1:0:2', '我先查一下。')
       assert.equal(speaks(trace).length, speaksBeforeSilence)
       voice.endTurn()
+      // The spoken command closed the microphone; the user arms it again before asking.
+      voice.setVoiceArmed(true)
       assert.equal(voice.listenMode(), 'command')
       voice.beginTurn()
       assert.equal(voice.listenMode(), 'interject')
