@@ -202,6 +202,11 @@ ipcMain.on('orb:open', (event, sessionId) => {
   if (typeof sessionId === 'string') write({ type: 'open', sessionId })
 })
 
+ipcMain.on('orb:history-delete', (event, sessionId) => {
+  if (!fromBall(event)) return
+  if (typeof sessionId === 'string' && sessionId !== '') write({ type: 'history-delete', sessionId })
+})
+
 ipcMain.on('orb:agent-open', (event, sessionId) => {
   if (!fromBall(event)) return
   if (typeof sessionId === 'string') write({ type: 'agent-open', sessionId })
@@ -236,6 +241,47 @@ ipcMain.on('orb:pinned', (event, pinned) => {
 ipcMain.on('orb:activity', (event) => {
   if (!fromBall(event)) return
   write({ type: 'activity' })
+})
+
+// Voice: the renderer only asks; the host owns the microphone lifecycle.
+// `voice-arm` toggles the explicit listening mode, `silence` drops whatever the
+// child has buffered without changing that mode.
+ipcMain.on('orb:voice-hold', (event, hold) => {
+  if (!fromBall(event)) return
+  write({ type: 'ptt', hold: hold === true })
+})
+
+ipcMain.on('orb:voice-arm', (event, on) => {
+  if (!fromBall(event)) return
+  write({ type: 'voice-arm', on: on === true ? true : on === false ? false : null })
+})
+
+ipcMain.on('orb:silence', (event) => {
+  if (!fromBall(event)) return
+  write({ type: 'silence' })
+})
+
+// Pasted shots travel as base64 JPEG. The host validates again; this side caps
+// the payload so a huge clipboard image cannot stall the socket.
+ipcMain.on('orb:prompt-images', (event, payload) => {
+  if (!fromBall(event)) return
+  if (typeof payload !== 'object' || payload === null) return
+  const record = payload as { text?: unknown; images?: unknown }
+  const text = typeof record.text === 'string' ? record.text.slice(0, 8_000) : ''
+  const images = Array.isArray(record.images)
+    ? record.images
+      .slice(0, 9)
+      .map((item: unknown) => {
+        const shot = (typeof item === 'object' && item !== null ? item : {}) as { mediaType?: unknown; data?: unknown }
+        return {
+          mediaType: shot.mediaType === 'image/png' ? 'image/png' : 'image/jpeg',
+          data: typeof shot.data === 'string' ? shot.data : '',
+        }
+      })
+      .filter((shot) => shot.data.length > 0 && shot.data.length < 4_000_000)
+    : []
+  if (images.length === 0 && text.trim() === '') return
+  write({ type: 'prompt-images', text, images })
 })
 
 // Renderer clipboard APIs need a focused document; the ball rests unfocused,
@@ -458,6 +504,10 @@ function deliver(message: unknown): void {
     win.webContents.send('orb:voice-hold', (record as { hold?: unknown }).hold === true)
     return
   }
+  if (record.type === 'voice-armed') {
+    win.webContents.send('orb:voice-armed', (record as { on?: unknown }).on === true)
+    return
+  }
   if (record.type === 'voice-mode') {
     const mode = (record as { mode?: unknown }).mode
     if (mode === 'off' || mode === 'wake' || mode === 'command' || mode === 'interject') {
@@ -563,7 +613,7 @@ function logDockDiagnostics(cursor: { x: number; y: number }, result: { docked?:
     workArea: display.workArea,
     scaleFactor: display.scaleFactor,
   }))
-  console.error(`[orb-dock] ${JSON.stringify({
+  console.error(`[agi-dock] ${JSON.stringify({
     electron: process.versions.electron,
     cursor,
     window: win.getBounds(),

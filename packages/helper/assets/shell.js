@@ -14,6 +14,8 @@ import {
 const api = window.dshOrb
 const COLLAPSE_MS = 180
 const ANIMATION_MS = 300
+/** 展开动画期间（含 hover 触发）的一次点击只当“打开面板”。 */
+const EXPAND_GRACE_MS = 500
 const HINT_MS = 2600
 const DOCK_HOVER_DELAY_MS = 800
 const DOCK_DRAG_OFF_PX = 24
@@ -243,6 +245,9 @@ function main() {
   document.documentElement.lang = messages === zh ? 'zh' : 'en'
   const stop = document.querySelector('#stop')
   const newConversation = document.querySelector('#new-conversation')
+const minimizeButton = document.querySelector('#minimize')
+const attachmentsBox = document.querySelector('#attachments')
+const composerImages = []
   const historyButton = document.querySelector('#history')
   const permissionRoot = document.querySelector('#permission')
   const permissionButton = document.querySelector('#permission-button')
@@ -271,13 +276,19 @@ function main() {
   const status = document.querySelector('#status')
   const hint = document.querySelector('#hint')
   const prompt = document.querySelector('#prompt')
+if (prompt) prompt.addEventListener('input', () => { api.voiceArm(false) })
   const composer = document.querySelector('#composer')
   const voiceMeter = document.querySelector('#voice-meter')
+
   applyStaticText()
 
   let expanded = false
   let pinned = false
   let voiceHold = false
+/** 用户显式开了语音输入（host 的 voice-armed 事件驱动）。 */
+let voiceArmed = false
+/** 面板最近一次展开的时间，用来区分“刚 hover 展开”和“已经展开”。 */
+let expandedAt = 0
   /** Which column the host is listening on; the meter is only for `command`. */
   let voiceMode = 'off'
   /** Smoothed 0..1 microphone level, already throttled by the child. */
@@ -635,6 +646,7 @@ function main() {
       applyDirection(state)
       panel.hidden = false
       expanded = true
+      expandedAt = Date.now()
       document.body.classList.add('expanded')
       stop.hidden = !stopShown()
       renderAgentStrip()
@@ -644,6 +656,7 @@ function main() {
     }
     if (!force && (pinned || running || asking() || voiceHold)) return
     expanded = false
+    expandedAt = 0
     document.body.classList.remove('expanded')
     renderAgentStrip()
     if (docked !== undefined) dockTab.hidden = false
@@ -1834,6 +1847,40 @@ function main() {
     node.remove()
   }
 
+  /** Ask before deleting one conversation, then hand it to the host. */
+  function askHistoryDelete(item) {
+    const overlay = document.createElement('div')
+    overlay.className = 'history-confirm'
+    overlay.setAttribute('role', 'dialog')
+    overlay.setAttribute('aria-modal', 'true')
+    const box = document.createElement('div')
+    box.className = 'history-confirm-box'
+    const text = document.createElement('p')
+    text.textContent = `${messages.historyDeleteAsk ?? '删除这个对话？'}${typeof item.title === 'string' && item.title !== '' ? ` ${item.title}` : ''}`
+    const actions = document.createElement('div')
+    actions.className = 'history-confirm-actions'
+    const yes = document.createElement('button')
+    yes.type = 'button'
+    yes.className = 'danger'
+    yes.textContent = messages.historyDeleteYes ?? '删除'
+    const no = document.createElement('button')
+    no.type = 'button'
+    no.textContent = messages.historyDeleteNo ?? '取消'
+    const close = () => overlay.remove()
+    no.addEventListener('click', close)
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) close()
+    })
+    yes.addEventListener('click', () => {
+      close()
+      api.deleteSession(item.sessionId)
+    })
+    actions.append(yes, no)
+    box.append(text, actions)
+    overlay.append(box)
+    document.body.append(overlay)
+  }
+
   function renderHistory() {
     historyList.replaceChildren()
     if (historyItems.length === 0) {
@@ -1844,17 +1891,37 @@ function main() {
       return
     }
     for (const item of historyItems) {
+      const row = document.createElement('div')
+      row.className = 'history-item'
       const button = document.createElement('button')
       button.type = 'button'
       button.className = item.sessionId === sessionId ? 'history-row current' : 'history-row'
       button.setAttribute('role', 'option')
       button.setAttribute('aria-selected', String(item.sessionId === sessionId))
-      button.textContent = typeof item.title === 'string' && item.title !== '' ? item.title : messages.untitled
+      const title = typeof item.title === 'string' && item.title !== '' ? item.title : messages.untitled
+      button.textContent = title
+      if (item.sessionId === sessionId) {
+        const mark = document.createElement('span')
+        mark.className = 'history-current'
+        mark.textContent = messages.historyCurrent ?? '（当前会话）'
+        button.append(mark)
+      }
       button.addEventListener('click', () => {
         setHistoryOpen(false)
         if (item.sessionId !== sessionId) api.openSession(item.sessionId)
       })
-      historyList.append(button)
+      const remove = document.createElement('button')
+      remove.type = 'button'
+      remove.className = 'history-delete'
+      remove.textContent = '×'
+      remove.setAttribute('aria-label', messages.historyDeleteAsk ?? '删除这个对话？')
+      remove.title = messages.historyDeleteAsk ?? '删除这个对话？'
+      remove.addEventListener('click', (event) => {
+        event.stopPropagation()
+        askHistoryDelete(item)
+      })
+      row.append(button, remove)
+      historyList.append(row)
     }
   }
 
@@ -2275,8 +2342,20 @@ function main() {
       skipClick = false
       return
     }
-    assignPinned(!pinned)
-    if (pinned) await setExpanded(true)
+    if (!expanded) {
+      assignPinned(true)
+      await setExpanded(true)
+      api.voiceArm(false)
+      return
+    }
+    if (voiceArmed) {
+      api.voiceArm(false)
+      assignPinned(false)
+      return
+    }
+    assignPinned(true)
+    if (Date.now() - expandedAt < EXPAND_GRACE_MS) return
+    api.voiceArm(true)
   })
   ball.addEventListener('pointercancel', () => { void finishGesture() })
   ball.addEventListener('lostpointercapture', () => { void finishGesture() })
@@ -2395,7 +2474,7 @@ function main() {
   })
   async function submitComposer() {
     const text = promptText(prompt).trim()
-    if (text === '') return
+    if (text === '' && composerImages.length === 0) return
     if (text.length > PROMPT_LIMIT) {
       status.textContent = messages.tooLong
       return
@@ -2406,12 +2485,49 @@ function main() {
       return
     }
     const payload = composeSend(text, attachedSelection)
+    const shots = composerImages.splice(0, composerImages.length)
+    renderAttachments()
     clearPrompt()
     setAttachedSelection('')
     setHistoryOpen(false)
     setPermissionOpen(false)
-    api.send(payload)
+    if (shots.length > 0) api.sendWithImages(payload, shots)
+    else api.send(payload)
   }
+  prompt.addEventListener('paste', (event) => {
+    const items = event.clipboardData && event.clipboardData.items
+    if (!items) return
+    for (const item of items) {
+      if (!item.type || !item.type.startsWith('image/')) continue
+      const file = item.getAsFile()
+      if (!file || composerImages.length >= 9) continue
+      event.preventDefault()
+      const reader = new FileReader()
+      reader.onload = () => {
+        const result = String(reader.result || '')
+        if (result === '') return
+        const image = new Image()
+        image.onload = () => {
+          try {
+            const scale = Math.min(1, 960 / Math.max(1, image.width))
+            const canvas = document.createElement('canvas')
+            canvas.width = Math.max(1, Math.round(image.width * scale))
+            canvas.height = Math.max(1, Math.round(image.height * scale))
+            canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height)
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.6)
+            const comma = dataUrl.indexOf(',')
+            if (comma < 0) return
+            composerImages.push({ mediaType: 'image/jpeg', data: dataUrl.slice(comma + 1) })
+            renderAttachments()
+          } catch (error) {
+            status.textContent = String(error && error.message ? error.message : error)
+          }
+        }
+        image.src = result
+      }
+      reader.readAsDataURL(file)
+    }
+  })
   prompt.addEventListener('input', () => {
     syncComposerHeight()
     if (typeof api.reportActivity === 'function') api.reportActivity()
@@ -2471,6 +2587,38 @@ function main() {
     }
     setHistoryOpen(!historyOpen)
   })
+  function renderAttachments() {
+    if (!attachmentsBox) return
+    attachmentsBox.hidden = composerImages.length === 0
+    attachmentsBox.replaceChildren()
+    composerImages.forEach((shot, index) => {
+      const box = document.createElement('div')
+      box.className = 'shot'
+      const img = document.createElement('img')
+      img.src = 'data:' + shot.mediaType + ';base64,' + shot.data
+      img.alt = ''
+      const remove = document.createElement('button')
+      remove.type = 'button'
+      remove.textContent = '×'
+      remove.addEventListener('click', () => {
+        composerImages.splice(index, 1)
+        renderAttachments()
+      })
+      box.append(img, remove)
+      attachmentsBox.append(box)
+    })
+  }
+
+
+
+  if (minimizeButton) {
+    minimizeButton.addEventListener('click', () => {
+      api.silence()
+      api.voiceArm(false)
+      assignPinned(false)
+      void setExpanded(false, true)
+    })
+  }
   newConversation.addEventListener('click', () => {
     if (workLocked) {
       showHint(messages.workLocked)
@@ -2481,7 +2629,7 @@ function main() {
     api.newSession()
     prompt.focus()
   })
-  stop.addEventListener('click', () => { api.stop() })
+  stop.addEventListener('click', () => { api.voiceArm(false); api.stop() })
   questionCancel.addEventListener('click', cancelQuestion)
   questionSkip.addEventListener('click', skipQuestion)
   questionContinue.addEventListener('click', continueFlow)
@@ -2540,6 +2688,7 @@ function main() {
   api.onPin?.(() => { void pinFromHost() })
   api.onUnpin?.(() => { unpinFromHost() })
   api.onVoiceHold?.((hold) => { applyVoiceHold(hold) })
+  api.onVoiceArmed?.((on) => { voiceArmed = on === true })
   api.onVoiceMode?.((mode) => {
     const next = mode === 'command' || mode === 'interject' ? mode : 'off'
     if (voiceMode === 'off' && next !== 'off') voiceLevel = 0

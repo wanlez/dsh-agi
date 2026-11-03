@@ -214,12 +214,18 @@ describe('ball page module', () => {
     assert.match(floating, /#transcript \{[^}]*user-select: text/s)
   })
 
-  it('pins from an input click and keeps unpinning on the ball only', () => {
+  it('pins from an input click and turns the ball click into the voice toggle', () => {
     const shell = readFileSync(join(here, '../assets/shell.js'), 'utf8')
     assert.match(shell, /prompt\.addEventListener\('click', \(\) => \{ pinBall\(\) \}\)/)
     // pinBall is set-only; the toggle (and the unpin) stays on the ball's pointerup.
     assert.match(shell, /function pinBall\(\) \{\s*\n\s*assignPinned\(true\)/)
     assert.match(shell, /function assignPinned\(next\) \{\s*\n\s*if \(pinned === next\) return/)
-    assert.match(shell, /assignPinned\(!pinned\)/)
+    // The ball opens on the first click, then arms voice; a click right after the
+    // expand animation only opens (EXPAND_GRACE_MS) instead of arming by accident.
+    assert.match(shell, /const EXPAND_GRACE_MS = 500/)
+    assert.match(shell, /if \(!expanded\) \{\s*\n\s*assignPinned\(true\)/)
+    assert.match(shell, /if \(voiceArmed\) \{\s*\n\s*api\.voiceArm\(false\)/)
+    assert.match(shell, /if \(Date\.now\(\) - expandedAt < EXPAND_GRACE_MS\) return\s*\n\s*api\.voiceArm\(true\)/)
+    assert.equal(shell.includes('assignPinned(!pinned)'), false)
   })
 })

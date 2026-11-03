@@ -26,6 +26,21 @@ contextBridge.exposeInMainWorld('dshOrb', {
   send(text) {
     ipcRenderer.send('orb:prompt', text)
   },
+  voiceHold(hold) {
+    ipcRenderer.send('orb:voice-hold', hold === true)
+  },
+  voiceArm(on) {
+    ipcRenderer.send('orb:voice-arm', on === undefined ? null : on)
+  },
+  silence() {
+    ipcRenderer.send('orb:silence')
+  },
+  sendWithImages(text, images) {
+    ipcRenderer.send('orb:prompt-images', { text: String(text ?? ''), images: Array.isArray(images) ? images : [] })
+  },
+  onVoiceArmed(callback) {
+    ipcRenderer.on('orb:voice-armed', (_event, on) => callback(on === true))
+  },
   answerQuestion(id, answers) {
     ipcRenderer.send('orb:question-answer', { id, answers })
   },
@@ -37,6 +52,9 @@ contextBridge.exposeInMainWorld('dshOrb', {
   },
   openSession(id) {
     ipcRenderer.send('orb:open', id)
+  },
+  deleteSession(id) {
+    ipcRenderer.send('orb:history-delete', id)
   },
   openAgent(id) {
     ipcRenderer.send('orb:agent-open', id)

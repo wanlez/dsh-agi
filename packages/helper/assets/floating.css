@@ -526,10 +526,98 @@ body.expand-up #transcript {
   background: var(--input-bg);
 }
 
+.history-current {
+  margin-left: 6px;
+  font-size: 12px;
+  color: var(--pin);
+}
+
 .history-empty {
   margin: 0;
   font-size: 13px;
   color: var(--pin);
+}
+
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.history-item .history-row {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.history-delete {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--white);
+  color: var(--pin);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.history-delete:hover {
+  border-color: var(--black);
+  color: var(--black);
+}
+
+.history-confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(0, 0, 0, 0.32);
+}
+
+.history-confirm-box {
+  width: min(280px, 100%);
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--white);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+}
+
+.history-confirm-box p {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--black);
+  overflow-wrap: anywhere;
+}
+
+.history-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.history-confirm-actions button {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--white);
+  color: var(--black);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.history-confirm-actions button.danger {
+  border-color: #c0392b;
+  background: #c0392b;
+  color: #fff;
 }
 
 #status {
@@ -1254,4 +1342,156 @@ body:not(.running):not(.voice-hold) #stop {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+/* 语音输入条：更明显（本地补丁） */
+#voice-meter {
+  top: 0;
+  height: 10px;
+}
+
+#voice-meter::before {
+  height: 5px;
+  background: linear-gradient(90deg, rgba(126, 190, 255, 0.1), rgba(126, 190, 255, 0.3) 50%, rgba(126, 190, 255, 0.1));
+  box-shadow: inset 0 0 0 1px rgba(126, 190, 255, 0.16);
+}
+
+#voice-meter-bar {
+  position: relative;
+  overflow: hidden;
+  height: calc(5px + var(--voice-level, 0) * 5px);
+  background: linear-gradient(90deg, #4f9dff, #9ed0ff 45%, #4f9dff);
+  box-shadow: 0 0 10px rgba(86, 164, 255, 0.75), 0 0 22px rgba(86, 164, 255, 0.35);
+  opacity: calc(0.55 + var(--voice-level, 0) * 0.45);
+  transform: scaleX(calc(0.1 + var(--voice-level, 0) * 0.9));
+}
+
+#voice-meter-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent);
+  transform: translateX(-100%);
+}
+
+#voice-meter.active #voice-meter-bar::after {
+  animation: agi-voice-sheen 1.15s linear infinite;
+}
+
+@keyframes agi-voice-sheen {
+  to { transform: translateX(100%); }
+}
+
+#voice-meter-dot {
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  background: rgba(126, 190, 255, 0.45);
+}
+
+#voice-meter.active #voice-meter-dot {
+  background: #6fb4ff;
+  box-shadow: 0 0 8px rgba(86, 164, 255, 0.8);
+}
+
+#voice-meter.speech #voice-meter-dot {
+  background: #2f8cff;
+  box-shadow: 0 0 10px rgba(47, 140, 255, 0.95);
+}
+
+#voice-meter.active #voice-meter-bar {
+  animation: agi-voice-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes agi-voice-pulse {
+  0%, 100% { box-shadow: 0 0 10px rgba(86, 164, 255, 0.75), 0 0 22px rgba(86, 164, 255, 0.35); }
+  50% { box-shadow: 0 0 14px rgba(86, 164, 255, 0.95), 0 0 30px rgba(86, 164, 255, 0.5); }
+}
+
+/* 收起按钮：放在「+」左边 */
+#minimize {
+  position: absolute;
+  top: 12px;
+  right: 48px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  color: var(--black);
+  background: var(--input-bg);
+  cursor: pointer;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+}
+
+body.expand-down #minimize {
+  top: auto;
+  bottom: 12px;
+}
+
+#minimize:hover {
+  background: var(--hover-bg, rgba(0, 0, 0, 0.06));
+}
+
+/* 输入框上方的图片条 */
+#attachments {
+  position: absolute;
+  z-index: 4;
+  left: 16px;
+  right: 16px;
+  bottom: calc(var(--composer-height) + 8px);
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 2px 0;
+}
+
+#attachments[hidden] { display: none; }
+
+#attachments .shot {
+  position: relative;
+  flex: 0 0 auto;
+  width: 64px;
+  height: 40px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #000;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .18);
+}
+
+#attachments .shot img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+#attachments .shot button {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, .55);
+  color: #fff;
+  font-size: 10px;
+  line-height: 14px;
+  cursor: pointer;
+}
+
+/* 空输入时把光标和占位文字一起垂直居中 */
+#prompt.prompt-empty {
+  padding-top: calc((var(--composer-height) - var(--prompt-line)) / 2);
+}
+
+#prompt.prompt-empty::after {
+  line-height: var(--prompt-line);
 }
