@@ -6,6 +6,8 @@
  * @module @deepseek-ai/dsh-experimental-tool-computer-use/src/windows
  */
 
+import { readFileSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 import { deflateSync, crc32 } from 'node:zlib'
 import type {
   CapturedScreen,
@@ -23,6 +25,8 @@ import type {
   ScreenInfo,
   ScrollInput,
   TypeInput,
+  ZoomInput,
+  ZoomResult,
 } from './backend.ts'
 import { FOCUS_FALLBACK_FOREGROUND, UNFOCUSED_WINDOW_NOTE } from './backend.ts'
 import { activeCaptureExcludeWindowIds } from './capture-exclude.ts'
@@ -82,7 +86,12 @@ export function clipboardRestoreIncomplete(snapshot: ClipboardSnapshot, restored
 export interface WindowsDesktopOps {
   /** Z-order snapshot in physical pixels, including the foreground hwnd. */
   listWindows(): WindowsDesktopSnapshot
-  capturePng(bounds: WindowsRect): Uint8Array
+  /**
+   * Capture one screen rectangle as PNG.
+   * @param bounds - rectangle in physical screen pixels.
+   * @param mark - optional pointer point drawn as a crosshair (zoom crops).
+   */
+  capturePng(bounds: WindowsRect, mark?: { readonly x: number; readonly y: number }): Uint8Array
   /**
    * True when the window `hwnd` is elevated above this process (UIPI), so posted input
    * would be dropped. `0` and windows that are no longer on screen are never blocked;
@@ -107,6 +116,24 @@ export interface WindowsDesktopOps {
    * @param extended - true for the extended navigation keys (`KEYEVENTF_EXTENDEDKEY`).
    */
   key(virtualKey: number, down: boolean, extended?: boolean): void
+  /**
+   * Milliseconds since the last user input event, for the idle gate that keeps our posted
+   * input from stealing focus while the user is typing.
+   * Optional: injected fakes may omit it, and the gate then stays open.
+   * @returns idle time in milliseconds.
+   */
+  idleMillis?(): number
+  /**
+   * Post one click transition straight to `hwnd` instead of moving the real pointer.
+   * Used for clients that drive their UI from window messages; a fake may omit it.
+   * @param hwnd - target top-level HWND.
+   * @param x - screen x in the same physical space as `movePointer`.
+   * @param y - screen y in the same physical space as `movePointer`.
+   * @param button - which button to post.
+   * @param down - true for press, false for release.
+   * @returns whether the message was posted.
+   */
+  postClick?(hwnd: number, x: number, y: number, button: 'left' | 'right', down: boolean): boolean
   /**
    * Copy every clipboard format and its bytes, so the paste path can put the clipboard back.
    * Formats whose handle cannot be locked (GDI handles, owner-display) are skipped.
@@ -216,6 +243,92 @@ const MODIFIER_VKS = new Set([0x10, 0x11, 0x12, 0x5B, 0x5C])
 /** Same settle the macOS HID script uses after a move, before the button goes down. */
 const POINTER_MOVE_SETTLE_MS = 80
 const BUTTON_HOLD_MS = 50
+
+/**
+ * How long the user must have been idle before posted input is allowed through.
+ * Set `DSH_AGI_IDLE_GATE_MS=0` to disable the gate, or to another positive value to change it.
+ */
+const IDLE_GATE_MS = Number(process.env.DSH_AGI_IDLE_GATE_MS ?? 800)
+/** How long a deferred pointer/key action waits for the user to go idle before failing. */
+const IDLE_GATE_WAIT_MS = Number(process.env.DSH_AGI_IDLE_WAIT_MS ?? 20000)
+
+/**
+ * File listing the apps whose windows accept posted click messages instead of real input.
+ * Lives beside the other dsh-agi data so the user can edit it without a rebuild.
+ * @returns absolute path of `post-click-apps.json`.
+ */
+const POST_CLICK_FILE = (): string => join(
+  process.env.DSH_HOME !== undefined && process.env.DSH_HOME.trim() !== ''
+    ? process.env.DSH_HOME
+    : join(process.env.USERPROFILE ?? '', '.dsh'),
+  'dsh-agi',
+  'post-click-apps.json',
+)
+
+/** Last-read copy of {@link POST_CLICK_FILE}; `mtime` -1 means "not read yet". */
+let postClickCache: { mtime: number; apps: string[] } = { mtime: -1, apps: [] }
+
+/**
+ * Lowercased app names whose clicks should be posted to the window instead of synthesized.
+ * Re-read when the file's mtime changes; without a file the env default applies.
+ * @returns app names, or `['*']` for every app.
+ */
+function postClickApps(): string[] {
+  const file = POST_CLICK_FILE()
+  try {
+    const mtime = statSync(file).mtimeMs
+    if (mtime !== postClickCache.mtime) {
+      const data = JSON.parse(readFileSync(file, 'utf8')) as { apps?: unknown }
+      const apps = Array.isArray(data.apps) ? data.apps : []
+      postClickCache = { mtime, apps: apps.map(name => String(name).toLowerCase()) }
+    }
+    return postClickCache.apps
+  } catch {
+    return String(process.env.DSH_AGI_POST_CLICK_APPS ?? 'clouddesktop-qml,clouddesktop')
+      .split(',')
+      .map(name => name.trim().toLowerCase())
+      .filter(name => name !== '')
+  }
+}
+
+/**
+ * Whether clicking `windowId` should post the messages instead.
+ * The posted path leaves the user's pointer where it is, which is the only way to click a
+ * remote/streamed desktop client without moving their real cursor.
+ * @param ops - Win32 operations.
+ * @param windowId - observed owner window, if the session has one.
+ * @returns true when the window's app is listed for posted clicks.
+ */
+function postClickAllowed(ops: WindowsDesktopOps, windowId: number | undefined): boolean {
+  if (windowId === undefined || ops.postClick === undefined) return false
+  if (typeof ops.windowAppName !== 'function') return false
+  const apps = postClickApps()
+  if (apps.length === 0) return false
+  const app = String(ops.windowAppName(windowId) ?? '').toLowerCase()
+  return apps.includes('*') || apps.includes(app)
+}
+
+/**
+ * Wait until the user has been idle for {@link IDLE_GATE_MS} before posting input.
+ * Typing or clicking while the user is working would steal focus mid-keystroke, so the
+ * action waits instead, and gives up after {@link IDLE_GATE_WAIT_MS}.
+ * @param host - Win32 operations; without `idleMillis` the gate stays open.
+ * @param signal - cooperative cancellation while waiting.
+ * @throws when the user never goes idle within the wait budget.
+ */
+async function waitForUserIdle(host: WindowsDesktopOps, signal: AbortSignal): Promise<void> {
+  const idle = host.idleMillis
+  if (!Number.isFinite(IDLE_GATE_MS) || IDLE_GATE_MS <= 0) return
+  if (idle === undefined) return
+  const started = Date.now()
+  while (idle() < IDLE_GATE_MS) {
+    if (Date.now() - started > IDLE_GATE_WAIT_MS) {
+      throw new Error('computer-use: the user is actively using this machine; deferred input, retry later')
+    }
+    await delay(120, signal)
+  }
+}
+
 const DOUBLE_CLICK_GAP_MS = 100
 const DRAG_STEPS = 10
 const DRAG_STEP_MS = 20
@@ -381,7 +494,23 @@ async function clickAt(
   count: number,
   point: { x: number; y: number },
   signal: AbortSignal,
+  windowId: number | undefined,
 ): Promise<void> {
+  const postClick = ops.postClick
+  if (windowId !== undefined && postClick !== undefined && postClickAllowed(ops, windowId)) {
+    for (let index = 0; index < count; index += 1) {
+      postClick(windowId, point.x, point.y, button, true)
+      // The release always runs, so an abort between press and release cannot leave the
+      // target thinking the button is still held.
+      try {
+        await delay(BUTTON_HOLD_MS, signal)
+      } finally {
+        postClick(windowId, point.x, point.y, button, false)
+      }
+      if (index + 1 < count) await delay(DOUBLE_CLICK_GAP_MS, signal)
+    }
+    return
+  }
   ops.movePointer(point.x, point.y)
   await delay(POINTER_MOVE_SETTLE_MS, signal)
   assertPointInput(ops, point)
@@ -532,19 +661,49 @@ export function createWindowsDesktopBackend(ops?: WindowsDesktopOps): DesktopBac
       const point = pointOf(input.position, input.screen)
       const abort = liveSignal(signal)
       const modifiers = (input.modifiers ?? []).map(postedKey)
+      await waitForUserIdle(host, abort)
+      const windowId = input.screen.windowId
       if (modifiers.length === 0) {
-        await clickAt(host, input.button, input.count, point, abort)
+        await clickAt(host, input.button, input.count, point, abort, windowId)
         return
       }
       // Shift-clicks, Ctrl-clicks, and Cmd-chords hold their modifiers for this click only;
       // a refused point or an abort still releases them.
-      await withHeldKeys(host, modifiers, abort, () => clickAt(host, input.button, input.count, point, abort))
+      await withHeldKeys(host, modifiers, abort, () => clickAt(host, input.button, input.count, point, abort, windowId))
+    },
+
+    /**
+     * Move the pointer to a normalized position and capture a square zoom around it.
+     * The default crop side is one sixth of the target window's height; callers refining
+     * a small control pass a smaller side. The crop is clamped to `clamp` (the window).
+     * @param input - screen, normalized position, optional side and clamp bounds.
+     * @returns the pixel point, crop rectangle, and PNG bytes.
+     */
+    async zoom(input: ZoomInput): Promise<ZoomResult> {
+      const host = await use()
+      const screen = input.screen
+      const point = pointOf(input.position, screen)
+      const clamp = input.clamp ?? screen.bounds
+      const side = Math.max(24, Math.round(input.side ?? screen.bounds.height / 6))
+      const half = Math.floor(side / 2)
+      const x = Math.max(clamp.x, Math.min(point.x - half, clamp.x + clamp.width - side))
+      const y = Math.max(clamp.y, Math.min(point.y - half, clamp.y + clamp.height - side))
+      const rect = {
+        x,
+        y,
+        width: Math.min(side, clamp.width),
+        height: Math.min(side, clamp.height),
+      }
+      host.movePointer(point.x, point.y)
+      const data = host.capturePng(rect, point)
+      return { point, rect, data, mediaType: 'image/png' }
     },
 
     async typeText(input: TypeInput, signal) {
       const host = await use()
       const abort = liveSignal(signal)
-      await clickAt(host, 'left', 1, pointOf(input.position, input.screen), abort)
+      await waitForUserIdle(host, abort)
+      await clickAt(host, 'left', 1, pointOf(input.position, input.screen), abort, input.screen.windowId)
       if (input.replace) await chord(host, [postedVk(0x11), postedVk(0x41)], abort)
       const previous = host.saveClipboard()
       try {
@@ -568,6 +727,7 @@ export function createWindowsDesktopBackend(ops?: WindowsDesktopOps): DesktopBac
       const point = pointOf(input.position, input.screen)
       assertPointInput(host, point)
       const abort = liveSignal(signal)
+      await waitForUserIdle(host, abort)
       const step = (input.direction === 'up' ? 1 : -1) * SCROLL_NOTCH
       for (let index = 0; index < input.scrollLevel; index += 1) {
         host.scrollWheel(point.x, point.y, step)
@@ -583,7 +743,9 @@ export function createWindowsDesktopBackend(ops?: WindowsDesktopOps): DesktopBac
       // into an elevated window.
       assertTargetInput(host, input.windowId)
       restoreObservedFocus(host, input)
-      await chord(host, input.keys.map(postedKey), liveSignal(signal))
+      const abort = liveSignal(signal)
+      await waitForUserIdle(host, abort)
+      await chord(host, input.keys.map(postedKey), abort)
     },
 
     async longPress(input: LongPressInput, signal) {

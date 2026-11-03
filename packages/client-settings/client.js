@@ -103,6 +103,34 @@ window.__ModuleLoader__.load({
       updateAuto: '自动检查更新',
       updateAutoDescription: '每天一次向 npmmirror（失败回退 npm）查询新版本，不发送任何标识信息。',
       updateManual: '当前 Harness 没有提供插件管理服务，请在插件页手动更新。',
+      knowledgeTitle: '经验库',
+      knowledgeDescription: '把你不熟悉的系统怎么操作，写成 md 放进来。悬浮球遇到不熟的界面时会先读这些笔记再动手；关掉后它不会去读。',
+      knowledgeFolder: '文件夹：',
+      knowledgeOn: '已开启',
+      knowledgeOff: '已关闭',
+      knowledgeOpen: '打开文件夹',
+      knowledgeChange: '更改文件夹',
+      knowledgeDefault: '默认位置：',
+      personaTitle: '角色卡',
+      personaDescription: '它怎么说话、怎么称呼你。留空 = 中性，不扮演任何人。',
+      personaFolder: '卡片目录：',
+      personaOn: '已开启',
+      personaOff: '已关闭',
+      personaNeutral: '（中性 / 不启用）',
+      personaOpen: '打开文件夹',
+      personaRefresh: '刷新',
+      personaPlaceholder: '比如：叫我老板；说话短一点；不要用 emoji。',
+      personaCount: '字数：',
+      personaFull: '（已到上限，超出部分不生效）',
+      personaSave: '保存',
+      personaSaved: '已保存，下一轮生效',
+      personaNewName: '新卡片名',
+      personaCreate: '新建卡片',
+      personaError: '失败：',
+      knowledgeDefaultHint: '（换过目录后，选它就能迁回默认）',
+      knowledgeRefresh: '刷新',
+      knowledgeEmpty: '还没有笔记。点「打开文件夹」，在里面新建一个 .md 就行。',
+      knowledgeError: '读取失败：',
       workspaceTitle: 'Agent 工作区',
       workspaceDescription: '悬浮球 Agent 的新会话会创建在这里。切换后旧目录内容保持不变，也可以随时恢复默认工作区。',
       workspaceCurrent: '当前工作区：',
@@ -332,6 +360,34 @@ window.__ModuleLoader__.load({
       updateAuto: 'Check for updates automatically',
       updateAutoDescription: 'Asks npmmirror once a day (falling back to npm) for the newest version. Nothing identifying is sent.',
       updateManual: 'This Harness build ships no plugin manager — update from the Plugins page instead.',
+      knowledgeTitle: 'Playbooks',
+      knowledgeDescription: 'Drop markdown notes about systems you know here. The ball reads the relevant one before operating an unfamiliar screen; turn it off to stop that.',
+      knowledgeFolder: 'Folder: ',
+      knowledgeOn: 'On',
+      knowledgeOff: 'Off',
+      knowledgeOpen: 'Open folder',
+      knowledgeChange: 'Change folder',
+      knowledgeDefault: 'Default location: ',
+      personaTitle: 'Persona card',
+      personaDescription: 'How it should talk and address you. Empty = neutral, no role-play.',
+      personaFolder: 'Cards folder: ',
+      personaOn: 'On',
+      personaOff: 'Off',
+      personaNeutral: '(neutral / off)',
+      personaOpen: 'Open folder',
+      personaRefresh: 'Refresh',
+      personaPlaceholder: 'e.g. call me boss; keep it short; no emoji.',
+      personaCount: 'Characters: ',
+      personaFull: ' (limit reached, extra is ignored)',
+      personaSave: 'Save',
+      personaSaved: 'Saved, applies from the next turn',
+      personaNewName: 'New card name',
+      personaCreate: 'New card',
+      personaError: 'Failed: ',
+      knowledgeDefaultHint: ' (pick it to move the files back)',
+      knowledgeRefresh: 'Refresh',
+      knowledgeEmpty: 'No notes yet. Open the folder and add a .md file.',
+      knowledgeError: 'Failed to read: ',
       workspaceTitle: 'Agent workspace',
       workspaceDescription: 'New floating-ball Agent conversations are created here. The old directory is left untouched, and you can restore the default workspace at any time.',
       workspaceCurrent: 'Current workspace: ',
@@ -887,6 +943,8 @@ window.__ModuleLoader__.load({
           }),
           h(IdleCard, { text, snap, mutate }),
           snap.tcc && snap.tcc.applicable ? tccCard(text, snap, disabled, mutate) : null),
+        h(KnowledgeCard, { text, snap, mutate }),
+        h(PersonaCard, { text, snap, mutate }),
         h(WorkspaceCard, { text, snap, refreshSettings }),
         h(HistoryCard, { text, snap, mutate, refreshHistory }))
     }
@@ -1059,13 +1117,17 @@ window.__ModuleLoader__.load({
         ? h('button', {
           type: 'button',
           className: 'dsh-agi-set-button dsh-agi-set-primary',
-          disabled: update.updating,
+          // TEMP-UPDATE-DISABLED: 本地魔改版，恢复时改回 disabled: update.updating
+          disabled: true,
+          title: '本地修改版：更新已临时禁用',
           onClick: () => { void mutate('/.dsh-agi/update/install', {}) },
         }, update.updating ? text.updating.replaceAll('{version}', update.latestVersion || installed) : text.updateNow)
         : h('button', {
           type: 'button',
           className: 'dsh-agi-set-button dsh-agi-set-ghost',
-          disabled: update.checking,
+          // TEMP-UPDATE-DISABLED: 恢复时改回 disabled: update.checking
+          disabled: true,
+          title: '本地修改版：更新已临时禁用',
           onClick: () => { void mutate('/.dsh-agi/update/check', {}) },
         }, update.checking ? text.updateChecking : text.updateCheck)
       const allowBuilds = update.error === 'build-blocked' && Array.isArray(update.pendingBuilds) && update.pendingBuilds.length > 0
@@ -1093,7 +1155,8 @@ window.__ModuleLoader__.load({
                 h(Toggle, {
                   checked: update.autoCheck === true,
                   label: text.updateAuto,
-                  disabled: false,
+                  // TEMP-AUTOCHECK-LOCK: 分享版锁死自动检查更新，只允许保持关闭（改代码才能恢复）
+                  disabled: true,
                   onChange: (enabled) => { void mutate('/.dsh-agi/update/auto', { enabled }) },
                 })))),
           update.canUpdate ? null : h('p', { className: 'dsh-agi-set-banner', role: 'status' }, text.updateManual)))
@@ -1141,6 +1204,221 @@ window.__ModuleLoader__.load({
      * The Agent workspace is the cwd new floating-ball sessions are created in. Switching
      * never moves the old directory: only the pointer in this profile changes.
      */
+    function PersonaCard({ text, snap, mutate }) {
+      const [state, setState] = React.useState(null)
+      const [draft, setDraft] = React.useState('')
+      const [newName, setNewName] = React.useState('')
+      const [busy, setBusy] = React.useState(false)
+      const [error, setError] = React.useState('')
+      const [notice, setNotice] = React.useState('')
+      const copy = (key, fallback) => (typeof text[key] === 'string' ? text[key] : fallback)
+
+      function apply(body) {
+        setState(body)
+        setDraft(typeof body.text === 'string' ? body.text : '')
+      }
+
+      async function load() {
+        try {
+          apply(await request('/.dsh-agi/persona'))
+          setError('')
+        } catch (e) {
+          setError(String((e && e.message) || e))
+        }
+      }
+      React.useEffect(() => { void load() }, [])
+
+      async function post(payload, okText) {
+        setBusy(true)
+        setError('')
+        setNotice('')
+        try {
+          apply(await request('/.dsh-agi/persona', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          }))
+          if (okText) setNotice(okText)
+        } catch (e) {
+          setError(String((e && e.message) || e))
+        } finally {
+          setBusy(false)
+        }
+      }
+
+      const cards = state && Array.isArray(state.cards) ? state.cards : []
+      const limit = state && state.limit ? state.limit : 6000
+      const len = draft.length
+      return h('section', { className: 'dsh-agi-set-card dsh-agi-set-persona' },
+        cardHead('agent', copy('personaTitle', '角色卡'), copy('personaDescription', '它怎么说话、怎么称呼你。留空 = 中性，不扮演任何人。'),
+          h(Toggle, {
+            checked: state ? state.enabled !== false : true,
+            disabled: busy,
+            label: copy('personaTitle', '角色卡'),
+            onChange: (next) => { void post({ enabled: next }) },
+          })),
+        h('div', { className: 'dsh-agi-set-card-body' },
+          h('div', { className: 'dsh-agi-set-panel' },
+            h('div', { className: 'dsh-agi-set-workspace-top' },
+              h('p', { className: 'dsh-agi-set-muted dsh-agi-set-workspace-path' },
+                copy('personaFolder', '卡片目录：') + (state ? state.dir : '…')),
+              h('span', { className: 'dsh-agi-set-badge' + (state && state.enabled === false ? ' is-custom' : '') },
+                state && state.enabled === false ? copy('personaOff', '已关闭') : copy('personaOn', '已开启'))),
+            h('div', { className: 'dsh-agi-set-workspace-controls' },
+              h('select', {
+                className: 'dsh-agi-set-path',
+                value: state && state.active ? state.active : '',
+                disabled: busy,
+                onChange: (e) => { void post({ active: e.target.value }) },
+              },
+                h('option', { value: '' }, copy('personaNeutral', '（中性 / 不启用）')),
+                cards.map((card) => h('option', { key: card.name, value: card.name }, card.name.replace(/\.md$/i, '')))),
+              h('button', { type: 'button', className: 'dsh-agi-set-path', onClick: () => { void request('/.dsh-agi/persona/open', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }).then(apply).catch((e) => setError(String((e && e.message) || e))) } },
+                copy('personaOpen', '打开文件夹')),
+              h('button', { type: 'button', className: 'dsh-agi-set-path', onClick: () => { void load() } },
+                copy('personaRefresh', '刷新'))),
+            h('textarea', {
+              className: 'dsh-agi-set-path',
+              rows: 6,
+              style: { width: '100%', resize: 'vertical', minHeight: '96px' },
+              placeholder: copy('personaPlaceholder', '比如：叫我老板；说话短一点；不要用 emoji。'),
+              value: draft,
+              disabled: busy || !state || !state.active,
+              onChange: (e) => setDraft(e.target.value.slice(0, limit)),
+            }),
+            h('p', { className: 'dsh-agi-set-muted' },
+              copy('personaCount', '字数：') + len + ' / ' + limit
+                + (len >= limit ? copy('personaFull', '（已到上限，超出部分不生效）') : '')),
+            h('div', { className: 'dsh-agi-set-workspace-controls' },
+              h('button', { type: 'button', className: 'dsh-agi-set-path', disabled: busy || !state || !state.active, onClick: () => { void post({ text: draft }, copy('personaSaved', '已保存，下一轮生效')) } },
+                copy('personaSave', '保存')),
+              h('input', {
+                className: 'dsh-agi-set-path',
+                placeholder: copy('personaNewName', '新卡片名'),
+                value: newName,
+                disabled: busy,
+                onChange: (e) => setNewName(e.target.value),
+              }),
+              h('button', { type: 'button', className: 'dsh-agi-set-path', disabled: busy || !newName.trim(), onClick: () => { const name = newName.trim(); setNewName(''); void post({ create: name }) } },
+                copy('personaCreate', '新建卡片'))),
+            notice ? h('p', { className: 'dsh-agi-set-muted' }, notice) : null,
+            error ? h('p', { className: 'dsh-agi-set-muted' }, copy('personaError', '失败：') + error) : null)))
+    }
+
+    function KnowledgeCard({ text, snap, mutate }) {
+      const [state, setState] = React.useState(null)
+      const [busy, setBusy] = React.useState(false)
+      const [error, setError] = React.useState('')
+      const [notice, setNotice] = React.useState('')
+      const copy = (key, fallback) => (typeof text[key] === 'string' ? text[key] : fallback)
+
+      async function load() {
+        try {
+          setState(await request('/.dsh-agi/knowledge'))
+          setError('')
+        } catch (e) {
+          setError(String((e && e.message) || e))
+        }
+      }
+      React.useEffect(() => { void load() }, [])
+
+      async function toggle(next) {
+        if (busy) return
+        setBusy(true)
+        setError('')
+        try {
+          setState(await request('/.dsh-agi/knowledge', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ enabled: next }),
+          }))
+        } catch (e) {
+          setError(String((e && e.message) || e))
+        } finally {
+          setBusy(false)
+        }
+      }
+
+      async function changeFolder() {
+        if (busy) return
+        setBusy(true)
+        setError('')
+        setNotice('')
+        try {
+          const picked = await request('/.dsh-agi/workspace/pick', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: '{}',
+          })
+          const next = picked && typeof picked.path === 'string' ? picked.path : ''
+          if (!next) return
+          const body = await request('/.dsh-agi/knowledge/dir', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ dir: next }),
+          })
+          setState(body)
+          const m = body && body.migration
+          if (m) {
+            setNotice(String(m.moved || 0) + (m.failed && m.failed.length ? ' 个已迁移，' + m.failed.length + ' 个因重名未迁移' : ' 个文件已迁移'))
+          }
+        } catch (e) {
+          setError(String((e && e.message) || e))
+        } finally {
+          setBusy(false)
+        }
+      }
+
+      async function openFolder() {
+        try {
+          setState(await request('/.dsh-agi/knowledge/open', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: '{}',
+          }))
+          setError('')
+        } catch (e) {
+          setError(String((e && e.message) || e))
+        }
+      }
+
+      const enabled = state ? state.enabled !== false : true
+      const files = state && Array.isArray(state.files) ? state.files : []
+      return h('section', { className: 'dsh-agi-set-card dsh-agi-set-knowledge' },
+        cardHead('folder', copy('knowledgeTitle', '经验库'), copy('knowledgeDescription', ''),
+          h(Toggle, {
+            checked: enabled,
+            disabled: busy,
+            label: copy('knowledgeTitle', '经验库'),
+            onChange: (next) => { void toggle(next) },
+          })),
+        h('div', { className: 'dsh-agi-set-card-body' },
+          h('div', { className: 'dsh-agi-set-panel' },
+            h('div', { className: 'dsh-agi-set-workspace-top' },
+              h('p', { className: 'dsh-agi-set-muted dsh-agi-set-workspace-path' },
+                copy('knowledgeFolder', 'Folder: ') + (state ? state.dir : '…')),
+              h('span', { className: 'dsh-agi-set-badge' + (enabled ? '' : ' is-custom') },
+                enabled ? copy('knowledgeOn', 'On') : copy('knowledgeOff', 'Off'))),
+            h('div', { className: 'dsh-agi-set-workspace-controls' },
+              h('button', { type: 'button', className: 'dsh-agi-set-path', disabled: busy, onClick: () => { void changeFolder() } },
+                copy('knowledgeChange', '更改文件夹')),
+              h('button', { type: 'button', className: 'dsh-agi-set-path', onClick: () => { void openFolder() } },
+                copy('knowledgeOpen', 'Open folder')),
+              h('button', { type: 'button', className: 'dsh-agi-set-path', onClick: () => { void load() } },
+                copy('knowledgeRefresh', 'Refresh'))),
+            state && state.defaultDir
+              ? h('p', { className: 'dsh-agi-set-muted' },
+                  copy('knowledgeDefault', '默认位置：') + state.defaultDir + copy('knowledgeDefaultHint', '（换过目录后，选它就能迁回默认）'))
+              : null,
+            files.length === 0
+              ? h('p', { className: 'dsh-agi-set-muted' }, copy('knowledgeEmpty', ''))
+              : h('div', { className: 'dsh-agi-set-muted' },
+                  files.map((file) => h('div', { key: file.name },
+                    file.dir ? file.name + '/' : file.name + ' · ' + Math.max(1, Math.round((file.bytes || 0) / 1024)) + ' KB'))),
+            notice ? h('p', { className: 'dsh-agi-set-muted' }, notice) : null,
+            error ? h('p', { className: 'dsh-agi-set-muted' }, copy('knowledgeError', '') + error) : null)))
+    }
+
     function WorkspaceCard({ text, snap, refreshSettings }) {
       const workspace = snap.workspace
       const [busy, setBusy] = React.useState(false)

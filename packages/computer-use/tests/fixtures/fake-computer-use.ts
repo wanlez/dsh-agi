@@ -7,6 +7,7 @@ import {
   resolveComputerUseConfig,
   type Config,
 } from '../../src/index.ts'
+import { withFakeZoom } from './fake-zoom.ts'
 
 /** Cordis plugin name. */
 export const name = 'fixture-computer-use'
@@ -23,7 +24,9 @@ export { Config } from '../../src/index.ts'
  * @param config - optional tunables; the Loader fixture pins `postActionWaitMs: 0`.
  */
 export function apply(ctx: Context, config: Config = {}): void {
-  applyComputerUse(ctx, createFakeDesktopBackend(), resolveComputerUseConfig({
+  // Pointer tools preview through `zoom`, which only the Windows backend ships; the
+  // fixture adds the same crop so a Loader composition can exercise the two-step flow.
+  applyComputerUse(ctx, withFakeZoom(createFakeDesktopBackend()), resolveComputerUseConfig({
     postActionWaitMs: config.postActionWaitMs ?? 0,
   }))
 }

@@ -141,6 +141,11 @@ export function wrapDesktopBackend(
     listApps: signal => inner.listApps(signal),
     openApp: (input, signal) => guard.withInput(() => inner.openApp(input, signal), signal),
     click: (input, signal) => guard.withInput(() => inner.click(input, signal), signal),
+    zoom: (input, signal) => {
+      const zoom = inner.zoom
+      if (zoom === undefined) throw new Error('computer-use: zoom is unavailable on this platform')
+      return guard.withInput(() => zoom(input, signal), signal)
+    },
     typeText: (input, signal) => guard.withInput(() => inner.typeText(input, signal), signal),
     scroll: (input, signal) => guard.withInput(() => inner.scroll(input, signal), signal),
     hotkey: (input, signal) => guard.withInput(() => inner.hotkey(input, signal), signal),

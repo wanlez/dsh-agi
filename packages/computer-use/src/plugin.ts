@@ -3,8 +3,9 @@
  * @module @deepseek-ai/dsh-experimental-tool-computer-use/src/plugin
  */
 
-import { stat } from 'node:fs/promises'
-import { homedir } from 'node:os'
+import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -18,7 +19,7 @@ declare module '@deepseek-ai/dsh-llm' {
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, ToolExecution } from '@deepseek-ai/dsh-tools'
 import type { Session } from '@deepseek-ai/dsh-session'
-import type { CapturedScreen, ClickButton, DesktopBackend, DesktopForeground } from './backend.ts'
+import type { CapturedScreen, ClickButton, DesktopBackend, DesktopForeground, ScreenInfo, ZoomResult } from './backend.ts'
 import type { ResolvedComputerUseConfig } from './config.ts'
 import {
   coordinateModeOf,
@@ -49,6 +50,7 @@ import {
   formatForegroundEnvelope,
   observationContent,
   observeDesktop,
+  optionalImageFields,
   requireScreen,
   type ObservedScreen,
 } from './observe.ts'
@@ -58,7 +60,7 @@ import { assertImageCapableRoute, routeAcceptsImages } from './route.ts'
 import { withScreenLock } from './gui-lock.ts'
 import { BALL_PRESET, presetOf, screenOwnerId } from './screen-owner.ts'
 import { isDesktopSelectionTurn } from './selection-turn.ts'
-import { pairScreenshotFiles, writeDesktopScreenshots } from './screenshot.ts'
+import { EXTENSION, pairScreenshotFiles, writeScreenshots } from './screenshot.ts'
 import { delay } from './wait.ts'
 import { LONG_WAIT_SECONDS, WAIT_SECONDS, requireLongWaitSeconds } from './wait-args.ts'
 
@@ -234,7 +236,11 @@ function guiTurn<T>(
 }
 
 function screenshotIntro(paths: readonly string[], outcome: CoordinateOutcome): string {
-  return `Saved screenshot to ${paths[0]} and copied it to the clipboard. The image is ready to paste. ${coordinatesRemain(outcome)}`
+  const first = paths[0]
+  const saved = first === undefined
+    ? 'Screenshot captured (no file kept; pass save_dir to keep one copy)'
+    : `Saved screenshot to ${first}`
+  return `${saved} and copied it to the clipboard. The image is ready to paste. ${coordinatesRemain(outcome)}`
 }
 
 function clickResultText(value: {
@@ -242,12 +248,307 @@ function clickResultText(value: {
   readonly position: readonly number[]
   readonly button: string
   readonly count: number
+  readonly confirmed?: boolean
+  readonly zoomLevel?: number
   readonly modifiers?: readonly string[]
 } & CoordinateOutcome): string {
   const mods = value.modifiers === undefined
     ? ''
     : `, modifiers ${value.modifiers.join(', ')}`
+  if (value.confirmed === false) return previewText(value, 'click')
   return `Clicked screen ${String(value.screenIndex)} at [${value.position.join(', ')}] (${value.button}, count ${String(value.count)}${mods}). ${coordinatesRemain(value)}`
+}
+
+/** Per-session two-stage aiming state: last zoom crop and the point it centered on. */
+interface PointerZoomState {
+  /** Zoom level of the preview that produced {@link rect}: 1 is the window, 2 is the close crop. */
+  level: number
+  /** Last zoom crop in physical screen pixels; screen 1 aims inside it. */
+  rect: { x: number; y: number; width: number; height: number }
+  /** Pixel point the crop was taken around, replayed when the action is confirmed. */
+  pending?: { x: number; y: number }
+  /** Window the crop belongs to; a preview from another window is refused. */
+  windowId: number | undefined
+  /** Tool the preview was made for, so a click preview cannot confirm a drag. */
+  tool: string
+  /** Local timestamp of the preview; an old crop is refused. */
+  at: number
+}
+
+const pointerZoomState = new WeakMap<Session, PointerZoomState>()
+
+/**
+ * Screen that maps a normalized position onto one exact pixel point.
+ * The backend maps fractions against bounds, so a 1000-wide box at the point with [0, 0]
+ * resolves to the point itself.
+ * @param point - pixel point to act on.
+ * @param windowId - window the point belongs to, when the observation has one.
+ * @param scale - backing-store scale reported to the model.
+ * @returns a one-use screen envelope for a HID call.
+ */
+function pointScreenAt(point: { readonly x: number; readonly y: number }, windowId: number | undefined, scale: number): ScreenInfo {
+  return {
+    index: 0,
+    bounds: { x: point.x, y: point.y, width: 1000, height: 1000 },
+    scale,
+    ...windowId === undefined ? {} : { windowId },
+  }
+}
+
+/**
+ * Resolve the coordinate reference for a pointer action: screen 0 is the whole window,
+ * screen 1 is the zoom crop returned by the previous preview.
+ * @param session - session whose last preview is reused for screen 1.
+ * @param screens - current backend surface list.
+ * @param screenIndex - model-supplied index.
+ * @returns the window screen, the reference the position is measured on, and the next zoom level.
+ * @throws when screen 1 is requested without a live preview.
+ */
+function pointerReference(
+  session: Session | undefined,
+  screens: readonly ScreenInfo[],
+  screenIndex: number,
+): { windowScreen: ScreenInfo; reference: ScreenInfo; level: number } {
+  const windowScreen = requireScreen(screens, 0)
+  if (screenIndex !== 1) return { windowScreen, reference: windowScreen, level: 1 }
+  const state = session === undefined ? undefined : pointerZoomState.get(session)
+  if (state === undefined) throw new Error('computer-use: screen 1 is unavailable; preview on screen 0 first')
+  if (Date.now() - state.at > 60_000) throw new Error('computer-use: the zoom preview is stale; preview again on screen 0')
+  if (state.windowId !== undefined && windowScreen.windowId !== undefined && state.windowId !== windowScreen.windowId) {
+    throw new Error('computer-use: the window changed; preview again')
+  }
+  return {
+    windowScreen,
+    reference: {
+      index: 1,
+      bounds: state.rect,
+      scale: state.level,
+      ...windowScreen.windowId === undefined ? {} : { windowId: windowScreen.windowId },
+    },
+    level: Math.min(2, state.level + 1),
+  }
+}
+
+/**
+ * Move the pointer to a target and build the shared pre-action zoom (single-stage).
+ * With `confirm` false the caller returns the preview instead of acting.
+ * @param ctx - plugin context with `attachments`.
+ * @param exec - tool execution; its session owns the zoom state.
+ * @param backend - desktop backend.
+ * @param screen - screen the position is measured on.
+ * @param pointPosition - pointer position in HID units.
+ * @param confirm - true to act, false to preview.
+ * @returns the zoom screen for a confirm, or the preview screens and foreground.
+ */
+async function beginPointerAction(
+  ctx: Context,
+  exec: ToolExecution,
+  backend: DesktopBackend,
+  screen: ScreenInfo,
+  pointPosition: readonly [number, number],
+  confirm: boolean,
+): Promise<
+  | { confirmed: true; zoomScreen: ObservedScreen | undefined }
+  | { confirmed: false; screens: ObservedScreen[]; foreground: DesktopForeground }
+> {
+  let zoom: ZoomResult | undefined
+  try {
+    const capture = backend.zoom
+    if (capture !== undefined) zoom = await capture({ screen, position: pointPosition })
+  } catch {
+    // A platform without zoom still acts; the preview simply has no crop.
+  }
+  let zoomScreen: ObservedScreen | undefined
+  if (zoom !== undefined) {
+    try {
+      const saved = await ctx.attachments.saveImage({
+        data: zoom.data,
+        mediaType: zoom.mediaType,
+        name: 'pointer-zoom',
+      })
+      zoomScreen = {
+        screenIndex: 1,
+        logicalWidth: zoom.rect.width,
+        logicalHeight: zoom.rect.height,
+        scale: screen.scale,
+        ...screen.windowId === undefined ? {} : { windowId: screen.windowId },
+        image: {
+          attachmentId: saved.attachmentId,
+          mediaType: saved.mediaType,
+          bytes: saved.bytes,
+          width: saved.width,
+          height: saved.height,
+          ...optionalImageFields(saved),
+        },
+      }
+    } catch {
+      // The crop is a convenience; a failed attachment store must not fail the action.
+    }
+  }
+  if (confirm) return { confirmed: true, zoomScreen }
+  const preview = await recapture(ctx, backend, exec, 0)
+  const screens = [...preview.screens]
+  if (zoomScreen !== undefined) screens.push(zoomScreen)
+  return { confirmed: false, screens, foreground: preview.foreground }
+}
+
+/** Outcome of one two-stage aiming step. */
+type PointerPreview =
+  | { confirmed: true; target: { x: number; y: number }; windowScreen: ScreenInfo }
+  | { confirmed: false; screens: ObservedScreen[]; foreground: DesktopForeground; level: number }
+
+/**
+ * Two-stage aiming for click-like actions: screen 0 aims on the window, screen 1 aims
+ * inside the previous zoom crop and doubles the zoom for finer work.
+ * With `confirm` false the caller returns the preview instead of acting.
+ * @param ctx - plugin context with `attachments`.
+ * @param exec - tool execution; its session owns the zoom state.
+ * @param backend - desktop backend.
+ * @param screens - current backend surface list.
+ * @param screenIndex - model-supplied index; 1 aims inside the last crop.
+ * @param pointPosition - pointer position in HID units.
+ * @param confirm - true to act at the last previewed point, false to preview.
+ * @param tool - tool name the preview belongs to.
+ * @returns the confirmed point, or the preview screens and foreground.
+ */
+async function previewPointerAction(
+  ctx: Context,
+  exec: ToolExecution,
+  backend: DesktopBackend,
+  screens: readonly ScreenInfo[],
+  screenIndex: number,
+  pointPosition: readonly [number, number],
+  confirm: boolean,
+  tool: string,
+): Promise<PointerPreview> {
+  const session = sessionOf(exec)
+  const state = session === undefined ? undefined : pointerZoomState.get(session)
+  if (confirm) {
+    if (state === undefined || state.pending === undefined) {
+      throw new Error('computer-use: preview this action first, then confirm')
+    }
+    if (state.tool !== tool) {
+      throw new Error('computer-use: the last preview was for a different action; preview again')
+    }
+    return { confirmed: true, target: state.pending, windowScreen: requireScreen(screens, 0) }
+  }
+  const resolved = pointerReference(session, screens, screenIndex)
+  const capture = backend.zoom
+  if (capture === undefined) throw new Error('computer-use: this platform cannot zoom; preview is unavailable')
+  const windowHeight = resolved.windowScreen.bounds.height
+  const side = Math.max(24, Math.round(windowHeight / (6 * 2 ** (resolved.level - 1))))
+  const zoom = await capture({
+    screen: resolved.reference,
+    position: pointPosition,
+    side,
+    clamp: resolved.windowScreen.bounds,
+  })
+  let zoomScreen: ObservedScreen | undefined
+  try {
+    const saved = await ctx.attachments.saveImage({
+      data: zoom.data,
+      mediaType: zoom.mediaType,
+      name: 'pointer-zoom',
+    })
+    zoomScreen = {
+      screenIndex: 1,
+      logicalWidth: zoom.rect.width,
+      logicalHeight: zoom.rect.height,
+      scale: resolved.windowScreen.scale,
+      ...resolved.windowScreen.windowId === undefined ? {} : { windowId: resolved.windowScreen.windowId },
+      image: {
+        attachmentId: saved.attachmentId,
+        mediaType: saved.mediaType,
+        bytes: saved.bytes,
+        width: saved.width,
+        height: saved.height,
+        ...optionalImageFields(saved),
+      },
+    }
+  } catch {
+    // The crop is a convenience; a failed attachment store must not fail the preview.
+  }
+  if (session !== undefined) {
+    pointerZoomState.set(session, {
+      level: resolved.level,
+      rect: zoom.rect,
+      pending: zoom.point,
+      windowId: resolved.windowScreen.windowId,
+      tool,
+      at: Date.now(),
+    })
+  }
+  const preview = await recapture(ctx, backend, exec, 0)
+  const previewScreens = [...preview.screens]
+  if (zoomScreen !== undefined) previewScreens.push(zoomScreen)
+  return {
+    confirmed: false,
+    screens: previewScreens,
+    foreground: preview.foreground,
+    level: resolved.level,
+  }
+}
+
+/**
+ * Text for a pointer action that stopped at the preview step.
+ * @param value - preview result; only its zoom level is read.
+ * @param what - action the model asked for, named in the refusal.
+ * @returns the model-facing explanation of the preview and how to confirm.
+ */
+function previewText(value: { readonly zoomLevel?: number | undefined }, what: string): string {
+  const base = `Preview only — no ${what} was performed. Screen 1 is a zoom around the pointer; its crosshair marks the exact point you are about to act on.`
+  if (value.zoomLevel === undefined || value.zoomLevel <= 0) return base
+  if (value.zoomLevel >= 2) {
+    return `${base} This is the closest zoom (level 2, window height / 12): confirm to act there, or nudge the position by a few units if the crosshair is off.`
+  }
+  return `${base} To aim more precisely, call the same tool with screen_index=1 and a position measured on that crop; that previews the close zoom (window height / 12). When the crosshair sits on the target, confirm=true.`
+}
+
+/** One pointer tool step: either a finished preview result or the confirmed pixel point. */
+type PointerGate<P extends object> =
+  | { done: true; result: P & { confirmed: false; zoomLevel: number } & ReturnType<typeof observedFields> }
+  | { done: false; point: { x: number; y: number }; windowScreen: ScreenInfo }
+
+/**
+ * Run one pointer tool step through the shared two-stage aiming flow.
+ * A preview returns a ready-to-render result; a confirm returns the exact point.
+ * @param ctx - plugin context with `attachments`.
+ * @param exec - tool execution; its session owns the zoom state.
+ * @param backend - desktop backend.
+ * @param options - screen index, HID position, confirm flag, and tool name.
+ * @param preview - tool-specific fields attached to the preview result.
+ * @returns a finished preview result, or the point to act on.
+ */
+async function runPointerAction<P extends object>(
+  ctx: Context,
+  exec: ToolExecution,
+  backend: DesktopBackend,
+  options: { screenIndex: number; position: readonly [number, number]; confirm: boolean; tool: string },
+  preview: P,
+): Promise<PointerGate<P>> {
+  const screens = await backend.listScreens(exec.signal)
+  const gate = await previewPointerAction(
+    ctx,
+    exec,
+    backend,
+    screens,
+    options.screenIndex,
+    options.position,
+    options.confirm,
+    options.tool,
+  )
+  if (!gate.confirmed) {
+    return {
+      done: true,
+      result: {
+        ...preview,
+        confirmed: false,
+        zoomLevel: gate.level,
+        ...observedFields(sessionOf(exec), { screens: gate.screens, foreground: gate.foreground }),
+      },
+    }
+  }
+  return { done: false, point: gate.target, windowScreen: gate.windowScreen }
 }
 
 /**
@@ -296,8 +597,11 @@ export function applyComputerUse(
   ctx.tools.register(defineTool({
     name: 'click',
     description:
-      'Click at a 0–1000 position on the attached frontmost-window screenshot, then return the post-action screenshot. '
-      + 'Use left (default) or right button; count 2 is a double-click. '
+      'Two-step click with two-stage aiming. Without confirm it moves the pointer and returns a zoomed crop '
+      + '(screen 1) of the target. On that crop, call again with screen_index=1 and a position measured inside the '
+      + 'crop to aim finer: the second preview zooms to window height / 12 and the crosshair marks the exact point '
+      + 'under the pointer. confirm=true clicks at the point the last preview settled on, then returns the '
+      + 'post-action screenshot. Use left (default) or right button; count 2 is a double-click. '
       + 'Optional modifiers (shift, cmd, option, control) are held only for this click.',
     parameters: {
       screen_index: { type: 'integer', required: true, description: '0 for the attached frontmost-window screenshot.' },
@@ -325,6 +629,13 @@ export function applyComputerUse(
         description:
           'Modifier keys held only for this click, for example ["shift"] or ["cmd"]. Omit for a plain click.',
       },
+      confirm: {
+        type: 'boolean',
+        default: false,
+        description:
+          'false (default) previews only: moves the pointer to the target and returns a zoomed crop without '
+          + 'clicking. Pass true to actually click after checking the crop.',
+      },
     },
     output: {
       schema: {
@@ -335,6 +646,8 @@ export function applyComputerUse(
           position: { type: 'array', required: true, items: { type: 'number' } },
           button: { type: 'string', required: true, enum: ['left', 'right'] },
           count: { type: 'integer', required: true },
+          confirmed: { type: 'boolean', required: true },
+          zoomLevel: { type: 'number' },
           modifiers: { type: 'array', items: { type: 'string' } },
           ...COORDINATE_FIELDS,
           screens: SCREENS_FIELD,
@@ -360,12 +673,24 @@ export function applyComputerUse(
       const button: ClickButton = args.button === 'right' ? 'right' : 'left'
       const count: 1 | 2 = args.count === 2 ? 2 : 1
       const modifiers = requireClickModifiers(args.modifiers)
+      const confirm = args.confirm === true
       return guiTurn(backend, exec, async () => {
-        const screens = await backend.listScreens(exec.signal)
-        const screen = requireScreen(screens, args.screen_index)
-        await backend.click({
-          screen,
+        const gate = await runPointerAction(ctx, exec, backend, {
+          screenIndex: args.screen_index,
           position: hidPosition(exec, position),
+          confirm,
+          tool: 'click',
+        }, {
+          screenIndex: args.screen_index,
+          position,
+          button,
+          count,
+          ...modifiers === undefined ? {} : { modifiers },
+        })
+        if (gate.done) return gate.result
+        await backend.click({
+          screen: pointScreenAt(gate.point, gate.windowScreen.windowId, 1),
+          position: [0, 0],
           button,
           count,
           ...modifiers === undefined ? {} : { modifiers },
@@ -376,6 +701,7 @@ export function applyComputerUse(
           position,
           button,
           count,
+          confirmed: true,
           ...modifiers === undefined ? {} : { modifiers },
           ...observedFields(sessionOf(exec), observation),
         }
@@ -386,7 +712,11 @@ export function applyComputerUse(
   ctx.tools.register(defineTool({
     name: 'input_text',
     description:
-      'Click to focus a 0–1000 position on the attached frontmost-window screenshot, type text, optionally replace existing content and press Enter, then return the post-action screenshot.',
+      'Two-step text entry with two-stage aiming. Without confirm it moves the pointer and returns a zoomed crop '
+      + '(screen 1) of the target. On that crop, call again with screen_index=1 and a position measured inside the '
+      + 'crop to zoom to window height / 12. confirm=true focuses the field and types at the point the last preview '
+      + 'settled on, then returns the post-action screenshot. replace selects all first; submit presses Enter '
+      + 'after typing.',
     parameters: {
       screen_index: { type: 'integer', required: true, description: '0 for the attached frontmost-window screenshot.' },
       position: {
@@ -406,6 +736,13 @@ export function applyComputerUse(
         default: false,
         description: 'When true, press Enter after typing. Default: false.',
       },
+      confirm: {
+        type: 'boolean',
+        default: false,
+        description:
+          'false (default) previews only: moves the pointer to the field and returns a zoomed crop without '
+          + 'typing. Pass true to focus and type after checking the crop.',
+      },
     },
     output: {
       schema: {
@@ -417,13 +754,17 @@ export function applyComputerUse(
           text: { type: 'string', required: true },
           replace: { type: 'boolean', required: true },
           submit: { type: 'boolean', required: true },
+          confirmed: { type: 'boolean', required: true },
+          zoomLevel: { type: 'number' },
           ...COORDINATE_FIELDS,
           screens: SCREENS_FIELD,
           foreground: FOREGROUND_FIELD,
         },
       },
       render: (_args, value) => resultBlocks(
-        `Typed on screen ${String(value.screenIndex)} at [${value.position.join(', ')}] (replace=${String(value.replace)}, submit=${String(value.submit)}). ${coordinatesRemain(value)}`,
+        value.confirmed === false
+          ? previewText(value, 'text entry')
+          : `Typed on screen ${String(value.screenIndex)} at [${value.position.join(', ')}] (replace=${String(value.replace)}, submit=${String(value.submit)}). ${coordinatesRemain(value)}`,
         value.screens,
         value.foreground,
         value,
@@ -436,12 +777,24 @@ export function applyComputerUse(
       const position = validatedPosition(exec, args.position)
       const replace = args.replace ?? false
       const submit = args.submit ?? false
+      const confirm = args.confirm === true
       return guiTurn(backend, exec, async () => {
-        const screens = await backend.listScreens(exec.signal)
-        const screen = requireScreen(screens, args.screen_index)
-        await backend.typeText({
-          screen,
+        const gate = await runPointerAction(ctx, exec, backend, {
+          screenIndex: args.screen_index,
           position: hidPosition(exec, position),
+          confirm,
+          tool: 'input_text',
+        }, {
+          screenIndex: args.screen_index,
+          position,
+          text: args.text,
+          replace,
+          submit,
+        })
+        if (gate.done) return gate.result
+        await backend.typeText({
+          screen: pointScreenAt(gate.point, gate.windowScreen.windowId, 1),
+          position: [0, 0],
           text: args.text,
           replace,
           submit,
@@ -453,6 +806,7 @@ export function applyComputerUse(
           text: args.text,
           replace,
           submit,
+          confirmed: true,
           ...observedFields(sessionOf(exec), observation),
         }
       })
@@ -679,11 +1033,17 @@ export function applyComputerUse(
   ctx.tools.register(defineTool({
     name: 'screenshot',
     description:
-      'Save the current frontmost-window screenshot to the user Desktop and copy it to the clipboard. '
-      + 'Returns the saved file path. After bash, search, or web_fetch, call this to refresh the frontmost window. '
-      + 'After click, type, wait, or open, do not call it again — those results already attach a window. '
-      + 'Use when the user asked for a screenshot file or needs the image on the clipboard to paste.',
-    parameters: {},
+      'Capture the current frontmost-window screenshot and copy it to the clipboard. By default no file is kept; '
+      + 'pass save_dir to keep exactly one copy there (identical images are skipped). Use when the user asked for '
+      + 'a screenshot file, when saving a playbook step (pass the playbook\'s screenshots folder), or when the '
+      + 'image is needed on the clipboard. After bash, search, or web_fetch, call this to refresh the frontmost '
+      + 'window. After click, type, wait, or open, do not call it again — those results already attach a window.',
+    parameters: {
+      save_dir: {
+        type: 'string',
+        description: 'Optional directory that keeps one copy of the screenshot. Omit to keep no file.',
+      },
+    },
     output: {
       schema: {
         type: 'object',
@@ -705,7 +1065,7 @@ export function applyComputerUse(
     },
     isConcurrencySafe: () => false,
     presentCall: () => genericExecute('Screenshot', {}),
-    async execute(_args, exec) {
+    async execute(args, exec) {
       await assertImageCapableRoute(ctx, exec)
       const session = sessionOf(exec)
       const observation = await observeDesktop(ctx, backend, exec.signal, {
@@ -723,19 +1083,27 @@ export function applyComputerUse(
       }
       rememberObservation(session, observation.screens)
       const files = pairScreenshotFiles(observation.captures, observation.screens)
-      const paths = await writeDesktopScreenshots(files, { home: homedir() })
       const first = files[0]
-      const firstPath = paths[0]
-      if (first === undefined || firstPath === undefined) {
-        throw new Error('computer-use: screenshot produced no files')
-      }
+      if (first === undefined) throw new Error('computer-use: screenshot produced no files')
+      const paths = await writeScreenshots(files, {
+        ...typeof args.save_dir === 'string' ? { dir: args.save_dir } : {},
+      })
+      // The clipboard needs a real file on Windows; use a scratch copy that is removed again
+      // so a clipboard-only screenshot leaves nothing behind in the user's folders.
+      const tempDir = await mkdtemp(join(tmpdir(), 'dsh-agi-shot-'))
+      const tempPath = join(tempDir, `screenshot.${EXTENSION[first.mediaType] ?? 'png'}`)
+      await writeFile(tempPath, first.data)
       // The clipboard write holds the screen lock: another session's paste (Ctrl+V plus its
       // restore) could otherwise land between this write and the user's paste. The
       // observation and the file write stay outside the lock — they touch no shared state.
-      await withScreenLock(exec.agent?.id, () => backend.copyImageToClipboard(
-        { path: firstPath, mediaType: first.mediaType },
-        exec.signal,
-      ))
+      try {
+        await withScreenLock(exec.agent?.id, () => backend.copyImageToClipboard(
+          { path: tempPath, mediaType: first.mediaType },
+          exec.signal,
+        ))
+      } finally {
+        await rm(tempDir, { recursive: true, force: true }).catch(() => undefined)
+      }
       return {
         paths: [...paths],
         clipboard: true,
@@ -747,8 +1115,10 @@ export function applyComputerUse(
   ctx.tools.register(defineTool({
     name: 'long_press',
     description:
-      'Press and hold the left button at a 0–1000 position on the attached frontmost-window screenshot, then return the post-action screenshot. '
-      + 'duration_seconds defaults to 3 and must be 1–10.',
+      'Two-step press-and-hold with two-stage aiming. Without confirm it moves the pointer and returns a zoomed '
+      + 'crop (screen 1) of the target; call again with screen_index=1 and a position inside the crop to aim finer '
+      + '(the second preview zooms to window height / 12). confirm=true presses and holds at the point the last '
+      + 'preview settled on, then returns the post-action screenshot. duration_seconds defaults to 3 and must be 1–10.',
     parameters: {
       screen_index: { type: 'integer', required: true, description: '0 for the attached frontmost-window screenshot.' },
       position: {
@@ -762,6 +1132,13 @@ export function applyComputerUse(
         default: 3,
         description: 'Hold duration in seconds. Default: 3. Must be 1–10.',
       },
+      confirm: {
+        type: 'boolean',
+        default: false,
+        description:
+          'false (default) previews only: moves the pointer to the target and returns a zoomed crop without '
+          + 'holding. Pass true to execute.',
+      },
     },
     output: {
       schema: {
@@ -771,13 +1148,17 @@ export function applyComputerUse(
           screenIndex: { type: 'integer', required: true },
           position: { type: 'array', required: true, items: { type: 'number' } },
           durationSeconds: { type: 'number', required: true },
+          confirmed: { type: 'boolean', required: true },
+          zoomLevel: { type: 'number' },
           ...COORDINATE_FIELDS,
           screens: SCREENS_FIELD,
           foreground: FOREGROUND_FIELD,
         },
       },
       render: (_args, value) => resultBlocks(
-        `Long-pressed screen ${String(value.screenIndex)} at [${value.position.join(', ')}] for ${String(value.durationSeconds)}s. ${coordinatesRemain(value)}`,
+        value.confirmed === false
+          ? previewText(value, 'long press')
+          : `Long-pressed screen ${String(value.screenIndex)} at [${value.position.join(', ')}] for ${String(value.durationSeconds)}s. ${coordinatesRemain(value)}`,
         value.screens,
         value.foreground,
         value,
@@ -793,12 +1174,22 @@ export function applyComputerUse(
       await assertImageCapableRoute(ctx, exec)
       const position = validatedPosition(exec, args.position)
       const durationSeconds = requireLongPressDuration(args.duration_seconds)
+      const confirm = args.confirm === true
       return guiTurn(backend, exec, async () => {
-        const screens = await backend.listScreens(exec.signal)
-        const screen = requireScreen(screens, args.screen_index)
-        await backend.longPress({
-          screen,
+        const gate = await runPointerAction(ctx, exec, backend, {
+          screenIndex: args.screen_index,
           position: hidPosition(exec, position),
+          confirm,
+          tool: 'long_press',
+        }, {
+          screenIndex: args.screen_index,
+          position,
+          durationSeconds,
+        })
+        if (gate.done) return gate.result
+        await backend.longPress({
+          screen: pointScreenAt(gate.point, gate.windowScreen.windowId, 1),
+          position: [0, 0],
           durationSeconds,
         }, exec.signal)
         const observation = await recapture(ctx, backend, exec, config.postActionWaitMs)
@@ -806,6 +1197,7 @@ export function applyComputerUse(
           screenIndex: args.screen_index,
           position,
           durationSeconds,
+          confirmed: true,
           ...observedFields(sessionOf(exec), observation),
         }
       })
@@ -815,7 +1207,10 @@ export function applyComputerUse(
   ctx.tools.register(defineTool({
     name: 'drag',
     description:
-      'Drag from a start 0–1000 position to an end 0–1000 position on the attached frontmost-window screenshot, then return the post-action screenshot.',
+      'Two-step drag with two-stage aiming at the start point. Without confirm it moves the pointer to the start '
+      + 'and returns a zoomed crop (screen 1); call again with start_screen_index=1 and a position inside the crop '
+      + 'to aim finer (the second preview zooms to window height / 12). confirm=true drags from the point the last '
+      + 'preview settled on to the given end position, then returns the post-action screenshot.',
     parameters: {
       start_screen_index: {
         type: 'integer',
@@ -839,6 +1234,13 @@ export function applyComputerUse(
         items: { type: 'number' },
         description: '[x, y] end as a 0–1000 fraction of that screenshot, not pixels.',
       },
+      confirm: {
+        type: 'boolean',
+        default: false,
+        description:
+          'false (default) previews only: moves the pointer to the start and returns a zoomed crop without '
+          + 'dragging. Pass true to execute.',
+      },
     },
     output: {
       schema: {
@@ -849,14 +1251,18 @@ export function applyComputerUse(
           startPosition: { type: 'array', required: true, items: { type: 'number' } },
           endScreenIndex: { type: 'integer', required: true },
           endPosition: { type: 'array', required: true, items: { type: 'number' } },
+          confirmed: { type: 'boolean', required: true },
+          zoomLevel: { type: 'number' },
           ...COORDINATE_FIELDS,
           screens: SCREENS_FIELD,
           foreground: FOREGROUND_FIELD,
         },
       },
       render: (_args, value) => resultBlocks(
-        `Dragged from screen ${String(value.startScreenIndex)} [${value.startPosition.join(', ')}] `
-        + `to screen ${String(value.endScreenIndex)} [${value.endPosition.join(', ')}]. ${coordinatesRemain(value)}`,
+        value.confirmed === false
+          ? previewText({ zoomLevel: value.zoomLevel }, 'drag')
+          : `Dragged from screen ${String(value.startScreenIndex)} [${value.startPosition.join(', ')}] `
+            + `to screen ${String(value.endScreenIndex)} [${value.endPosition.join(', ')}]. ${coordinatesRemain(value)}`,
         value.screens,
         value.foreground,
         value,
@@ -871,13 +1277,25 @@ export function applyComputerUse(
       await assertImageCapableRoute(ctx, exec)
       const startPosition = validatedPosition(exec, args.start_position)
       const endPosition = validatedPosition(exec, args.end_position)
+      const confirm = args.confirm === true
       return guiTurn(backend, exec, async () => {
+        const gate = await runPointerAction(ctx, exec, backend, {
+          screenIndex: args.start_screen_index,
+          position: hidPosition(exec, startPosition),
+          confirm,
+          tool: 'drag',
+        }, {
+          startScreenIndex: args.start_screen_index,
+          startPosition,
+          endScreenIndex: args.end_screen_index,
+          endPosition,
+        })
+        if (gate.done) return gate.result
         const screens = await backend.listScreens(exec.signal)
-        const startScreen = requireScreen(screens, args.start_screen_index)
         const endScreen = requireScreen(screens, args.end_screen_index)
         await backend.drag({
-          startScreen,
-          startPosition: hidPosition(exec, startPosition),
+          startScreen: pointScreenAt(gate.point, gate.windowScreen.windowId, 1),
+          startPosition: [0, 0],
           endScreen,
           endPosition: hidPosition(exec, endPosition),
         }, exec.signal)
@@ -887,6 +1305,7 @@ export function applyComputerUse(
           startPosition,
           endScreenIndex: args.end_screen_index,
           endPosition,
+          confirmed: true,
           ...observedFields(sessionOf(exec), observation),
         }
       })

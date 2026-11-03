@@ -82,6 +82,11 @@ function desktopBackend(ctx: Context, inner: ReturnType<typeof createPlatformBac
     listApps: signal => resolve().listApps(signal),
     openApp: (input, signal) => resolve().openApp(input, signal),
     click: (input, signal) => resolve().click(input, signal),
+    zoom: (input, signal) => {
+      const zoom = resolve().zoom
+      if (zoom === undefined) throw new Error('computer-use: zoom is unavailable on this platform')
+      return zoom(input, signal)
+    },
     typeText: (input, signal) => resolve().typeText(input, signal),
     scroll: (input, signal) => resolve().scroll(input, signal),
     hotkey: (input, signal) => resolve().hotkey(input, signal),

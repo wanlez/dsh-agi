@@ -11,6 +11,7 @@ import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-test
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { MockAdapter, textResponse, toolCallResponse } from './fixtures/mock-adapter.ts'
+import { withFakeZoom } from './fixtures/fake-zoom.ts'
 import { resolveComputerUseConfig } from '../src/config.ts'
 import { createFakeDesktopBackend } from '../src/fake.ts'
 import { applyComputerUse } from '../src/plugin.ts'
@@ -93,7 +94,7 @@ async function harness(adapter: LlmAdapter) {
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(LocalAttachmentStore, { dshHome: home })
   await ctx.plugin(AgentLoop, { agents: [] })
-  const backend = createFakeDesktopBackend()
+  const backend = withFakeZoom(createFakeDesktopBackend())
   applyComputerUse(ctx, backend, resolveComputerUseConfig({ postActionWaitMs: 0 }))
   ctx.llm.registerAdapter(['mock'], adapter)
   const agent = await ctx.agentLoop.create(SessionId('computer-use-loop'), { provider: 'mock', model: 'mock' })
@@ -104,6 +105,8 @@ describe('computer-use agent loop', () => {
   it('attaches first-frame screens on a user turn and returns click images on the next request', async () => {
     const adapter = new VisionAdapter([
       toolCallResponse('click-1', 'click', { screen_index: 0, position: [100, 100] }),
+      // A preview only aims; the second call confirms the point it settled on.
+      toolCallResponse('click-2', 'click', { screen_index: 0, position: [100, 100], confirm: true }),
       textResponse('DONE'),
     ])
     const { ctx, agent, backend } = await harness(adapter)
@@ -145,10 +148,12 @@ describe('computer-use agent loop', () => {
     const idle = waitForIdle(ctx, agent)
     send(agent, 'click both points')
     await idle
-    const clicks = backend.actions.filter(action => action.type === 'click')
-    expect(clicks.map(action => action.type === 'click' ? action.input.position : undefined)).toEqual([
-      [100, 100],
-      [200, 300],
+    // Both calls only preview: each one moves the pointer and records its own crop, and
+    // neither acts until a later confirm.
+    expect(backend.actions.filter(action => action.type === 'click')).toEqual([])
+    expect(backend.zooms.map(zoom => zoom.result.point)).toEqual([
+      { x: 100, y: 80 },
+      { x: 200, y: 240 },
     ])
     const results = agent.session.snapshotEvents().filter(event => event.type === 'tool/result')
     expect(results).toHaveLength(2)

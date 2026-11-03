@@ -150,6 +150,33 @@ export interface DragInput {
   readonly endPosition: readonly [number, number]
 }
 
+/**
+ * Square zoom crop around one point, used by two-stage aiming.
+ *
+ * The backend moves the pointer to the point first, so the crop shows the element the
+ * click would land on with a crosshair over the exact pixel.
+ */
+export interface ZoomInput {
+  /** Screen whose bounds the 0–1000 position is measured on. */
+  readonly screen: ScreenInfo
+  /** Pointer position as a 0–1000 fraction of `screen`. */
+  readonly position: readonly [number, number]
+  /** Crop side in physical pixels; default is one sixth of the window height. */
+  readonly side?: number
+  /** Rectangle the crop is clamped to; default is `screen.bounds` (the whole window). */
+  readonly clamp?: ScreenInfo['bounds']
+}
+
+/** One zoom crop plus the pixel point it is centered on. */
+export interface ZoomResult {
+  /** Pointer position the crop was taken around, in physical screen pixels. */
+  readonly point: { readonly x: number; readonly y: number }
+  /** Captured rectangle in physical screen pixels. */
+  readonly rect: { readonly x: number; readonly y: number; readonly width: number; readonly height: number }
+  readonly data: Uint8Array
+  readonly mediaType: ImageMediaType
+}
+
 /** Open the default browser, or a validated http(s) URL in it. */
 export interface OpenInBrowserInput {
   /** Normalized http(s) URL. Omit to launch the default browser with no page. */
@@ -217,6 +244,17 @@ export interface DesktopBackend {
    * @param signal - cooperative cancellation.
    */
   click(input: ClickInput, signal?: AbortSignal): Promise<void>
+  /**
+   * Move the pointer to a 0–1000 position on `input.screen` and capture a square crop
+   * around it, for the pre-action preview of two-stage aiming.
+   *
+   * Optional: only the Windows backend implements it. Callers must treat a missing
+   * implementation as "this platform cannot zoom".
+   * @param input - screen, position, optional crop side and clamp rectangle.
+   * @param signal - cooperative cancellation (used by the overlay wrapper).
+   * @returns the pointer point, crop rectangle, and encoded PNG bytes.
+   */
+  zoom?(input: ZoomInput, signal?: AbortSignal): Promise<ZoomResult>
   /**
    * Click to focus, optionally select-all, type `text`, and optionally press Enter.
    * @param input - screen, position, text, and modifiers.

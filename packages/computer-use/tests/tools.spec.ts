@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -13,6 +13,7 @@ import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
 import { FOCUS_FALLBACK_FOREGROUND, type DesktopForeground, type ScreenInfo } from '../src/backend.ts'
 import { resolveComputerUseConfig } from '../src/config.ts'
 import { createFakeDesktopBackend, FAKE_WINDOW_PNG } from '../src/fake.ts'
+import { withFakeZoom } from './fixtures/fake-zoom.ts'
 import { applyComputerUse } from '../src/plugin.ts'
 import { apply, Config, inject, name } from '../src/index.ts'
 import * as ComputerUse from '../src/index.ts'
@@ -67,8 +68,7 @@ function execute(ctx: Context, tool: string, args: unknown, model = 'vision-mode
   })
 }
 
-function promptAgent(session: Session): Agent {
-  return {
+function promptAgent(session: Session): Agent {  return {
     id: session.id,
     session,
     options: { provider: 'visual', model: 'vision-model' },
@@ -77,6 +77,22 @@ function promptAgent(session: Session): Agent {
 
 function text(result: { content: { type: string; text?: string }[] }): string {
   return result.content.filter(block => block.type === 'text').map(block => block.text).join('\n')
+}
+
+/**
+ * Run one pointer tool through both aiming steps on one session.
+ * The first call previews, the second confirms the point it settled on.
+ */
+async function twoStep(
+  ctx: Context,
+  tool: string,
+  args: object,
+  session: Session,
+): Promise<{ preview: Awaited<ReturnType<typeof execute>>; result: Awaited<ReturnType<typeof execute>> }> {
+  const preview = await execute(ctx, tool, args, 'vision-model', session)
+  if (preview.isError) return { preview, result: preview }
+  const result = await execute(ctx, tool, { ...args, confirm: true }, 'vision-model', session)
+  return { preview, result }
 }
 
 const homes: string[] = []
@@ -122,12 +138,12 @@ async function setup(options: {
       { provider: 'visual', id: 'plain-model', name: 'Plain' },
     ]))
   }
-  const backend = createFakeDesktopBackend({
+  const backend = withFakeZoom(createFakeDesktopBackend({
     ...options.foreground === undefined ? {} : { foreground: options.foreground },
     ...options.screens === undefined ? {} : { screens: options.screens },
     ...options.apps === undefined ? {} : { apps: options.apps },
     ...options.png === undefined ? {} : { png: options.png },
-  })
+  }))
   applyComputerUse(ctx, backend, resolveComputerUseConfig({
     postActionWaitMs: options.postActionWaitMs ?? 0,
   }))
@@ -148,13 +164,26 @@ describe('plugin metadata', () => {
 describe('computer-use tools', () => {
   it('records a click and returns image blocks without a filesystem path', async () => {
     const { ctx, backend } = await setup()
-    const result = await execute(ctx, 'click', { screen_index: 0, position: [100, 200] })
+    const session = Session.create(SessionId('cu-click-basic'))
+    const preview = await execute(ctx, 'click', { screen_index: 0, position: [100, 200] }, 'vision-model', session)
+    expect(preview.isError).toBe(false)
+    // A preview only aims: it moves the pointer and returns the zoom crop as screen 1.
+    expect(text(preview)).toContain('Preview only — no click was performed')
+    expect(text(preview)).toContain('<screen_index>1</screen_index>')
+    expect(backend.actions).toHaveLength(0)
+    expect(backend.zooms).toHaveLength(1)
+    const result = await execute(ctx, 'click', {
+      screen_index: 0, position: [100, 200], confirm: true,
+    }, 'vision-model', session)
     expect(result.isError).toBe(false)
     expect(backend.actions).toHaveLength(1)
     expect(backend.actions[0]).toMatchObject({
       type: 'click',
       input: {
-        position: [100, 200],
+        // The confirmed click is posted at the exact pixel point the preview settled on:
+        // [100, 200] of a 1000×800 window maps to (100, 160).
+        screen: { bounds: { x: 100, y: 160, width: 1000, height: 1000 } },
+        position: [0, 0],
         button: 'left',
         count: 1,
       },
@@ -223,25 +252,27 @@ describe('computer-use tools', () => {
 
   it('holds click modifiers only for that click', async () => {
     const { ctx, backend } = await setup()
-    const result = await execute(ctx, 'click', {
+    const session = Session.create(SessionId('cu-click-modifiers'))
+    const modified = await twoStep(ctx, 'click', {
       screen_index: 0, position: [100, 200], modifiers: ['cmd', 'shift'],
-    })
-    expect(result.isError).toBe(false)
-    expect(text(result)).toContain('modifiers cmd, shift')
+    }, session)
+    expect(modified.preview.isError).toBe(false)
+    expect(modified.result.isError).toBe(false)
+    expect(text(modified.result)).toContain('modifiers cmd, shift')
     expect(backend.actions[0]).toMatchObject({
       type: 'click',
       input: {
-        position: [100, 200],
+        position: [0, 0],
         button: 'left',
         count: 1,
         modifiers: ['cmd', 'shift'],
       },
     })
-    const empty = await execute(ctx, 'click', {
+    const empty = await twoStep(ctx, 'click', {
       screen_index: 0, position: [1, 1], modifiers: [],
-    })
-    expect(empty.isError).toBe(false)
-    expect(text(empty)).not.toContain('modifiers')
+    }, session)
+    expect(empty.result.isError).toBe(false)
+    expect(text(empty.result)).not.toContain('modifiers')
     const emptyClick = backend.actions[1]
     expect(emptyClick?.type).toBe('click')
     if (emptyClick?.type === 'click') {
@@ -272,10 +303,11 @@ describe('computer-use tools', () => {
 
   it('types, scrolls, hotkeys, and waits through the fake backend', async () => {
     const { ctx, backend } = await setup()
-    const typed = await execute(ctx, 'input_text', {
+    const session = Session.create(SessionId('cu-mixed-tools'))
+    const typed = await twoStep(ctx, 'input_text', {
       screen_index: 0, position: [10, 10], text: 'hello', replace: true, submit: true,
-    })
-    expect(typed.isError).toBe(false)
+    }, session)
+    expect(typed.result.isError).toBe(false)
     expect(backend.actions.at(-1)).toMatchObject({
       type: 'typeText',
       input: { text: 'hello', replace: true, submit: true },
@@ -293,17 +325,17 @@ describe('computer-use tools', () => {
     const extra = await execute(ctx, 'wait', { wait_seconds: 5 })
     expect(extra.isError).toBe(false)
     expect(text(extra)).toContain('Waited 1s')
-    const right = await execute(ctx, 'click', { screen_index: 0, position: [1, 1], button: 'right', count: 2 })
-    expect(right.isError).toBe(false)
+    const right = await twoStep(ctx, 'click', { screen_index: 0, position: [1, 1], button: 'right', count: 2 }, session)
+    expect(right.result.isError).toBe(false)
     expect(backend.actions.some(action => action.type === 'click' && action.input.button === 'right' && action.input.count === 2)).toBe(true)
     expect(ctx.tools.get('input_text')?.presentCall?.({
       screen_index: 0, position: [0, 0], text: 'x',
     })).toMatchObject({ card: 'generic', title: 'Type text' })
     expect(ctx.tools.get('wait')?.presentCall?.({})).toMatchObject({ card: 'generic', title: 'Wait' })
-    const typedDefaults = await execute(ctx, 'input_text', {
+    const typedDefaults = await twoStep(ctx, 'input_text', {
       screen_index: 0, position: [0, 0], text: 'plain',
-    })
-    expect(typedDefaults.isError).toBe(false)
+    }, session)
+    expect(typedDefaults.result.isError).toBe(false)
     expect(backend.actions.some(action =>
       action.type === 'typeText' && !action.input.replace && !action.input.submit,
     )).toBe(true)
@@ -347,7 +379,14 @@ describe('computer-use tools', () => {
 
   it('settles postActionWaitMs before recapture inspect', async () => {
     const { ctx, backend } = await setup({ postActionWaitMs: 600 })
-    const result = await execute(ctx, 'click', { screen_index: 0, position: [100, 200] })
+    const session = Session.create(SessionId('cu-settle'))
+    // The preview recaptures without a settle; the confirmed action pays postActionWaitMs.
+    const preview = await execute(ctx, 'click', { screen_index: 0, position: [100, 200] }, 'vision-model', session)
+    expect(preview.isError).toBe(false)
+    expect(waitModule.delay).not.toHaveBeenCalledWith(600, SIGNAL)
+    const result = await execute(ctx, 'click', {
+      screen_index: 0, position: [100, 200], confirm: true,
+    }, 'vision-model', session)
     expect(result.isError).toBe(false)
     expect(backend.actions[0]).toMatchObject({ type: 'click' })
     expect(waitModule.delay).toHaveBeenCalledWith(600, SIGNAL)
@@ -380,30 +419,40 @@ describe('computer-use tools', () => {
     expect(turns).toBe(1)
   })
 
-  it('saves a desktop screenshot and copies it to the clipboard', async () => {
+  it('saves a screenshot to save_dir and copies it to the clipboard', async () => {
     const home = await mkdtemp(join(tmpdir(), 'dsh-cu-shot-home-'))
     homes.push(home)
-    const originalWrite = screenshotModule.writeDesktopScreenshots
-    const write = vi.spyOn(screenshotModule, 'writeDesktopScreenshots').mockImplementation(
+    const originalWrite = screenshotModule.writeScreenshots
+    const write = vi.spyOn(screenshotModule, 'writeScreenshots').mockImplementation(
       (files, options) => originalWrite(files, {
         ...options,
-        home,
         now: new Date(2026, 8, 15, 20, 10, 0),
       }),
     )
     try {
       const { ctx, backend } = await setup({ png: FAKE_WINDOW_PNG })
-      const result = await execute(ctx, 'screenshot', {})
+      const result = await execute(ctx, 'screenshot', { save_dir: home })
       expect(result.isError).toBe(false)
-      const saved = join(home, 'Desktop', 'Screenshot 2026-09-15 at 20.10.00.png')
+      const saved = join(home, 'Screenshot 2026-09-15 at 20.10.00.png')
       expect(text(result)).toContain(`Saved screenshot to ${saved}`)
       expect(text(result)).toContain('copied it to the clipboard')
-      expect(backend.actions.at(-1)).toMatchObject({
+      const clipboard = backend.actions.at(-1)
+      expect(clipboard).toMatchObject({
         type: 'copyImageToClipboard',
-        input: { path: saved, mediaType: 'image/png' },
+        input: { mediaType: 'image/png' },
       })
+      if (clipboard?.type === 'copyImageToClipboard') {
+        // The clipboard reads a scratch copy, and that copy is gone afterwards.
+        expect(clipboard.input.path).toContain('dsh-agi-shot-')
+        await expect(readFile(clipboard.input.path)).rejects.toThrow()
+      }
       expect(ctx.tools.get('screenshot')?.presentCall?.({}))
         .toMatchObject({ card: 'generic', title: 'Screenshot' })
+      // Without save_dir the capture still reaches the clipboard but keeps no file.
+      const noFile = await execute(ctx, 'screenshot', {})
+      expect(noFile.isError).toBe(false)
+      expect(text(noFile)).toContain('Screenshot captured (no file kept; pass save_dir to keep one copy)')
+      expect(text(noFile)).not.toContain('<path>')
       const textRoute = await execute(ctx, 'screenshot', {}, 'text-model')
       expect(textRoute.isError).toBe(true)
       expect(text(textRoute)).toContain('does not declare image input')
@@ -413,32 +462,18 @@ describe('computer-use tools', () => {
   })
 
   it('holds the screen lock while the screenshot writes the clipboard', async () => {
-    const home = await mkdtemp(join(tmpdir(), 'dsh-cu-shot-lock-'))
-    homes.push(home)
-    const originalWrite = screenshotModule.writeDesktopScreenshots
-    const write = vi.spyOn(screenshotModule, 'writeDesktopScreenshots').mockImplementation(
-      (files, options) => originalWrite(files, {
-        ...options,
-        home,
-        now: new Date(2026, 8, 15, 20, 10, 0),
-      }),
-    )
-    try {
-      const { ctx, backend } = await setup({ png: FAKE_WINDOW_PNG })
-      const held: boolean[] = []
-      backend.copyImageToClipboard = async () => { held.push(screenLockState().held) }
-      const result = await execute(ctx, 'screenshot', {})
-      expect(result.isError).toBe(false)
-      // The clipboard write runs under the lock; nothing holds it afterwards.
-      expect(held).toEqual([true])
-      expect(screenLockState().held).toBe(false)
-    } finally {
-      write.mockRestore()
-    }
+    const { ctx, backend } = await setup({ png: FAKE_WINDOW_PNG })
+    const held: boolean[] = []
+    backend.copyImageToClipboard = async () => { held.push(screenLockState().held) }
+    const result = await execute(ctx, 'screenshot', {})
+    expect(result.isError).toBe(false)
+    // The clipboard write runs under the lock; nothing holds it afterwards.
+    expect(held).toEqual([true])
+    expect(screenLockState().held).toBe(false)
   })
 
   it('skips Desktop, clipboard, and image blocks when the capture is smaller than 2×2', async () => {
-    const write = vi.spyOn(screenshotModule, 'writeDesktopScreenshots')
+    const write = vi.spyOn(screenshotModule, 'writeScreenshots')
     try {
       const { ctx, backend } = await setup()
       const result = await execute(ctx, 'screenshot', {})
@@ -567,20 +602,22 @@ describe('computer-use tools', () => {
     expect(text(stringFail)).toContain('Could not open Pages: boom')
   })
 
-  it('fails loud when screenshot writing returns no paths', async () => {
-    const write = vi.spyOn(screenshotModule, 'writeDesktopScreenshots').mockResolvedValue([])
+  it('fails loud when the screenshot file write fails', async () => {
+    const write = vi.spyOn(screenshotModule, 'writeScreenshots').mockRejectedValue(
+      new Error('computer-use: could not allocate a unique screenshot filename'),
+    )
     try {
       const { ctx } = await setup({ png: FAKE_WINDOW_PNG })
-      const result = await execute(ctx, 'screenshot', {})
+      const result = await execute(ctx, 'screenshot', { save_dir: tmpdir() })
       expect(result.isError).toBe(true)
-      expect(text(result)).toContain('produced no files')
+      expect(text(result)).toContain('could not allocate a unique screenshot filename')
     } finally {
       write.mockRestore()
     }
   })
 
   it('fails loud when screenshot has no window to capture', async () => {
-    const write = vi.spyOn(screenshotModule, 'writeDesktopScreenshots')
+    const write = vi.spyOn(screenshotModule, 'writeScreenshots')
     try {
       const { ctx, backend } = await setup({
         screens: [],
@@ -618,27 +655,30 @@ describe('computer-use tools', () => {
     await writeFile(file, 'x')
     const resolvedFile = await realpath(file)
     const resolvedHome = await realpath(home)
-    const pressed = await execute(ctx, 'long_press', { screen_index: 0, position: [10, 20] })
-    expect(pressed.isError).toBe(false)
-    expect(text(pressed)).toContain('Long-pressed screen 0 at [10, 20] for 3s')
+    const session = Session.create(SessionId('cu-long-press-drag'))
+    const pressed = await twoStep(ctx, 'long_press', { screen_index: 0, position: [10, 20] }, session)
+    expect(pressed.preview.isError).toBe(false)
+    expect(text(pressed.preview)).toContain('Preview only — no long press was performed')
+    expect(pressed.result.isError).toBe(false)
+    expect(text(pressed.result)).toContain('Long-pressed screen 0 at [10, 20] for 3s')
     expect(backend.actions.at(-1)).toMatchObject({
       type: 'longPress',
-      input: { position: [10, 20], durationSeconds: 3 },
+      input: { position: [0, 0], durationSeconds: 3 },
     })
-    const held = await execute(ctx, 'long_press', {
+    const held = await twoStep(ctx, 'long_press', {
       screen_index: 0, position: [0, 0], duration_seconds: 2,
-    })
-    expect(held.isError).toBe(false)
+    }, session)
+    expect(held.result.isError).toBe(false)
     expect(backend.actions.at(-1)).toMatchObject({
       type: 'longPress',
       input: { durationSeconds: 2 },
     })
-    const dragged = await execute(ctx, 'drag', {
+    const dragged = await twoStep(ctx, 'drag', {
       start_screen_index: 0, start_position: [0, 0],
       end_screen_index: 0, end_position: [500, 500],
-    })
-    expect(dragged.isError).toBe(false)
-    expect(text(dragged)).toContain('Dragged from screen 0 [0, 0] to screen 0 [500, 500]')
+    }, session)
+    expect(dragged.result.isError).toBe(false)
+    expect(text(dragged.result)).toContain('Dragged from screen 0 [0, 0] to screen 0 [500, 500]')
     expect(backend.actions.at(-1)).toMatchObject({
       type: 'drag',
       input: { startPosition: [0, 0], endPosition: [500, 500] },
@@ -701,9 +741,11 @@ describe('computer-use tools', () => {
     expect(text(shot)).toContain('screenshot shortcuts are forbidden')
     const position = await execute(ctx, 'click', { screen_index: 0, position: [0] })
     expect(position.isError).toBe(true)
-    const missing = await execute(ctx, 'click', { screen_index: 9, position: [0, 0] })
-    expect(missing.isError).toBe(true)
-    expect(text(missing)).toContain('out of range')
+    // Screen 1 is the previous preview's crop; without one it must ask for a preview.
+    const orphanZoom = await execute(ctx, 'click', { screen_index: 1, position: [0, 0] },
+      'vision-model', Session.create(SessionId('cu-no-preview')))
+    expect(orphanZoom.isError).toBe(true)
+    expect(text(orphanZoom)).toContain('preview on screen 0 first')
     const scroll = await execute(ctx, 'scroll', {
       screen_index: 0, position: [0, 0], direction: 'down', scroll_level: 11,
     })
@@ -958,12 +1000,15 @@ describe('screen envelopes', () => {
     const { ctx, backend } = await setup({
       screens: [{ index: 0, bounds: { x: 100, y: 200, width: 400, height: 300 }, scale: 2, windowId: 8 }],
     })
-    const result = await execute(ctx, 'click', { screen_index: 0, position: [0, 0] })
+    const session = Session.create(SessionId('cu-window-bounds'))
+    const { preview, result } = await twoStep(ctx, 'click', { screen_index: 0, position: [0, 0] }, session)
+    expect(preview.isError).toBe(false)
     expect(result.isError).toBe(false)
     expect(backend.actions[0]).toMatchObject({
       type: 'click',
       input: {
-        screen: { bounds: { x: 100, y: 200, width: 400, height: 300 } },
+        // The window origin becomes a one-use screen whose [0, 0] is that exact pixel.
+        screen: { bounds: { x: 100, y: 200, width: 1000, height: 1000 } },
         position: [0, 0],
       },
     })
@@ -1013,24 +1058,28 @@ describe('computer-use session coordinate modes', () => {
     expect(waited.isError).toBe(false)
     expect(text(waited)).toContain('<coordinate_space>pixels</coordinate_space>')
     expect(text(waited)).toContain('<attached_size>1x1</attached_size>')
-    const result = await execute(ctx, 'click', { screen_index: 0, position: [1, 1] }, 'vision-model', session)
-    expect(result.isError).toBe(false)
+    const result = await twoStep(ctx, 'click', { screen_index: 0, position: [1, 1] }, session)
+    expect(result.result.isError).toBe(false)
     expect(backend.actions.at(-1)).toMatchObject({
       type: 'click',
-      input: { position: [1000, 1000] },
+      // Pixel [1, 1] of the 1×1 raster maps to the window's bottom-right pixel.
+      input: {
+        screen: { bounds: { x: 410, y: 220, width: 1000, height: 1000 } },
+        position: [0, 0],
+      },
     })
-    expect(text(result)).toContain('Clicked screen 0 at [1, 1]')
-    expect(text(result)).toContain('Coordinates remain pixels of the attached 1x1 screenshot.')
+    expect(text(result.result)).toContain('Clicked screen 0 at [1, 1]')
+    expect(text(result.result)).toContain('Coordinates remain pixels of the attached 1x1 screenshot.')
     const oob = await execute(ctx, 'click', { screen_index: 0, position: [2, 0] }, 'vision-model', session)
     expect(oob.isError).toBe(true)
     expect(text(oob)).toContain('1x1')
-    const drag = await execute(ctx, 'drag', {
+    const drag = await twoStep(ctx, 'drag', {
       start_screen_index: 0,
       start_position: [0, 0],
       end_screen_index: 0,
       end_position: [1, 1],
-    }, 'vision-model', session)
-    expect(drag.isError).toBe(false)
+    }, session)
+    expect(drag.result.isError).toBe(false)
     expect(backend.actions.at(-1)).toMatchObject({
       type: 'drag',
       input: { startPosition: [0, 0], endPosition: [1000, 1000] },
@@ -1061,30 +1110,39 @@ describe('cross-session screen lock', () => {
     const { ctx, backend } = await setup()
     const gate = Promise.withResolvers<void>()
     const entered = Promise.withResolvers<void>()
-    const inner = backend.click.bind(backend)
+    const inner = backend.zoom.bind(backend)
     let gated = true
-    ;(backend as { click: typeof backend.click }).click = async (input, signal) => {
+    // The preview aims inside the lock, so gating the zoom holds the screen open.
+    backend.zoom = async (input) => {
       if (gated) {
         gated = false
         entered.resolve()
         await gate.promise
       }
-      return inner(input, signal)
+      return inner(input)
     }
+    const firstAgent = agentWithId('session-first')
+    const secondAgent = agentWithId('session-second')
 
-    const first = executeAs(ctx, agentWithId('session-first'), 'click', { screen_index: 0, position: [100, 200] })
+    const first = executeAs(ctx, firstAgent, 'click', { screen_index: 0, position: [100, 200] })
     await entered.promise
-    const busy = await executeAs(ctx, agentWithId('session-second'), 'click', { screen_index: 0, position: [300, 400] })
+    const busy = await executeAs(ctx, secondAgent, 'click', { screen_index: 0, position: [300, 400] })
     expect(busy.isError).toBe(true)
     expect(text(busy)).toContain('Another Computer Use session is operating the screen')
     expect(backend.actions).toHaveLength(0)
 
     gate.resolve()
     expect((await first).isError).toBe(false)
+    expect(backend.actions).toHaveLength(0)
+    // The first session confirms the point it previewed.
+    const confirm = await executeAs(ctx, firstAgent, 'click', {
+      screen_index: 0, position: [100, 200], confirm: true,
+    })
+    expect(confirm.isError).toBe(false)
     expect(backend.actions).toHaveLength(1)
-    const retry = await executeAs(ctx, agentWithId('session-second'), 'click', { screen_index: 0, position: [300, 400] })
+    const retry = await executeAs(ctx, secondAgent, 'click', { screen_index: 0, position: [300, 400] })
     expect(retry.isError).toBe(false)
-    expect(backend.actions).toHaveLength(2)
+    expect(backend.actions).toHaveLength(1)
   })
 
   it('does not hold the screen across capture-only actions', async () => {

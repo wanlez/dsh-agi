@@ -71,6 +71,134 @@ export function flipRows(pixels: Buffer, rowBytes: number, height: number): void
   }
 }
 
+/** 5x7 digit glyphs used to label the capture grid. */
+const GRID_GLYPHS: readonly (readonly string[])[] = [
+  ['01110', '10001', '10011', '10101', '11001', '10001', '01110'],
+  ['00100', '01100', '00100', '00100', '00100', '00100', '01110'],
+  ['01110', '10001', '00001', '00010', '00100', '01000', '11111'],
+  ['11110', '00001', '00001', '01110', '00001', '00001', '11110'],
+  ['00010', '00110', '01010', '10010', '11111', '00010', '00010'],
+  ['11111', '10000', '11110', '00001', '00001', '10001', '01110'],
+  ['00110', '01000', '10000', '11110', '10001', '10001', '01110'],
+  ['11111', '00001', '00010', '00100', '01000', '01000', '01000'],
+  ['01110', '10001', '10001', '01110', '10001', '10001', '01110'],
+  ['01110', '10001', '10001', '01111', '00001', '00010', '01100'],
+]
+
+/**
+ * Blend one BGRA pixel toward an RGB color.
+ * @param pixels - BGRA raster, mutated in place.
+ * @param index - byte offset of the pixel.
+ * @param r - red channel of the overlay color, 0–255.
+ * @param g - green channel.
+ * @param b - blue channel.
+ * @param alpha - overlay opacity, 0–1.
+ */
+function blendPixel(pixels: Buffer, index: number, r: number, g: number, b: number, alpha: number): void {
+  const inv = 1 - alpha
+  pixels[index] = Math.round((pixels[index] ?? 0) * inv + b * alpha)
+  pixels[index + 1] = Math.round((pixels[index + 1] ?? 0) * inv + g * alpha)
+  pixels[index + 2] = Math.round((pixels[index + 2] ?? 0) * inv + r * alpha)
+}
+
+/**
+ * Draw one 5x7 glyph scaled up, clipped to the raster.
+ * @param pixels - BGRA raster, mutated in place.
+ * @param width - raster width.
+ * @param height - raster height.
+ * @param x0 - glyph left edge.
+ * @param y0 - glyph top edge.
+ * @param glyph - seven rows of five `0`/`1` characters.
+ * @param scale - pixels per glyph dot.
+ * @param color - overlay color and opacity as `[r, g, b, alpha]`.
+ */
+function drawGlyph(
+  pixels: Buffer,
+  width: number,
+  height: number,
+  x0: number,
+  y0: number,
+  glyph: readonly string[],
+  scale: number,
+  color: readonly [number, number, number, number],
+): void {
+  for (let row = 0; row < 7; row += 1) {
+    const bits = glyph[row]
+    if (bits === undefined) continue
+    for (let col = 0; col < 5; col += 1) {
+      if (bits[col] !== '1') continue
+      for (let dy = 0; dy < scale; dy += 1) {
+        for (let dx = 0; dx < scale; dx += 1) {
+          const x = x0 + col * scale + dx
+          const y = y0 + row * scale + dy
+          if (x < 0 || y < 0 || x >= width || y >= height) continue
+          blendPixel(pixels, (y * width + x) * 4, color[0], color[1], color[2], color[3])
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Draw a crosshair at a raster position so a zoomed crop shows the exact click point.
+ * @param pixels - BGRA raster, mutated in place.
+ * @param width - raster width.
+ * @param height - raster height.
+ * @param cx - crosshair x in raster pixels.
+ * @param cy - crosshair y in raster pixels.
+ */
+export function drawCrosshair(pixels: Buffer, width: number, height: number, cx: number, cy: number): void {
+  const x = Math.round(cx)
+  const y = Math.round(cy)
+  if (x < 0 || y < 0 || x >= width || y >= height) return
+  const arm = 16
+  const put = (px: number, py: number, r: number, g: number, b: number, a: number): void => {
+    if (px < 0 || py < 0 || px >= width || py >= height) return
+    blendPixel(pixels, (py * width + px) * 4, r, g, b, a)
+  }
+  for (let d = -arm; d <= arm; d += 1) {
+    put(x + d, y - 1, 0, 0, 0, 0.85)
+    put(x + d, y + 1, 0, 0, 0, 0.85)
+    put(x - 1, y + d, 0, 0, 0, 0.85)
+    put(x + 1, y + d, 0, 0, 0, 0.85)
+    put(x + d, y, 255, 255, 255, 0.95)
+    put(x, y + d, 255, 255, 255, 0.95)
+  }
+}
+
+/**
+ * Overlay a 10x10 labeled grid on a capture so the model can read positions.
+ *
+ * Row and column labels are 0–9 at the top-left corner of each tenth, so a point can be
+ * estimated as "column 4, row 6" and then refined on the zoom crop.
+ * @param pixels - BGRA raster, mutated in place.
+ * @param width - raster width.
+ * @param height - raster height.
+ */
+export function drawGrid(pixels: Buffer, width: number, height: number): void {
+  if (width < 40 || height < 40) return
+  for (let i = 1; i < 10; i += 1) {
+    const x = Math.min(width - 1, Math.round(width * i / 10))
+    for (let y = 0; y < height; y += 1) blendPixel(pixels, (y * width + x) * 4, 255, 64, 64, 0.35)
+    const yy = Math.min(height - 1, Math.round(height * i / 10))
+    for (let xx = 0; xx < width; xx += 1) blendPixel(pixels, (yy * width + xx) * 4, 255, 64, 64, 0.35)
+  }
+  const scale = Math.max(1, Math.min(3, Math.round(width / 640)))
+  const glyphHeight = 7 * scale
+  const glyphWidth = 5 * scale
+  for (let i = 0; i < 10; i += 1) {
+    const glyph = GRID_GLYPHS[i]
+    if (glyph === undefined) continue
+    const topX = Math.min(Math.max(0, width - glyphWidth - 2), Math.max(0, Math.round(width * i / 10)) + 2)
+    const topY = Math.min(Math.max(0, height - glyphHeight), 2)
+    drawGlyph(pixels, width, height, topX + 1, topY + 1, glyph, scale, [0, 0, 0, 0.6])
+    drawGlyph(pixels, width, height, topX, topY, glyph, scale, [255, 255, 255, 0.85])
+    const leftY = Math.min(Math.max(0, height - glyphHeight), Math.round(height * i / 10) + 2)
+    drawGlyph(pixels, width, height, 3, leftY + 1, glyph, scale, [0, 0, 0, 0.6])
+    drawGlyph(pixels, width, height, 2, leftY, glyph, scale, [255, 255, 255, 0.85])
+  }
+}
+
 /**
  * Where the cursor bitmap lands inside a capture region.
  * The pointer is measured against the region grown by `margin`; a pointer farther out

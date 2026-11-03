@@ -57,7 +57,11 @@ function isObservationAbort(error: unknown, signal: AbortSignal): boolean {
   return error instanceof Error && error.name === 'AbortError'
 }
 
-function optionalImageFields(image: {
+/**
+ * Keep the optional stored-image metadata (`name`, `originalDimensions`) off the
+ * attachment reference when the store did not report it.
+ */
+export function optionalImageFields(image: {
   name?: string
   originalDimensions?: { width: number; height: number }
 }): Pick<ObservedImage, 'name' | 'originalDimensions'> {

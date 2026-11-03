@@ -343,6 +343,20 @@ function find(node, predicate, found = []) {
   return found
 }
 
+/** The card a title belongs to, from its section class. */
+function cardOf(view, className) {
+  return find(view, (node) => node.props?.className === `dsh-agi-set-card ${className}`)[0]
+}
+
+/**
+ * The workspace card's own path button.
+ * The knowledge and persona cards also use `dsh-agi-set-path`, and they render first.
+ */
+function workspacePathButton(view) {
+  return find(cardOf(view, 'dsh-agi-set-workspace'), (node) =>
+    node.type === 'button' && node.props?.className === 'dsh-agi-set-path')[0]
+}
+
 describe('settings section', () => {
   it('registers 悬浮球 and talks to /.dsh-agi with relative fetches', async () => {
     const page = loadSection()
@@ -742,7 +756,7 @@ describe('settings section', () => {
     const defaultButton = find(view, (node) => node.type === 'button' && node.children?.includes('恢复默认工作区'))[0]
     assert.equal(defaultButton.props.disabled, true)
     assert.equal(find(view, (node) => node.type === 'button' && node.children?.includes('修改')).length, 0)
-    const pathButton = find(view, (node) => node.type === 'button' && node.props?.className === 'dsh-agi-set-path')[0]
+    const pathButton = workspacePathButton(view)
     assert.equal(pathButton.children?.[0], '/Users/test/.dsh/dsh_agi')
     pathButton.props.onClick()
     await settle()
@@ -770,7 +784,7 @@ describe('settings section', () => {
     assert.equal(page.snapshot.workspace.path, '/tmp/picked-workspace')
     view = page.render()
     assert.equal(find(view, (node) => node.children?.includes('当前工作区：/tmp/picked-workspace（自定义）')).length, 1)
-    assert.equal(find(view, (node) => node.type === 'button' && node.props?.className === 'dsh-agi-set-path')[0].children?.[0], '/tmp/picked-workspace')
+    assert.equal(workspacePathButton(view).children?.[0], '/tmp/picked-workspace')
     assert.equal(find(view, (node) => node.children?.includes('工作区已切换。')).length, 1)
     let restore = find(view, (node) => node.type === 'button' && node.children?.includes('恢复默认工作区'))[0]
     assert.equal(restore.props.disabled, false)
@@ -853,7 +867,8 @@ describe('settings section', () => {
     view = page.render()
     select = find(view, (node) => node.type === 'select' && node.props?.['aria-label'] === '保留期限')[0]
     assert.equal(select.props.value, '30')
-    assert.equal(find(view, (node) => node.type === 'button' && ['保存', '立即清理', '清空回收站', '恢复'].some((label) => node.children?.includes(label))).length, 0)
+    assert.equal(find(cardOf(view, 'dsh-agi-set-history'), (node) => node.type === 'button'
+      && ['保存', '立即清理', '清空回收站', '恢复'].some((label) => node.children?.includes(label))).length, 0)
     assert.ok(find(view, (node) => node.children?.some?.((child) => typeof child === 'string' && child.includes('系统回收站'))).length > 0)
 
     // Switching back to forever also asks first, and never starts a cleanup.
@@ -899,7 +914,7 @@ describe('settings section', () => {
     assert.equal(find(view, (node) => node.children?.includes('当前 Harness 或系统回收站不支持清理会话。')).length, 1)
   })
 
-  it('offers the new version and installs it without leaving the page', async () => {
+  it('shows the version card with the update controls locked in the local build', async () => {
     const page = loadSection()
     let view = page.render()
     await page.flush()
@@ -907,48 +922,54 @@ describe('settings section', () => {
     const text = (node) => (node.children ?? []).filter((child) => typeof child === 'string').join('')
     const texts = () => find(view, (node) => typeof node.type === 'string').map(text).join(' ')
     assert.match(texts(), /当前版本 0\.1\.0。/)
-    assert.ok(find(view, (node) => node.props?.['aria-label'] === '自动检查更新')[0], 'the automatic check is switchable')
     assert.equal(find(view, (node) => node.type === 'button' && text(node) === '更新').length, 0, 'no update is offered before one is known')
 
-    // The check finds a newer version: the card turns into a banner plus a button.
+    // The local build locks the automatic check off: the switch is disabled and sends nothing.
+    const auto = find(view, (node) => node.props?.['aria-label'] === '自动检查更新')[0]
+    assert.ok(auto, 'the automatic check is shown')
+    assert.equal(auto.props.disabled, true, 'the local build locks the automatic check')
+    const before = page.calls.length
+    auto.props.onClick()
+    await settle()
+    assert.equal(page.calls.length, before, 'a locked switch sends no request')
+
     const check = find(view, (node) => node.type === 'button' && text(node) === '检查更新')[0]
     assert.ok(check, 'a manual check is always available')
-    check.props.onClick()
-    await settle()
+    assert.equal(check.props.disabled, true, 'the local build disables the manual check')
+    assert.equal(check.props.title, '本地修改版：更新已临时禁用')
+
+    // A newer version still renders its banner; the install control stays disabled.
+    page.setUpdate({ latestVersion: '0.2.0', available: true })
+    page.reset()
     view = page.render()
-    assert.equal(page.calls.at(-1).path, '/.dsh-agi/update/check')
+    await page.flush()
+    view = page.render()
     assert.match(texts(), /新版本 0\.2\.0 可用。/)
     const install = find(view, (node) => node.type === 'button' && text(node) === '更新')[0]
     assert.ok(install)
+    assert.equal(install.props.disabled, true, 'the local build disables install')
+    assert.equal(install.props.title, '本地修改版：更新已临时禁用')
+    assert.equal(page.calls.some((call) => call.path === '/.dsh-agi/update/install'), false)
 
-    // Installing POSTs and then polls until the host reports the new state.
-    install.props.onClick()
-    await settle()
-    const installCall = page.calls.at(-1)
-    assert.equal(installCall.path, '/.dsh-agi/update/install')
-    assert.deepEqual(JSON.parse(installCall.options.body), {})
+    // The host's in-progress banner still renders while the control stays locked.
+    page.setUpdate({ updating: true })
+    page.reset()
+    view = page.render()
+    await page.flush()
     view = page.render()
     assert.match(texts(), /正在更新到 0\.2\.0…/)
-    const before = page.calls.length
-    // The settings poll runs alongside the bookmark jump bridge's poll, so the
-    // interval count is only "at least the install poll".
-    assert.ok(await page.tick() >= 1, 'the page polls while the install runs')
-    assert.equal(page.calls.slice(before).some((call) => call.path === '/.dsh-agi/update'), true)
+    const updatingButton = find(view, (node) => node.type === 'button' && text(node) === '正在更新到 0.2.0…')[0]
+    assert.equal(updatingButton?.props.disabled, true)
 
-    // A blocked install offers the approval retry with the pending package names.
+    // Every host-reported state still renders its banner or notice.
     page.setUpdate({ updating: false, available: true, error: 'build-blocked', pendingBuilds: ['koffi'] })
     page.reset()
     view = page.render()
     await page.flush()
     view = page.render()
     assert.match(texts(), /更新失败：新版本依赖的安装脚本未获授权/)
-    const allow = find(view, (node) => node.type === 'button' && text(node) === '允许安装脚本并重试')[0]
-    assert.ok(allow)
-    allow.props.onClick()
-    await settle()
-    assert.deepEqual(JSON.parse(page.calls.at(-1).options.body), { approvedBuilds: ['koffi'] })
+    assert.ok(find(view, (node) => node.type === 'button' && text(node) === '允许安装脚本并重试')[0])
 
-    // A manager that still reports already-installed has no removal step. Say so in words.
     page.setUpdate({ updating: false, available: true, error: 'already-installed', pendingBuilds: [] })
     page.reset()
     view = page.render()
@@ -974,12 +995,6 @@ describe('settings section', () => {
     view = page.render()
     assert.match(texts(), /更新正在安装中，安装完成前请不要退出 DeepSeek Harness。/)
     assert.equal(find(view, (node) => node.type === 'button' && text(node) === '更新').length, 0)
-
-    const toggle = find(view, (node) => node.props?.['aria-label'] === '自动检查更新')[0]
-    toggle.props.onClick()
-    await settle()
-    assert.deepEqual(JSON.parse(page.calls.at(-1).options.body), { enabled: false })
-    assert.equal(page.calls.at(-1).path, '/.dsh-agi/update/auto')
   })
 
   it('leaves the update card out where the host has no version to report', async () => {

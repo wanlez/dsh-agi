@@ -34,6 +34,12 @@ const platformBackend = vi.hoisted(() => {
     listApps: vi.fn(() => Promise.resolve(['Pages'])),
     openApp: vi.fn(() => Promise.resolve({ kind: 'activated' as const, name: 'Pages' })),
     click: vi.fn(() => Promise.resolve()),
+    zoom: vi.fn(() => Promise.resolve({
+      point: { x: 0, y: 0 },
+      rect: { x: 0, y: 0, width: 133, height: 133 },
+      data: new Uint8Array(png),
+      mediaType: 'image/png' as const,
+    })),
     typeText: vi.fn(() => Promise.resolve()),
     scroll: vi.fn(() => Promise.resolve()),
     hotkey: vi.fn(() => Promise.resolve()),
@@ -368,15 +374,27 @@ describe('apply overlay guard wiring', () => {
       { provider: 'visual', id: 'vision-model', name: 'Vision', inputModalities: ['text', 'image'] },
     ]))
     apply(host, { postActionWaitMs: 0 })
+    platformBackend.click.mockClear()
+    // The preview and the confirm must share one session, so keep the stub stable.
+    const agent = {
+      options: {},
+      session: { requestHeader: () => ({ config: { provider: 'visual', model: 'vision-model' } }) },
+    }
+    const preview = await host.tools.execute({
+      signal: SIGNAL,
+      callId: ToolCallId('unguarded-click-preview'),
+      name: 'click',
+      arguments: { screen_index: 0, position: [0, 0] },
+      agent: agent as never,
+    })
+    expect(preview.isError).toBe(false)
+    expect(platformBackend.click).not.toHaveBeenCalled()
     const result = await host.tools.execute({
       signal: SIGNAL,
       callId: ToolCallId('unguarded-click'),
       name: 'click',
-      arguments: { screen_index: 0, position: [0, 0] },
-      agent: {
-        options: {},
-        session: { requestHeader: () => ({ config: { provider: 'visual', model: 'vision-model' } }) },
-      } as never,
+      arguments: { screen_index: 0, position: [0, 0], confirm: true },
+      agent: agent as never,
     })
     expect(result.isError).toBe(false)
     expect(platformBackend.click).toHaveBeenCalled()

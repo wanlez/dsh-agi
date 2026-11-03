@@ -11,7 +11,7 @@
 import { execFileSync } from 'node:child_process'
 import { selectAppWindow } from './app-match.ts'
 import koffi from './koffi.ts'
-import { compositeCursor, cursorDrawPlacement, flipRows, resolveCursorAlpha } from './cursor.ts'
+import { compositeCursor, cursorDrawPlacement, drawCrosshair, drawGrid, flipRows, resolveCursorAlpha } from './cursor.ts'
 import { appOwnerPid } from './windows-foreground.ts'
 import type { WindowsDesktopSnapshot, WindowsWindowFact } from './windows-foreground.ts'
 import { clipboardRestoreIncomplete, encodeBgraPng, type ClipboardSnapshot, type WindowsDesktopOps, type WindowsRect } from './windows.ts'
@@ -245,6 +245,10 @@ function bind(libraries: NativeBindings): {
   DeleteDC: (hdc: unknown) => number
   GetObjectW: (handle: unknown, size: number, info: Buffer) => number
   SendInput: (count: number, inputs: unknown[], size: number) => number
+  PostMessageW: (hwnd: unknown, message: number, wParam: number, lParam: number) => number
+  ScreenToClient: (hwnd: unknown, point: NativePoint) => number
+  GetLastInputInfo: (info: Buffer) => number
+  GetTickCount: () => number
   OpenClipboard: (hwnd: unknown) => number
   EmptyClipboard: () => number
   SetClipboardData: (format: number, memory: unknown) => unknown
@@ -331,6 +335,10 @@ function bind(libraries: NativeBindings): {
     DeleteDC: gdi32.func('int __stdcall DeleteDC(void *hdc)'),
     GetObjectW: gdi32.func('int __stdcall GetObjectW(void *h, int c, _Out_ uint8_t *pv)'),
     SendInput: user32.func('uint32 __stdcall SendInput(uint32 cInputs, DSH_CU_INPUT *pInputs, int cbSize)'),
+    PostMessageW: user32.func('int __stdcall PostMessageW(void *hWnd, uint32 Msg, uintptr wParam, intptr lParam)'),
+    ScreenToClient: user32.func('int __stdcall ScreenToClient(void *hWnd, _Inout_ DSH_CU_POINT *lpPoint)'),
+    GetLastInputInfo: user32.func('int __stdcall GetLastInputInfo(_Inout_ uint8_t *plii)'),
+    GetTickCount: kernel32.func('uint32 __stdcall GetTickCount()'),
     OpenClipboard: user32.func('int __stdcall OpenClipboard(void *hWndNewOwner)'),
     EmptyClipboard: user32.func('int __stdcall EmptyClipboard()'),
     SetClipboardData: user32.func('void * __stdcall SetClipboardData(uint32 uFormat, void *hMem)'),
@@ -842,7 +850,7 @@ export function createProductionWindowsOps(): WindowsDesktopOps {
 
   return {
     listWindows,
-    capturePng(bounds) {
+    capturePng(bounds, mark) {
       return perMonitor(() => {
         const width = Math.max(1, Math.round(bounds.width))
         const height = Math.max(1, Math.round(bounds.height))
@@ -877,6 +885,12 @@ export function createProductionWindowsOps(): WindowsDesktopOps {
           }
           flipRows(pixels, width * 4, height)
           drawCursor(api, memory, pixels, width, height, region)
+          // The grid lets the model estimate a position from any screenshot; the crosshair
+          // marks the exact point a previewed pointer action will act on.
+          drawGrid(pixels, width, height)
+          if (mark !== undefined && Number.isFinite(mark.x) && Number.isFinite(mark.y)) {
+            drawCrosshair(pixels, width, height, mark.x - originX, mark.y - originY)
+          }
           return encodeBgraPng(width, height, pixels, false)
         } finally {
           api.SelectObject(memory, previous)
@@ -929,6 +943,29 @@ export function createProductionWindowsOps(): WindowsDesktopOps {
     },
     key(virtualKey, down, extended = false) {
       postKey(api, virtualKey, down, extended)
+    },
+    idleMillis() {
+      // LASTINPUTINFO is { cbSize: uint32; dwTime: uint32 }; the tick count wraps every
+      // 49.7 days, so the subtraction is done unsigned and reinterpreted.
+      const buffer = Buffer.alloc(8)
+      buffer.writeUInt32LE(8, 0)
+      if (!api.GetLastInputInfo(buffer)) return 0
+      const last = buffer.readUInt32LE(4)
+      const now = api.GetTickCount() >>> 0
+      return (now - (last >>> 0)) >>> 0
+    },
+    postClick(hwnd, x, y, button, down) {
+      const target = windowPointer(hwnd)
+      if (target === undefined) return false
+      // PostMessage carries client coordinates, so the screen point is converted first.
+      const point = { x, y }
+      if (!api.ScreenToClient(target, point)) return false
+      const message = button === 'right'
+        ? (down ? 0x0204 : 0x0205)
+        : (down ? 0x0201 : 0x0202)
+      const wParam = down ? (button === 'right' ? 2 : 1) : 0
+      const lParam = ((point.y & 0xffff) << 16) | (point.x & 0xffff)
+      return api.PostMessageW(target, message, wParam, lParam) !== 0
     },
     saveClipboard() {
       const seen: { format: number; size: number }[] = []
