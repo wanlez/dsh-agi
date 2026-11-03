@@ -84,6 +84,11 @@ export const TTS_VOCODER_SHA256 = [
 /** On-disk size the download dialog shows: about 197 MB. */
 export const TTS_MODEL_BYTES = 206_100_276
 
+/** Whole-model tarball on our own GitHub release: the last resort when every Hub origin fails. */
+export const TTS_ARCHIVE_URL = 'https://github.com/wanlez/dsh-agi/releases/download/models-v1/dsh-agi-tts-2026.10.0.tgz'
+export const TTS_ARCHIVE_SHA256 = 'e0b091f036ba7e62c5211d1c947f50ead0fdf9c573713f8e10ea5a02738694e6'
+export const TTS_ARCHIVE_BYTES = 188_072_147
+
 /** Official SenseVoice int8 trio: model + tokens + silero. The dialog says about 230 MB. */
 export const ASR_MODEL_BYTES = 239_233_841 + 315_894 + 1_807_522
 

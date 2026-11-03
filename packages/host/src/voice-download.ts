@@ -10,7 +10,7 @@ import { createWriteStream } from 'node:fs'
 import { mkdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { finished } from 'node:stream/promises'
-import { absentVoiceModels, ASR_MODEL_BYTES, TTS_EN_MODEL_SHA256, TTS_EN_REPO, TTS_MODEL_BYTES, TTS_ORIGINS, TTS_VOCODER_SHA256, TTS_ZH_MODEL_SHA256, TTS_ZH_REPO, WAKE_MODEL_NPM_MIRROR, WAKE_MODEL_NPM_OFFICIAL, WAKE_MODEL_SHA256, WAKE_MODEL_URL, type VoiceModelKind, type VoiceModels } from '@dsh-agi/voice/manifest'
+import { absentVoiceModels, ASR_MODEL_BYTES, TTS_EN_MODEL_SHA256, TTS_EN_REPO, TTS_MODEL_BYTES, TTS_ORIGINS, TTS_VOCODER_SHA256, TTS_ARCHIVE_SHA256, TTS_ARCHIVE_URL, TTS_ZH_MODEL_SHA256, TTS_ZH_REPO, WAKE_MODEL_NPM_MIRROR, WAKE_MODEL_NPM_OFFICIAL, WAKE_MODEL_SHA256, WAKE_MODEL_URL, type VoiceModelKind, type VoiceModels } from '@dsh-agi/voice/manifest'
 import { TTS_EN_FILES, TTS_VOCODER, TTS_ZH_FILES } from './tts-files.ts'
 import { asrPresent, kwsPresent, ttsPresent } from './voice-models.ts'
 
@@ -313,7 +313,34 @@ async function installTts(root: string, progress: (received: number, total: numb
     await rename(staging, root)
   } catch (error) {
     await rm(staging, { recursive: true, force: true })
-    throw error
+    try {
+      await installTtsArchive(root, progress)
+      return
+    } catch {
+      throw error
+    }
+  }
+}
+
+/** Last resort: one tarball from our own release, extracted and verified like the Hub copy. */
+async function installTtsArchive(root: string, progress: (received: number, total: number) => void): Promise<void> {
+  const archive = `${root}.download`
+  const unpacked = `${root}.unpacked`
+  await rm(archive, { force: true })
+  await rm(unpacked, { recursive: true, force: true })
+  await mkdir(unpacked, { recursive: true })
+  try {
+    await downloadFirst([{ url: TTS_ARCHIVE_URL, format: 'tgz', sha256: TTS_ARCHIVE_SHA256 }], archive, progress)
+    await extractArchive(archive, unpacked, 'tgz')
+    const wrapped = join(unpacked, 'tts-content')
+    const found = existsSync(wrapped) ? wrapped : unpacked
+    await verifyTts(found)
+    await rm(root, { recursive: true, force: true })
+    await mkdir(dirname(root), { recursive: true })
+    await rename(found, root)
+  } finally {
+    await rm(archive, { force: true })
+    await rm(unpacked, { recursive: true, force: true })
   }
 }
 
