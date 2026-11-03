@@ -63,7 +63,7 @@ export function createForegroundMemory(options: ForegroundMemoryOptions): Foregr
     try {
       native = loadWindowsForeground()
     } catch (error) {
-      console.error(`dsh-orb: foreground memory unavailable: ${error instanceof Error ? error.message : String(error)}`)
+      console.error(`dsh-agi: foreground memory unavailable: ${error instanceof Error ? error.message : String(error)}`)
       native = undefined
     }
     return native

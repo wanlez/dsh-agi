@@ -32,7 +32,7 @@ describe('appearance preferences', () => {
     const harness = settingsService([
       { ns: 'ui-theme', value: { preference: 'dark', fontSize: 14 } },
       { ns: 'locale', value: { preference: 'zh' } },
-      { ns: 'orb-host', value: { autoStart: true } },
+      { ns: 'agi-host', value: { autoStart: true } },
     ])
     assert.deepEqual(readAppearance(harness.service), { theme: 'dark', locale: 'zh' })
   })
@@ -58,7 +58,7 @@ describe('appearance preferences', () => {
     assert.deepEqual(seen[0], { theme: 'system', locale: 'zh' })
 
     // Other namespaces never notify.
-    harness.updated('orb-host')
+    harness.updated('agi-host')
     assert.equal(seen.length, 1)
 
     harness.updated('ui-theme')

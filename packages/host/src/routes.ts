@@ -19,17 +19,17 @@ import {
   type ProfileStore,
   type WorkspaceState,
 } from './preferences.ts'
-import { selectionRuntimeAvailable } from '@dsh-orb/native-selection'
-import { absentVoiceModels, type VoiceModelKind, type VoiceModels } from '@dsh-orb/voice/manifest'
-import { qwenVoiceViews, type QwenVoiceView } from '@dsh-orb/voice/qwen'
-import { type VoiceSettings } from '@dsh-orb/voice/settings'
+import { selectionRuntimeAvailable } from '@dsh-agi/native-selection'
+import { absentVoiceModels, type VoiceModelKind, type VoiceModels } from '@dsh-agi/voice/manifest'
+import { qwenVoiceViews, type QwenVoiceView } from '@dsh-agi/voice/qwen'
+import { type VoiceSettings } from '@dsh-agi/voice/settings'
 import { defaultAvatarPath } from './helper-path.ts'
 import { isTccRight, openMicrophoneSettings, type TccMonitor, type TccStatus } from './tcc.ts'
 import type { UpdateState } from './update.ts'
 import { visibleWhatsNew, WHATS_NEW_VERSION, type WhatsNewNotice } from './whats-new.ts'
 
-const PREFIX = '/.dsh-orb'
-const HELPER_HEADER = 'x-dsh-orb-helper'
+const PREFIX = '/.dsh-agi'
+const HELPER_HEADER = 'x-dsh-agi-helper'
 
 interface RouteContext {
   readonly webServer: {
@@ -109,7 +109,7 @@ interface RouteDeps {
   readonly control: OrbControl
 }
 
-/** Mount `/.dsh-orb` and return the disposer. */
+/** Mount `/.dsh-agi` and return the disposer. */
 export function registerOrbRoutes(deps: RouteDeps): () => void {
   return deps.ctx.webServer.register({
     kind: 'prefix',
@@ -123,7 +123,7 @@ export function registerOrbRoutes(deps: RouteDeps): () => void {
       }
       const status = errorStatus(error) ?? 500
       if (status === 500) {
-        console.error(`dsh-orb: route failed: ${error instanceof Error ? error.message : String(error)}`)
+        console.error(`dsh-agi: route failed: ${error instanceof Error ? error.message : String(error)}`)
       }
       sendJson(res, status, { error: status === 500 ? 'internal-error' : errorMessage(error) })
     }),
@@ -559,7 +559,7 @@ async function catalog(deps: RouteDeps): Promise<ModelCatalog> {
   try {
     return normalizeCatalog(await deps.ctx.sessionController.modelCatalog())
   } catch (error) {
-    console.error(`dsh-orb: model catalog failed: ${error instanceof Error ? error.message : String(error)}`)
+    console.error(`dsh-agi: model catalog failed: ${error instanceof Error ? error.message : String(error)}`)
     return { groups: [] }
   }
 }

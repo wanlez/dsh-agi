@@ -9,7 +9,7 @@
  * official write and the restore sees the chosen model once.
  */
 
-const QUEUE = Symbol.for('dsh-orb.select-model.queue')
+const QUEUE = Symbol.for('dsh-agi.select-model.queue')
 
 function enqueue<T>(task: () => Promise<T>): Promise<T> {
   const holder = globalThis as { [QUEUE]?: Promise<unknown> }
@@ -55,12 +55,12 @@ async function selectAndRestore(
   }
   await ctx.sessionController.selectModel({ sessionId: request.sessionId, ...chosen })
   if (defaults === undefined) {
-    console.error('dsh-orb: agentDefaultModel is missing; a session model may replace the global default')
+    console.error('dsh-agi: agentDefaultModel is missing; a session model may replace the global default')
     return
   }
   if (previous === undefined || sameSelection(previous, chosen)) return
   await defaults.saveSelection(previous)
-  console.error('dsh-orb: restored the global default model after a session-only selection')
+  console.error('dsh-agi: restored the global default model after a session-only selection')
 }
 
 function sameSelection(left: KeptModelSelection, right: KeptModelSelection): boolean {

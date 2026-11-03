@@ -5,7 +5,7 @@ import { Readable } from 'node:stream'
 import { after, describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { absentVoiceModels } from '@dsh-orb/voice/manifest'
+import { absentVoiceModels } from '@dsh-agi/voice/manifest'
 import { normalizeCatalog } from '../src/catalog.ts'
 import { ProfileStore, MAX_AVATAR_BYTES } from '../src/preferences.ts'
 import { orbSupported, registerOrbRoutes, tokensMatch, type OrbControl } from '../src/routes.ts'
@@ -119,7 +119,7 @@ describe('settings routes', () => {
         webServer: {
           register(route) {
             assert.equal(route.kind, 'prefix')
-            assert.equal(route.path, '/.dsh-orb')
+            assert.equal(route.path, '/.dsh-agi')
             handler = route.handler
             return () => { handler = undefined }
           },
@@ -139,25 +139,25 @@ describe('settings routes', () => {
     })
     assert.ok(handler)
     const denied = response()
-    await handler(request('GET', '/.dsh-orb/settings'), denied)
+    await handler(request('GET', '/.dsh-agi/settings'), denied)
     assert.equal(denied.status, 401)
     assert.equal(denied.body.length, 0)
 
     const helperSettings = response()
-    await handler(request('GET', '/.dsh-orb/settings', undefined, { 'x-dsh-orb-helper': 'helper-secret' }), helperSettings)
+    await handler(request('GET', '/.dsh-agi/settings', undefined, { 'x-dsh-agi-helper': 'helper-secret' }), helperSettings)
     assert.equal(helperSettings.status, 401)
 
     const avatar = response()
-    await handler(request('GET', '/.dsh-orb/avatar?v=0', undefined, { 'x-dsh-orb-helper': 'helper-secret' }), avatar)
+    await handler(request('GET', '/.dsh-agi/avatar?v=0', undefined, { 'x-dsh-agi-helper': 'helper-secret' }), avatar)
     assert.equal(avatar.status, 200)
     assert.equal(avatar.body.subarray(0, 6).toString('ascii'), 'GIF89a')
 
     const wrong = response()
-    await handler(request('GET', '/.dsh-orb/avatar', undefined, { 'x-dsh-orb-helper': 'nope' }), wrong)
+    await handler(request('GET', '/.dsh-agi/avatar', undefined, { 'x-dsh-agi-helper': 'nope' }), wrong)
     assert.equal(wrong.status, 401)
 
     const settings = response()
-    await handler(request('GET', '/.dsh-orb/settings', undefined, { 'x-dsh-user': 'ok' }), settings)
+    await handler(request('GET', '/.dsh-agi/settings', undefined, { 'x-dsh-user': 'ok' }), settings)
     const snapshot = JSON.parse(settings.body.toString('utf8')) as {
       avatarUrl: string
       ballEnabled: boolean
@@ -169,7 +169,7 @@ describe('settings routes', () => {
     }
     assert.equal(settings.status, 200)
     assert.equal(snapshot.helperPhase, 'downloading', 'the settings page can show the runtime wait')
-    assert.equal(snapshot.avatarUrl, '/.dsh-orb/avatar?v=0')
+    assert.equal(snapshot.avatarUrl, '/.dsh-agi/avatar?v=0')
     assert.equal(snapshot.avatarUrl.includes('token'), false)
     assert.equal(snapshot.ballEnabled, true)
     assert.equal(snapshot.overlay.model, 'deepseek-flash')
@@ -191,11 +191,11 @@ describe('settings routes', () => {
     })
 
     const models = response()
-    await handler(request('GET', '/.dsh-orb/models', undefined, { 'x-dsh-user': 'ok' }), models)
+    await handler(request('GET', '/.dsh-agi/models', undefined, { 'x-dsh-user': 'ok' }), models)
     assert.equal(JSON.parse(models.body.toString('utf8')).groups[0].models[0].id, 'deepseek-flash')
 
     const overlay = response()
-    await handler(request('POST', '/.dsh-orb/overlay-model', JSON.stringify({
+    await handler(request('POST', '/.dsh-agi/overlay-model', JSON.stringify({
       provider: 'deepseek-official',
       model: 'deepseek-pro',
       reasoningEffort: 'high',
@@ -203,7 +203,7 @@ describe('settings routes', () => {
     assert.equal(JSON.parse(overlay.body.toString('utf8')).overlay.model, 'deepseek-pro')
 
     const background = response()
-    await handler(request('POST', '/.dsh-orb/background-model', JSON.stringify({
+    await handler(request('POST', '/.dsh-agi/background-model', JSON.stringify({
       provider: 'deepseek-official',
       model: 'background',
     }), { 'x-dsh-user': 'ok' }), background)
@@ -211,34 +211,34 @@ describe('settings routes', () => {
     assert.equal(JSON.parse(background.body.toString('utf8')).overlay.model, 'deepseek-pro')
 
     const selection = response()
-    await handler(request('POST', '/.dsh-orb/selection', JSON.stringify({ enabled: false }), { 'x-dsh-user': 'ok' }), selection)
+    await handler(request('POST', '/.dsh-agi/selection', JSON.stringify({ enabled: false }), { 'x-dsh-user': 'ok' }), selection)
     assert.equal(JSON.parse(selection.body.toString('utf8')).selectionEnabled, false)
 
     const fraction = response()
-    await handler(request('POST', '/.dsh-orb/millifraction', JSON.stringify({ enabled: true }), { 'x-dsh-user': 'ok' }), fraction)
+    await handler(request('POST', '/.dsh-agi/millifraction', JSON.stringify({ enabled: true }), { 'x-dsh-user': 'ok' }), fraction)
     assert.equal(JSON.parse(fraction.body.toString('utf8')).millifractionEnabled, true)
     assert.equal(store.coordinateMode(), 'millifraction')
 
     const frame = response()
-    await handler(request('POST', '/.dsh-orb/observation-frame', JSON.stringify({ enabled: false }), { 'x-dsh-user': 'ok' }), frame)
+    await handler(request('POST', '/.dsh-agi/observation-frame', JSON.stringify({ enabled: false }), { 'x-dsh-user': 'ok' }), frame)
     assert.equal(JSON.parse(frame.body.toString('utf8')).observationFrameEnabled, false)
     assert.equal(store.observationFrameEnabled(), false)
 
     const ball = response()
-    await handler(request('POST', '/.dsh-orb/ball', JSON.stringify({ enabled: false }), { 'x-dsh-user': 'ok' }), ball)
+    await handler(request('POST', '/.dsh-agi/ball', JSON.stringify({ enabled: false }), { 'x-dsh-user': 'ok' }), ball)
     assert.equal(JSON.parse(ball.body.toString('utf8')).ballEnabled, false)
     assert.equal(store.ballEnabled(), false)
 
     const uploaded = response()
-    await handler(request('POST', '/.dsh-orb/avatar', png, { 'x-dsh-user': 'ok' }), uploaded)
+    await handler(request('POST', '/.dsh-agi/avatar', png, { 'x-dsh-user': 'ok' }), uploaded)
     const uploadedSnapshot = JSON.parse(uploaded.body.toString('utf8')) as { avatarUrl: string }
-    assert.match(uploadedSnapshot.avatarUrl, /^\/\.dsh-orb\/avatar\?v=[1-9]/)
+    assert.match(uploadedSnapshot.avatarUrl, /^\/\.dsh-agi\/avatar\?v=[1-9]/)
     const custom = response()
-    await handler(request('GET', '/.dsh-orb/avatar?v=2', undefined, { 'x-dsh-user': 'ok' }), custom)
+    await handler(request('GET', '/.dsh-agi/avatar?v=2', undefined, { 'x-dsh-user': 'ok' }), custom)
     assert.equal(custom.body.equals(png), true)
 
     const invalid = response()
-    await handler(request('POST', '/.dsh-orb/avatar', Buffer.from('nope'), { 'x-dsh-user': 'ok' }), invalid)
+    await handler(request('POST', '/.dsh-agi/avatar', Buffer.from('nope'), { 'x-dsh-user': 'ok' }), invalid)
     assert.equal(invalid.status, 400)
     assert.equal(JSON.parse(invalid.body.toString('utf8')).error, 'invalid-type')
 
@@ -247,13 +247,13 @@ describe('settings routes', () => {
     assert.ok(MAX_AVATAR_BYTES > 2_600_000, 'the cap covers the largest gallery GIF')
     const atCap = Buffer.concat([Buffer.from('GIF89a', 'binary'), Buffer.alloc(2_600_000)])
     const accepted = response()
-    await handler(request('POST', '/.dsh-orb/avatar', atCap, { 'x-dsh-user': 'ok' }), accepted)
+    await handler(request('POST', '/.dsh-agi/avatar', atCap, { 'x-dsh-user': 'ok' }), accepted)
     assert.equal(accepted.status, 200)
     assert.deepEqual(store.avatarSelection(), { kind: 'custom', mime: 'image/gif' })
 
     const restored = response()
-    await handler(request('POST', '/.dsh-orb/avatar/restore', '{}', { 'x-dsh-user': 'ok' }), restored)
-    assert.equal(JSON.parse(restored.body.toString('utf8')).avatarUrl, '/.dsh-orb/avatar?v=0')
+    await handler(request('POST', '/.dsh-agi/avatar/restore', '{}', { 'x-dsh-user': 'ok' }), restored)
+    assert.equal(JSON.parse(restored.body.toString('utf8')).avatarUrl, '/.dsh-agi/avatar?v=0')
     assert.equal(calls.includes('chrome'), true)
 
     // Built-in avatars: the page lists them, reads their bytes, and picks one.
@@ -264,7 +264,7 @@ describe('settings routes', () => {
     assert.equal(gallery.avatarPresetId, null)
     assert.equal(gallery.avatarPresets.length > 0, true)
     const [first] = gallery.avatarPresets
-    assert.equal(first.url, `/.dsh-orb/avatar/preset/${first.id}`)
+    assert.equal(first.url, `/.dsh-agi/avatar/preset/${first.id}`)
 
     const presetBytes = response()
     await handler(request('GET', first.url, undefined, { 'x-dsh-user': 'ok' }), presetBytes)
@@ -277,32 +277,32 @@ describe('settings routes', () => {
     assert.equal(anonymousPreset.status, 401)
 
     const unknownPreset = response()
-    await handler(request('GET', `/.dsh-orb/avatar/preset/${first.id}%2F..%2Frestore`, undefined, { 'x-dsh-user': 'ok' }), unknownPreset)
+    await handler(request('GET', `/.dsh-agi/avatar/preset/${first.id}%2F..%2Frestore`, undefined, { 'x-dsh-user': 'ok' }), unknownPreset)
     assert.equal(unknownPreset.status, 404)
 
     const picked = response()
-    await handler(request('POST', '/.dsh-orb/avatar/preset', JSON.stringify({ preset: first.id }), { 'x-dsh-user': 'ok' }), picked)
+    await handler(request('POST', '/.dsh-agi/avatar/preset', JSON.stringify({ preset: first.id }), { 'x-dsh-user': 'ok' }), picked)
     const pickedSnapshot = JSON.parse(picked.body.toString('utf8')) as { avatarUrl: string; avatarPresetId: string | null }
     assert.equal(pickedSnapshot.avatarPresetId, first.id)
-    assert.match(pickedSnapshot.avatarUrl, /^\/\.dsh-orb\/avatar\?v=[1-9]/)
+    assert.match(pickedSnapshot.avatarUrl, /^\/\.dsh-agi\/avatar\?v=[1-9]/)
     assert.equal(calls.includes('chrome'), true)
 
     // The ball's own route (and the settings preview) then serves the same bytes.
     const currentPreset = response()
-    await handler(request('GET', pickedSnapshot.avatarUrl, undefined, { 'x-dsh-orb-helper': 'helper-secret' }), currentPreset)
+    await handler(request('GET', pickedSnapshot.avatarUrl, undefined, { 'x-dsh-agi-helper': 'helper-secret' }), currentPreset)
     assert.equal(currentPreset.body.equals(presetBytes.body), true)
 
     const wrongPreset = response()
-    await handler(request('POST', '/.dsh-orb/avatar/preset', JSON.stringify({ preset: 'gone' }), { 'x-dsh-user': 'ok' }), wrongPreset)
+    await handler(request('POST', '/.dsh-agi/avatar/preset', JSON.stringify({ preset: 'gone' }), { 'x-dsh-user': 'ok' }), wrongPreset)
     assert.equal(wrongPreset.status, 400)
     assert.equal(JSON.parse(wrongPreset.body.toString('utf8')).error, 'invalid-preset')
 
     const missing = response()
-    await handler(request('GET', '/.dsh-orb/nope', undefined, { 'x-dsh-user': 'ok' }), missing)
+    await handler(request('GET', '/.dsh-agi/nope', undefined, { 'x-dsh-user': 'ok' }), missing)
     assert.equal(missing.status, 404)
 
     const voice = response()
-    await handler(request('POST', '/.dsh-orb/voice', JSON.stringify({
+    await handler(request('POST', '/.dsh-agi/voice', JSON.stringify({
       voiceEnabled: true,
       wakeEnabled: false,
       idleMs: 45_000,
@@ -336,7 +336,7 @@ describe('settings routes', () => {
     assert.deepEqual(view, { voice: 'Eldric Sage', label: '沧明子 · 男 · 沉稳老者', group: 'standard' })
     assert.equal(voiceBody.qwenVoices.some((item) => item.voice === 'Jada' && item.group === 'dialect'), true)
     const savedVoice = response()
-    await handler(request('GET', '/.dsh-orb/settings', undefined, { 'x-dsh-user': 'ok' }), savedVoice)
+    await handler(request('GET', '/.dsh-agi/settings', undefined, { 'x-dsh-user': 'ok' }), savedVoice)
     const savedSnapshot = JSON.parse(savedVoice.body.toString('utf8')) as { voice: { interjectKeyword: string, qwenApiKey: string } }
     assert.equal(savedVoice.status, 200)
     assert.equal(savedSnapshot.voice.interjectKeyword, '小肥鱼')
@@ -353,7 +353,7 @@ describe('settings routes', () => {
     assert.equal(reloaded.voice().ttsVolume, 1.37)
 
     const blank = response()
-    await handler(request('POST', '/.dsh-orb/voice', JSON.stringify({
+    await handler(request('POST', '/.dsh-agi/voice', JSON.stringify({
       ttsBackend: 'qwen',
       qwenApiKey: '   ',
       qwenVoice: 'Eldric Sage',
@@ -410,17 +410,17 @@ describe('settings routes', () => {
     })
     assert.ok(handler)
     const first = response()
-    await handler(request('POST', '/.dsh-orb/voice/download', JSON.stringify({ kind: 'wake' })), first)
+    await handler(request('POST', '/.dsh-agi/voice/download', JSON.stringify({ kind: 'wake' })), first)
     const started = JSON.parse(first.body.toString('utf8')) as { voiceModels: { wake: { downloading: boolean, progress: number } } }
     assert.equal(starts, 1)
     assert.equal(started.voiceModels.wake.downloading, true)
     assert.equal(started.voiceModels.wake.progress, 0.5)
     const second = response()
-    await handler(request('POST', '/.dsh-orb/voice/download', JSON.stringify({ kind: 'wake' })), second)
+    await handler(request('POST', '/.dsh-agi/voice/download', JSON.stringify({ kind: 'wake' })), second)
     assert.equal(starts, 1)
     assert.equal(JSON.parse(second.body.toString('utf8')).voiceModels.wake.progress, 0.5)
     const bad = response()
-    await handler(request('POST', '/.dsh-orb/voice/download', JSON.stringify({ kind: 'nope' })), bad)
+    await handler(request('POST', '/.dsh-agi/voice/download', JSON.stringify({ kind: 'nope' })), bad)
     assert.equal(bad.status, 400)
   })
 
@@ -465,36 +465,36 @@ describe('settings routes', () => {
     assert.ok(handler)
 
     const denied = response()
-    await handler(request('GET', '/.dsh-orb/update'), denied)
+    await handler(request('GET', '/.dsh-agi/update'), denied)
     assert.equal(denied.status, 401)
 
     const state = response()
-    await handler(request('GET', '/.dsh-orb/update', undefined, { 'x-dsh-user': 'ok' }), state)
+    await handler(request('GET', '/.dsh-agi/update', undefined, { 'x-dsh-user': 'ok' }), state)
     assert.equal(state.status, 200)
     assert.equal((JSON.parse(state.body.toString('utf8')) as { currentVersion: string }).currentVersion, '0.1.0')
 
     const checked = response()
-    await handler(request('POST', '/.dsh-orb/update/check', '{}', { 'x-dsh-user': 'ok' }), checked)
+    await handler(request('POST', '/.dsh-agi/update/check', '{}', { 'x-dsh-user': 'ok' }), checked)
     assert.equal(checked.status, 200)
     assert.equal(calls.includes('check'), true)
     assert.deepEqual((JSON.parse(checked.body.toString('utf8')) as { update: { currentVersion: string } }).update.currentVersion, '0.1.0')
 
     // The install answers at once with a snapshot: the page polls instead of waiting it out.
     const installed = response()
-    await handler(request('POST', '/.dsh-orb/update/install', JSON.stringify({ approvedBuilds: ['koffi'] }), { 'x-dsh-user': 'ok' }), installed)
+    await handler(request('POST', '/.dsh-agi/update/install', JSON.stringify({ approvedBuilds: ['koffi'] }), { 'x-dsh-user': 'ok' }), installed)
     assert.equal(installed.status, 200)
     assert.deepEqual(calls.at(-1), ['install', ['koffi']])
 
     const bare = response()
-    await handler(request('POST', '/.dsh-orb/update/install', '{}', { 'x-dsh-user': 'ok' }), bare)
+    await handler(request('POST', '/.dsh-agi/update/install', '{}', { 'x-dsh-user': 'ok' }), bare)
     assert.deepEqual(calls.at(-1), ['install', undefined])
 
     const auto = response()
-    await handler(request('POST', '/.dsh-orb/update/auto', JSON.stringify({ enabled: false }), { 'x-dsh-user': 'ok' }), auto)
+    await handler(request('POST', '/.dsh-agi/update/auto', JSON.stringify({ enabled: false }), { 'x-dsh-user': 'ok' }), auto)
     assert.deepEqual(calls.at(-1), ['auto', false])
 
     const invalid = response()
-    await handler(request('POST', '/.dsh-orb/update/auto', JSON.stringify({ enabled: 'yes' }), { 'x-dsh-user': 'ok' }), invalid)
+    await handler(request('POST', '/.dsh-agi/update/auto', JSON.stringify({ enabled: 'yes' }), { 'x-dsh-user': 'ok' }), invalid)
     assert.equal(invalid.status, 400)
     assert.equal(JSON.parse(invalid.body.toString('utf8')).error, 'invalid-auto-check')
     dispose()
@@ -537,29 +537,29 @@ describe('settings routes', () => {
     assert.ok(handler)
 
     const first = response()
-    await handler(request('GET', '/.dsh-orb/settings'), first)
+    await handler(request('GET', '/.dsh-agi/settings'), first)
     const opened = JSON.parse(first.body.toString('utf8')) as { whatsNew: { id: string; version: string } | null }
     assert.deepEqual(opened.whatsNew, orbSupported() ? { id: WHATS_NEW_VERSION, version: WHATS_NEW_VERSION } : null)
 
     const dismissed = response()
-    await handler(request('POST', '/.dsh-orb/whats-new/dismiss', JSON.stringify({ id: WHATS_NEW_VERSION })), dismissed)
+    await handler(request('POST', '/.dsh-agi/whats-new/dismiss', JSON.stringify({ id: WHATS_NEW_VERSION })), dismissed)
     assert.equal(dismissed.status, 200)
     assert.equal((JSON.parse(dismissed.body.toString('utf8')) as { whatsNew: unknown }).whatsNew, null)
     assert.equal(new ProfileStore(profile).whatsNewDismissed(WHATS_NEW_VERSION), true, 'the marker is on disk, not just in memory')
 
     const again = response()
-    await handler(request('GET', '/.dsh-orb/settings'), again)
+    await handler(request('GET', '/.dsh-agi/settings'), again)
     assert.equal((JSON.parse(again.body.toString('utf8')) as { whatsNew: unknown }).whatsNew, null)
 
     const invalid = response()
-    await handler(request('POST', '/.dsh-orb/whats-new/dismiss', JSON.stringify({ id: '0.1.9' })), invalid)
+    await handler(request('POST', '/.dsh-agi/whats-new/dismiss', JSON.stringify({ id: '0.1.9' })), invalid)
     assert.equal(invalid.status, 400)
     assert.equal(JSON.parse(invalid.body.toString('utf8')).error, 'invalid-whats-new')
 
     // A host on an older version has nothing to offer, even with the marker missing.
     installed = '0.1.9'
     const old = response()
-    await handler(request('GET', '/.dsh-orb/settings'), old)
+    await handler(request('GET', '/.dsh-agi/settings'), old)
     assert.equal((JSON.parse(old.body.toString('utf8')) as { whatsNew: unknown }).whatsNew, null)
     dispose()
   })
@@ -638,39 +638,39 @@ describe('settings routes', () => {
       return { status: res.status, json: text === '' ? undefined : JSON.parse(text) }
     }
 
-    const state = await answer('GET', '/.dsh-orb/history')
+    const state = await answer('GET', '/.dsh-agi/history')
     assert.equal(state.status, 200)
     assert.equal(state.json.retentionDays, 0)
-    assert.equal((await answer('POST', '/.dsh-orb/history/retention', JSON.stringify({ days: 30 }))).status, 200)
+    assert.equal((await answer('POST', '/.dsh-agi/history/retention', JSON.stringify({ days: 30 }))).status, 200)
     assert.deepEqual(calls.at(-1), ['retention', 30])
-    const preview = await answer('POST', '/.dsh-orb/history/preview', JSON.stringify({ days: 30 }))
+    const preview = await answer('POST', '/.dsh-agi/history/preview', JSON.stringify({ days: 30 }))
     assert.equal(preview.status, 200)
     assert.equal(preview.json.preview.roots, 2)
-    assert.equal((await answer('POST', '/.dsh-orb/history/clean', '{}')).status, 200)
+    assert.equal((await answer('POST', '/.dsh-agi/history/clean', '{}')).status, 200)
     assert.equal(calls.at(-1), 'clean')
-    assert.equal((await answer('POST', '/.dsh-orb/history/trash/empty', '{}')).status, 404)
-    assert.equal((await answer('POST', '/.dsh-orb/history/trash/restore', JSON.stringify({ batchId: 'batch-1' }))).status, 404)
-    assert.equal((await answer('POST', '/.dsh-orb/history/retention', JSON.stringify({ days: 60 }))).status, 200)
-    assert.equal((await answer('POST', '/.dsh-orb/history/retention', JSON.stringify({ days: 61 }))).status, 400)
-    assert.equal((await answer('POST', '/.dsh-orb/history/retention', JSON.stringify({ days: 2 }))).status, 400)
-    assert.equal((await answer('POST', '/.dsh-orb/history/retention', JSON.stringify({ days: 1.5 }))).status, 400)
-    assert.equal((await answer('POST', '/.dsh-orb/history/retention', JSON.stringify({ days: '30' }))).status, 400)
+    assert.equal((await answer('POST', '/.dsh-agi/history/trash/empty', '{}')).status, 404)
+    assert.equal((await answer('POST', '/.dsh-agi/history/trash/restore', JSON.stringify({ batchId: 'batch-1' }))).status, 404)
+    assert.equal((await answer('POST', '/.dsh-agi/history/retention', JSON.stringify({ days: 60 }))).status, 200)
+    assert.equal((await answer('POST', '/.dsh-agi/history/retention', JSON.stringify({ days: 61 }))).status, 400)
+    assert.equal((await answer('POST', '/.dsh-agi/history/retention', JSON.stringify({ days: 2 }))).status, 400)
+    assert.equal((await answer('POST', '/.dsh-agi/history/retention', JSON.stringify({ days: 1.5 }))).status, 400)
+    assert.equal((await answer('POST', '/.dsh-agi/history/retention', JSON.stringify({ days: '30' }))).status, 400)
 
-    const settings = await answer('GET', '/.dsh-orb/settings')
+    const settings = await answer('GET', '/.dsh-agi/settings')
     assert.equal(settings.json.workspace.path, '/tmp/orb-default')
-    const picked = await answer('POST', '/.dsh-orb/workspace/pick', '{}')
+    const picked = await answer('POST', '/.dsh-agi/workspace/pick', '{}')
     assert.equal(picked.status, 200)
     assert.equal(picked.json.path, '/tmp/picked-workspace')
-    assert.equal((await answer('POST', '/.dsh-orb/workspace', JSON.stringify({ path: '/tmp/empty-workspace' }))).status, 200)
+    assert.equal((await answer('POST', '/.dsh-agi/workspace', JSON.stringify({ path: '/tmp/empty-workspace' }))).status, 200)
     assert.deepEqual(calls.at(-1), ['workspace', '/tmp/empty-workspace'])
     assert.equal(workspace.path, '/tmp/empty-workspace')
-    const invalid = await answer('POST', '/.dsh-orb/workspace', JSON.stringify({ path: '/not-empty' }))
+    const invalid = await answer('POST', '/.dsh-agi/workspace', JSON.stringify({ path: '/not-empty' }))
     assert.equal(invalid.status, 400)
     assert.equal(invalid.json.error, 'workspace-not-empty')
-    const running = await answer('POST', '/.dsh-orb/workspace', JSON.stringify({ path: '/running' }))
+    const running = await answer('POST', '/.dsh-agi/workspace', JSON.stringify({ path: '/running' }))
     assert.equal(running.status, 409)
     assert.equal(running.json.error, 'workspace-running')
-    assert.equal((await answer('POST', '/.dsh-orb/workspace', JSON.stringify({ path: '' }))).status, 400)
+    assert.equal((await answer('POST', '/.dsh-agi/workspace', JSON.stringify({ path: '' }))).status, 400)
     dispose()
   })
 
@@ -719,51 +719,51 @@ describe('settings routes', () => {
     assert.ok(handler)
 
     const denied = response()
-    await handler(request('GET', '/.dsh-orb/jump'), denied)
+    await handler(request('GET', '/.dsh-agi/jump'), denied)
     assert.equal(denied.status, 401)
 
     const armed1 = response()
-    await handler(request('GET', '/.dsh-orb/jump', undefined, { 'x-dsh-user': 'ok' }), armed1)
+    await handler(request('GET', '/.dsh-agi/jump', undefined, { 'x-dsh-user': 'ok' }), armed1)
     assert.equal(armed1.status, 200)
     assert.equal((JSON.parse(armed1.body.toString('utf8')) as { sessionId: string }).sessionId, 'session-agent-9')
 
     const confirmed = response()
-    await handler(request('POST', '/.dsh-orb/jump', JSON.stringify({ sessionId: 'session-agent-9' }), { 'x-dsh-user': 'ok' }), confirmed)
+    await handler(request('POST', '/.dsh-agi/jump', JSON.stringify({ sessionId: 'session-agent-9' }), { 'x-dsh-user': 'ok' }), confirmed)
     assert.equal(confirmed.status, 200)
 
     const consumed = response()
-    await handler(request('GET', '/.dsh-orb/jump', undefined, { 'x-dsh-user': 'ok' }), consumed)
+    await handler(request('GET', '/.dsh-agi/jump', undefined, { 'x-dsh-user': 'ok' }), consumed)
     assert.equal((JSON.parse(consumed.body.toString('utf8')) as { sessionId: string | null }).sessionId, null)
 
     const invalidPost = response()
-    await handler(request('POST', '/.dsh-orb/jump', '{}', { 'x-dsh-user': 'ok' }), invalidPost)
+    await handler(request('POST', '/.dsh-agi/jump', '{}', { 'x-dsh-user': 'ok' }), invalidPost)
     assert.equal(invalidPost.status, 400)
 
     // The settings row rides the same bridge, with the arm timestamp as its identity.
     const settingsDenied = response()
-    await handler(request('GET', '/.dsh-orb/settings-open'), settingsDenied)
+    await handler(request('GET', '/.dsh-agi/settings-open'), settingsDenied)
     assert.equal(settingsDenied.status, 401)
 
     const armedSettings = response()
-    await handler(request('GET', '/.dsh-orb/settings-open', undefined, { 'x-dsh-user': 'ok' }), armedSettings)
+    await handler(request('GET', '/.dsh-agi/settings-open', undefined, { 'x-dsh-user': 'ok' }), armedSettings)
     assert.equal(armedSettings.status, 200)
     assert.equal((JSON.parse(armedSettings.body.toString('utf8')) as { at: number }).at, 4242)
 
     // Reading twice must not consume: the window may still be starting up.
     const reread = response()
-    await handler(request('GET', '/.dsh-orb/settings-open', undefined, { 'x-dsh-user': 'ok' }), reread)
+    await handler(request('GET', '/.dsh-agi/settings-open', undefined, { 'x-dsh-user': 'ok' }), reread)
     assert.equal((JSON.parse(reread.body.toString('utf8')) as { at: number }).at, 4242)
 
     const invalidSettings = response()
-    await handler(request('POST', '/.dsh-orb/settings-open', JSON.stringify({ at: 'now' }), { 'x-dsh-user': 'ok' }), invalidSettings)
+    await handler(request('POST', '/.dsh-agi/settings-open', JSON.stringify({ at: 'now' }), { 'x-dsh-user': 'ok' }), invalidSettings)
     assert.equal(invalidSettings.status, 400)
 
     const confirmedSettings = response()
-    await handler(request('POST', '/.dsh-orb/settings-open', JSON.stringify({ at: 4242 }), { 'x-dsh-user': 'ok' }), confirmedSettings)
+    await handler(request('POST', '/.dsh-agi/settings-open', JSON.stringify({ at: 4242 }), { 'x-dsh-user': 'ok' }), confirmedSettings)
     assert.equal(confirmedSettings.status, 200)
 
     const consumedSettings = response()
-    await handler(request('GET', '/.dsh-orb/settings-open', undefined, { 'x-dsh-user': 'ok' }), consumedSettings)
+    await handler(request('GET', '/.dsh-agi/settings-open', undefined, { 'x-dsh-user': 'ok' }), consumedSettings)
     assert.equal((JSON.parse(consumedSettings.body.toString('utf8')) as { at: number | null }).at, null)
     dispose()
   })
@@ -808,12 +808,12 @@ describe('settings routes', () => {
 
     // A body that is not JSON used to reject the handler and hang the request.
     const bad = response()
-    await handler(request('POST', '/.dsh-orb/update/auto', '{', { 'x-dsh-user': 'ok' }), bad)
+    await handler(request('POST', '/.dsh-agi/update/auto', '{', { 'x-dsh-user': 'ok' }), bad)
     assert.equal(bad.status, 400)
     assert.equal(JSON.parse(bad.body.toString('utf8')).error, 'invalid-json')
 
     const huge = response()
-    await handler(request('POST', '/.dsh-orb/avatar', Buffer.alloc(MAX_AVATAR_BYTES + 64), { 'x-dsh-user': 'ok' }), huge)
+    await handler(request('POST', '/.dsh-agi/avatar', Buffer.alloc(MAX_AVATAR_BYTES + 64), { 'x-dsh-user': 'ok' }), huge)
     assert.equal(huge.status, 413, 'the avatar limit keeps its own status')
     assert.equal(JSON.parse(huge.body.toString('utf8')).error, 'too-large')
     dispose()
@@ -868,7 +868,7 @@ describe('settings routes', () => {
     })
     assert.ok(handler)
     const fresh = response()
-    await handler(request('POST', '/.dsh-orb/runtime/redownload', '{}'), fresh)
+    await handler(request('POST', '/.dsh-agi/runtime/redownload', '{}'), fresh)
     assert.equal(fresh.status, 200)
     assert.equal(redownloads, 1, 'the route reaches the control')
     const body = JSON.parse(fresh.body.toString('utf8')) as { helperPhase: string; helperError: string }
@@ -890,7 +890,7 @@ describe('settings routes', () => {
     })
     assert.ok(oldHandler)
     const unsupported = response()
-    await oldHandler(request('POST', '/.dsh-orb/runtime/redownload', '{}'), unsupported)
+    await oldHandler(request('POST', '/.dsh-agi/runtime/redownload', '{}'), unsupported)
     assert.equal(unsupported.status, 404)
     disposeOld()
   })

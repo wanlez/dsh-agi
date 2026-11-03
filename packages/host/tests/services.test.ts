@@ -11,7 +11,7 @@ const home = mkdtempSync(join(tmpdir(), 'orb-services-'))
 process.env.DSH_HOME = home
 const profile = join(home, 'profile')
 mkdirSync(profile, { recursive: true })
-const orb = dshHomePath('dsh_orb')
+const orb = dshHomePath('dsh_agi')
 
 after(() => { rmSync(home, { recursive: true, force: true }) })
 
@@ -56,7 +56,7 @@ describe('Computer Use services', () => {
     })
   })
 
-  it('pins Computer Use and standard sessions under dsh_orb, including later subdirectories', () => {
+  it('pins Computer Use and standard sessions under dsh_agi, including later subdirectories', () => {
     const pins = join(home, 'pins')
     mkdirSync(pins, { recursive: true })
     const store = new ProfileStore(pins)

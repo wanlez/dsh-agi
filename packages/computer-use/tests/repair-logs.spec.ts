@@ -34,7 +34,7 @@ function artifact(root: string, relative: string, frames: readonly Buffer[]): st
 }
 
 function tempRoot(): string {
-  const root = mkdtempSync(join(tmpdir(), 'dsh-orb-repair-'))
+  const root = mkdtempSync(join(tmpdir(), 'dsh-agi-repair-'))
   roots.push(root)
   return root
 }

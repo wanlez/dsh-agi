@@ -5,7 +5,7 @@
  * and a CSS-variables theme. Token colors resolve through `--shiki-*`
  * custom properties carried by the theme package's sheets (theme.css), so
  * light/dark follows the page cascade. Built to assets/vendor/shiki.js by
- * `pnpm --filter @dsh-orb/helper build:vendor`.
+ * `pnpm --filter @dsh-agi/helper build:vendor`.
  */
 
 import { createHighlighterCoreSync, createCssVariablesTheme } from 'shiki/core'

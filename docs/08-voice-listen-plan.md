@@ -12,7 +12,7 @@
 
 1. **听法从三种变成四种。** 在现有的 `off`、`wake`、`command` 之外，新增 `interject`：Agent 正在执行，或正文还在播时，转写开着，但只认退下口令和插话关键词。子进程把 `command` 和 `interject` 当成同一种「转写」处理，两者之间切换时 VAD 不重置、麦克风不断开。一句话怎么判，看的是**这句开口那一刻**的听法：子进程在 `utterance` 里带上开口时的 `mode`。用户正说着的时候，Host 不从转写切到唤醒，等这句说完再切（第 4.6 节）。这样收尾刚好在用户说到一半时播完，这句插话也不会丢，也不会被当成普通语音输入发出去。
 2. **执行中插话改成硬停旧轮 + 新任务。** Host 画完用户气泡后直接调 `ctx.sessionController.cancel({ sessionId })`，等同点「停止」；官方在 aborted 驱动的 `finally` 里写 `turn/end`。Host 收到 `turn/end` 后再走 `submitPrompt()` 的新任务路径（`mode: 'queue'`），把原话作为下一条用户消息发送。不再调用 `mode: 'steer'`，也不再经过页面的 `voice-prompt`。只有收尾在播、执行已经结束时，直接按新任务发送，不需要 cancel。
-3. **回声消除做在采集这一层。** 新增一个原生小程序 `dsh-orb-voice-capture`，由语音子进程拉起。它采集麦克风，消掉电脑自己放出的声音，再把 16kHz 单声道 PCM 交给子进程。macOS 用系统的 Voice Processing I/O（VPIO）。Windows 用 WASAPI 采集，把默认扬声器的回采（loopback）作为参考，交给 WebRTC AEC3 处理。**播报不动**，仍由子进程用 `node-cpal` 放到默认输出设备。
+3. **回声消除做在采集这一层。** 新增一个原生小程序 `dsh-agi-voice-capture`，由语音子进程拉起。它采集麦克风，消掉电脑自己放出的声音，再把 16kHz 单声道 PCM 交给子进程。macOS 用系统的 Voice Processing I/O（VPIO）。Windows 用 WASAPI 采集，把默认扬声器的回采（loopback）作为参考，交给 WebRTC AEC3 处理。**播报不动**，仍由子进程用 `node-cpal` 放到默认输出设备。
 4. **再加一道文字回声过滤。** 子进程知道自己在什么时候播了哪句话。一句转写落地时，如果它和同一时段正在播的文字高度重合，就丢掉。这只是兜底，主力仍是第 3 条的回声消除。
 5. **提问卡期间真正放开麦克风设备。** Host 每次推送听法时多带一个字段 `device`。提问卡在等时为 `false`，子进程关掉采集，系统的麦克风指示随之消失。提示语照常播，因为播报不走采集程序。
 6. **停止、退下、插话之后，旧的正文不再补出声音。** Host 按 block key 处理：
@@ -72,7 +72,7 @@ flowchart LR
   host["Host 语音控制器 voice.ts<br>四种听法、判句、静音规则"]
   orb["orb.ts<br>硬停旧轮 / 新任务 / 停止"]
   child["语音子进程 child.ts<br>KWS、VAD、ASR、TTS、文字回声过滤"]
-  cap["dsh-orb-voice-capture<br>麦克风 + 回声消除"]
+  cap["dsh-agi-voice-capture<br>麦克风 + 回声消除"]
   spk["默认输出设备"]
   page <-->|NDJSON| orb
   orb <--> host
@@ -146,7 +146,7 @@ interjectKeyword: text(item.interjectKeyword, DEFAULT_VOICE_SETTINGS.interjectKe
 ### 2.3 验收
 
 - `packages/voice/tests/settings.test.ts`：缺字段时取「大肥鱼」；`'  '` 存成 `''`；超过 40 字截断；非字符串回到出厂值。
-- `packages/client-settings/tests/section.test.mjs`：ASR 不在时这一行带 `is-locked`，点击弹出 ASR 的说明；ASR 在时能改，失焦后 POST `/.dsh-orb/voice` 的 body 里带 `interjectKeyword`。
+- `packages/client-settings/tests/section.test.mjs`：ASR 不在时这一行带 `is-locked`，点击弹出 ASR 的说明；ASR 在时能改，失焦后 POST `/.dsh-agi/voice` 的 body 里带 `interjectKeyword`。
 - `packages/host/tests/routes.test.ts`：保存后 `GET /settings` 的 `voice.interjectKeyword` 是新值，重启 `ProfileStore` 后还在。
 
 ## 3. 听法：四种状态
@@ -646,7 +646,7 @@ export interface CaptureSource {
 }
 ```
 
-1. **`NativeCapture`**：拉起 `dsh-orb-voice-capture`（协议见第 8.5 节），按 4 字节对齐把 stdout 拼成 `Float32Array` 交给 `onPcm`，stderr 的 JSON 行转成 `onReady` / `onFailure`，非 JSON 行原样写进子进程的 stderr。
+1. **`NativeCapture`**：拉起 `dsh-agi-voice-capture`（协议见第 8.5 节），按 4 字节对齐把 stdout 拼成 `Float32Array` 交给 `onPcm`，stderr 的 JSON 行转成 `onReady` / `onFailure`，非 JSON 行原样写进子进程的 stderr。
    - `onFailure` 的原因：stderr 里 `error` 事件的 `code` 原样传上去（`mic-denied` / `no-device` / `unavailable` / `failed`）。进程退出前没发过 `error` 事件的，算 `crashed`。
    - 拉起后 5 秒内没收到 `ready`：杀掉它，按 `unavailable` 处理。
    - 每次收到 `ready` 都调用 `onReady`。`Engine` 在 `onReady` 里发 `mic: { open: true, aec }`，不是在拉起的时候发。设备切换后的第二次 `ready` 如果 `aec` 变了，就再发一次 `mic`，Host 会据此重算听法。
@@ -663,11 +663,11 @@ export interface CaptureSource {
 找采集程序的路径（打包后 `child.js` 在 `dist/voice/` 下，开发时 `child.ts` 在 `packages/voice/src/` 下）：
 
 ```ts
-const name = process.platform === 'win32' ? 'win32-x64/dsh-orb-voice-capture.exe' : 'darwin-universal/dsh-orb-voice-capture'
+const name = process.platform === 'win32' ? 'win32-x64/dsh-agi-voice-capture.exe' : 'darwin-universal/dsh-agi-voice-capture'
 const candidates = [new URL(`./prebuilds/${name}`, import.meta.url), new URL(`../prebuilds/${name}`, import.meta.url)]
 ```
 
-环境变量 `DSH_ORB_CAPTURE_BIN` 有值时，优先用它指向的程序。这只给测试用（第 8.6 节），设置页和文档都不提。
+环境变量 `DSH_AGI_CAPTURE_BIN` 有值时，优先用它指向的程序。这只给测试用（第 8.6 节），设置页和文档都不提。
 
 `onAudio` 改成直接收 16k 单声道（重采样和混声道移进 `CpalCapture`），其余不变：推环形缓冲，按听法喂 KWS 或 VAD。
 
@@ -729,7 +729,7 @@ export function isEcho(
 
 ### 8.6 验收（不接真麦克风）
 
-- 写一个假采集程序 `packages/voice/tests/fixtures/fake-capture.mjs`：往 stdout 写一段 wav 的 PCM，往 stderr 写 `ready`。行为由环境变量控制（例如 `FAKE_CAPTURE=denied` 时先写 `{"event":"error","code":"mic-denied"}` 再以 3 退出；`FAKE_CAPTURE=silent` 时永远不发 `ready`）。用它跑 `child.ts`（通过环境变量 `DSH_ORB_CAPTURE_BIN` 覆盖路径，只在测试里用），断言：
+- 写一个假采集程序 `packages/voice/tests/fixtures/fake-capture.mjs`：往 stdout 写一段 wav 的 PCM，往 stderr 写 `ready`。行为由环境变量控制（例如 `FAKE_CAPTURE=denied` 时先写 `{"event":"error","code":"mic-denied"}` 再以 3 退出；`FAKE_CAPTURE=silent` 时永远不发 `ready`）。用它跑 `child.ts`（通过环境变量 `DSH_AGI_CAPTURE_BIN` 覆盖路径，只在测试里用），断言：
   - 不需要 VAD / ASR 模型的部分（每台机器都跑）：
     - `device: false` 时假程序收到 EOF 并退出，`device: true` 时被重新拉起。
     - `configure` 之后、第一条 `listen` 之前不拉起假程序。
@@ -774,7 +774,7 @@ export function isEcho(
 
 - 两个 target：`arm64-apple-macos13`、`x86_64-apple-macos13`。
 - `swiftc -O -target <t> -parse-as-library -o <tmp>/<t> macos-voice-capture.swift -framework AudioToolbox -framework CoreAudio -framework AVFoundation`。
-- `lipo -create` 合成 `packages/voice/prebuilds/darwin-universal/dsh-orb-voice-capture`。
+- `lipo -create` 合成 `packages/voice/prebuilds/darwin-universal/dsh-agi-voice-capture`。
 - 最后执行 `codesign --force --sign - <输出>`，保证合并后每个切片都有 ad-hoc 签名（arm64 上没有签名的可执行文件不能运行）。
 - 产物入库，和 `native-selection`、`computer-use/native` 一样，安装时不编。
 - `packages/voice/package.json` 加 `"build:native:mac": "node scripts/build-macos-voice-capture.mjs"`，`files` 加 `prebuilds`。
@@ -843,7 +843,7 @@ g++ -O2 -std=c++17 -municode packages/voice/native/windows-voice-capture.cpp \
   $(pkg-config --cflags --static --libs webrtc-audio-processing-1) \
   -lole32 -loleaut32 -luuid -lavrt -lksuser \
   -static -static-libgcc -static-libstdc++ \
-  -o packages/voice/prebuilds/win32-x64/dsh-orb-voice-capture.exe
+  -o packages/voice/prebuilds/win32-x64/dsh-agi-voice-capture.exe
 ```
 
 - 如果第 10.1 节第 3 步结论是只能动态链接，就去掉 `-static`，并把 `ntldd -R` 列出的 MSYS2 DLL 复制到同一目录。
@@ -863,14 +863,14 @@ g++ -O2 -std=c++17 -municode packages/voice/native/windows-voice-capture.cpp \
    if (existsSync(join(packages, 'voice', 'prebuilds', 'win32-x64'))) {
      await copyFrom('voice', 'prebuilds/win32-x64', join(dist, 'voice', 'prebuilds', 'win32-x64'))
    }
-   await chmod(join(dist, 'voice', 'prebuilds', 'darwin-universal', 'dsh-orb-voice-capture'), 0o755)
+   await chmod(join(dist, 'voice', 'prebuilds', 'darwin-universal', 'dsh-agi-voice-capture'), 0o755)
    ```
 
    Windows 的产物有可能因为第 10.1 节的可行性验证没过而暂时没有，所以按目录是否存在来复制（`packages` 和 `existsSync` 在 `assemble.mjs` 里已经有了；`copyFrom` 遇到缺失的源会直接报错，所以不能不判断就调用）。没有它时，Windows 上走 `node-cpal` 兜底，听法自动降级。
 
 2. `packages/bundle/tests/install.test.mjs`：期望文件列表加上 macOS 的产物；Windows 的产物入库以后再加。
 3. `pack.mjs` 不用改：`tar` 会保留可执行位。从 npm 包解出来的文件没有隔离属性，和 `macos-sck-capture` 一样不会被 Gatekeeper 拦下。
-4. 打出 tgz 后，在官方桌面版和 `dsh web` 各装一次。确认采集程序被拉起（活动监视器或任务管理器里能看到 `dsh-orb-voice-capture`），麦克风权限的弹窗名字仍然是 DeepSeek Harness（`dsh web` 下是终端）。
+4. 打出 tgz 后，在官方桌面版和 `dsh web` 各装一次。确认采集程序被拉起（活动监视器或任务管理器里能看到 `dsh-agi-voice-capture`），麦克风权限的弹窗名字仍然是 DeepSeek Harness（`dsh web` 下是终端）。
 
 ## 12. 真机按需求走完整一轮
 

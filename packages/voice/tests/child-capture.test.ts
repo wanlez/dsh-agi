@@ -20,7 +20,7 @@ function launch(env: Record<string, string | undefined>) {
     childPath,
   ], {
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, DSH_ORB_CAPTURE_BIN: fakePath, ...env },
+    env: { ...process.env, DSH_AGI_CAPTURE_BIN: fakePath, ...env },
   })
   const stdout: string[] = []
   const stderr: string[] = []

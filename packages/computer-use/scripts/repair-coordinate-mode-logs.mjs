@@ -19,7 +19,7 @@
  *
  * Usage: node repair-coordinate-mode-logs.mjs [--dry-run] [--sessions-dir DIR]
  *        [--skip-recent-min N]
- * @module @dsh-orb/computer-use/scripts/repair-coordinate-mode-logs
+ * @module @dsh-agi/computer-use/scripts/repair-coordinate-mode-logs
  */
 
 import { constants, zstdCompressSync, zstdDecompressSync } from 'node:zlib'

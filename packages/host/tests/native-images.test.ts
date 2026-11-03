@@ -20,14 +20,14 @@ after(() => {
 const workspaceKoffi = realpathSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'node_modules', 'koffi'))
 
 let counter = 0
-/** An installed package as the profile holds it: `node_modules/dsh-orb` with koffi vendored inside. */
+/** An installed package as the profile holds it: `node_modules/dsh-agi` with koffi vendored inside. */
 function installedPackage(): string {
   counter += 1
-  const pkg = join(root, `profile-${counter}`, 'node_modules', 'dsh-orb')
+  const pkg = join(root, `profile-${counter}`, 'node_modules', 'dsh-agi')
   cpSync(workspaceKoffi, join(pkg, 'node_modules', 'koffi'), { recursive: true, dereference: true })
   const prebuilds = join(dirname(workspaceKoffi), '@koromix')
   if (existsSync(prebuilds)) cpSync(prebuilds, join(pkg, 'node_modules', '@koromix'), { recursive: true, dereference: true })
-  writeFileSync(join(pkg, 'package.json'), '{"name":"dsh-orb","version":"0.1.0"}\n')
+  writeFileSync(join(pkg, 'package.json'), '{"name":"dsh-agi","version":"0.1.0"}\n')
   return pkg
 }
 
@@ -64,7 +64,7 @@ describe('koffi staging', () => {
   })
 
   it('stages nothing for a package without koffi', () => {
-    const pkg = join(root, 'bare', 'node_modules', 'dsh-orb')
+    const pkg = join(root, 'bare', 'node_modules', 'dsh-agi')
     mkdirSync(pkg, { recursive: true })
     assert.equal(stageKoffi(pkg, join(root, 'cache-bare')), undefined)
   })
@@ -84,19 +84,19 @@ describe('koffi staging', () => {
   })
 
   it('resolves the package root two levels above the built host', () => {
-    const url = new URL('file:///C:/p/node_modules/dsh-orb/dist/host/index.js')
-    assert.equal(ownPackageRoot(url.href), fileURLToPath(new URL('file:///C:/p/node_modules/dsh-orb')))
+    const url = new URL('file:///C:/p/node_modules/dsh-agi/dist/host/index.js')
+    assert.equal(ownPackageRoot(url.href), fileURLToPath(new URL('file:///C:/p/node_modules/dsh-agi')))
   })
 })
 
 /**
  * The desktop's Electron runtime, which runs pnpm and this host. Its Node cannot delete a
  * link to a mapped image, while a standalone Node 24.21 can, so the lock only shows when
- * the probe runs under it. `DSH_ORB_TEST_ELECTRON` points at another install.
+ * the probe runs under it. `DSH_AGI_TEST_ELECTRON` points at another install.
  */
 function desktopRuntime(): string | undefined {
   if (process.platform !== 'win32') return undefined
-  const configured = process.env.DSH_ORB_TEST_ELECTRON
+  const configured = process.env.DSH_AGI_TEST_ELECTRON
   if (configured !== undefined && configured !== '') return configured
   const installed = join(process.env.LOCALAPPDATA ?? '', 'Programs', 'DeepSeek Harness', 'DeepSeek Harness.exe')
   return existsSync(installed) ? installed : undefined
@@ -159,8 +159,8 @@ describe('stale stage cleanup', () => {
   it('removes old pnpm staging folders beside the package and keeps young ones', () => {
     const pkg = installedPackage()
     const parent = dirname(pkg)
-    const old = join(parent, 'dsh-orb_tmp_123_1')
-    const young = join(parent, 'dsh-orb_tmp_456_1')
+    const old = join(parent, 'dsh-agi_tmp_123_1')
+    const young = join(parent, 'dsh-agi_tmp_456_1')
     const other = join(parent, 'zod_tmp_789_1')
     for (const dir of [old, young, other]) mkdirSync(join(dir, 'node_modules'), { recursive: true })
     const hourAgo = new Date(Date.now() - 60 * 60 * 1000)
@@ -174,8 +174,8 @@ describe('stale stage cleanup', () => {
   })
 
   it('touches nothing outside a node_modules folder', () => {
-    const pkg = join(root, 'checkout', 'dsh-orb')
-    const sibling = join(root, 'checkout', 'dsh-orb_tmp_1_1')
+    const pkg = join(root, 'checkout', 'dsh-agi')
+    const sibling = join(root, 'checkout', 'dsh-agi_tmp_1_1')
     mkdirSync(pkg, { recursive: true })
     mkdirSync(sibling, { recursive: true })
     removeStaleStages(pkg, Date.now() + 24 * 60 * 60 * 1000)

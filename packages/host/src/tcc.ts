@@ -65,7 +65,7 @@ export class TccMonitor {
       return this.probe
     } catch (error) {
       this.probeFailed = true
-      console.error(`dsh-orb: TCC probe unavailable: ${error instanceof Error ? error.message : String(error)}`)
+      console.error(`dsh-agi: TCC probe unavailable: ${error instanceof Error ? error.message : String(error)}`)
       return undefined
     }
   }

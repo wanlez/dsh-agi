@@ -85,7 +85,7 @@ function recordOptions(overrides: Partial<Parameters<ReturnType<typeof createCod
     sessionId: 'session-agent-1' as SessionId,
     callerId: 'session-caller-1' as SessionId,
     task: '调研压缩机故障',
-    cwd: '/tmp/dsh_orb/task',
+    cwd: '/tmp/dsh_agi/task',
     requestId: 'code-agent-req-1' as never,
     ...overrides,
   }
@@ -115,7 +115,7 @@ describe('code agent bookmark registry', () => {
     const [bookmark] = registry.list()
     expect(bookmark.state).toBe('running')
     expect(bookmark.task).toBe('调研压缩机故障')
-    expect(bookmark.cwd).toBe('/tmp/dsh_orb/task')
+    expect(bookmark.cwd).toBe('/tmp/dsh_agi/task')
     expect(bookmark.callerId).toBe('session-caller-1')
     expect(bookmark.endedAt).toBeUndefined()
     expect(bookmark.outcome).toBeUndefined()

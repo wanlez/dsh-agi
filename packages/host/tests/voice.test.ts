@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { DEFAULT_VOICE_SETTINGS } from '@dsh-orb/voice/settings'
+import { DEFAULT_VOICE_SETTINGS } from '@dsh-agi/voice/settings'
 import { linkProcess, VoiceController, type VoiceLink, type VoicePageMessage } from '../src/voice.ts'
 
 const root = mkdtempSync(join(tmpdir(), 'orb-voice-'))

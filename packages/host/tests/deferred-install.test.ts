@@ -41,10 +41,10 @@ function deadPid(): number {
 
 describe('release-age exemption and build approvals share the workspace file', () => {
   it('adds a top-level allowBuilds mapping, keeping the release-age key', () => {
-    const before = 'packages:\n  - .\nminimumReleaseAgeExclude:\n  - dsh-orb\n'
+    const before = 'packages:\n  - .\nminimumReleaseAgeExclude:\n  - dsh-agi\n'
     assert.equal(
       mergeApprovedBuilds(before, ['koffi']),
-      'packages:\n  - .\nminimumReleaseAgeExclude:\n  - dsh-orb\nallowBuilds:\n  koffi: true\n',
+      'packages:\n  - .\nminimumReleaseAgeExclude:\n  - dsh-agi\nallowBuilds:\n  koffi: true\n',
     )
   })
 
@@ -89,16 +89,16 @@ describe('the after-exit script', () => {
     // Stands in for pnpm: records whether the status file was already in place.
     const fake = join(bin, 'pnpm')
     writeFileSync(fake, '#!/bin/sh\n'
-      + 'if [ -f .dsh-orb-update/status.json ]; then echo present > .dsh-orb-update/pnpm-saw-status.txt; '
-      + 'else echo absent > .dsh-orb-update/pnpm-saw-status.txt; fi\n'
+      + 'if [ -f .dsh-agi-update/status.json ]; then echo present > .dsh-agi-update/pnpm-saw-status.txt; '
+      + 'else echo absent > .dsh-agi-update/pnpm-saw-status.txt; fi\n'
       + 'exit 0\n')
     chmodSync(fake, 0o755)
-    writeFileSync(join(dir, 'pnpm-workspace.yaml'), 'packages:\n  - .\nminimumReleaseAgeExclude:\n  - dsh-orb\n')
+    writeFileSync(join(dir, 'pnpm-workspace.yaml'), 'packages:\n  - .\nminimumReleaseAgeExclude:\n  - dsh-agi\n')
     const previousPath = process.env.PATH
     process.env.PATH = `${bin}:${previousPath ?? ''}`
     const job: DeferredInstall = {
       profileDir: dir,
-      spec: 'dsh-orb@0.2.0',
+      spec: 'dsh-agi@0.2.0',
       registry: 'https://registry.npmmirror.com',
       parentPid: deadPid(),
       approvedBuilds: ['koffi'],
@@ -111,7 +111,7 @@ describe('the after-exit script', () => {
         await new Promise((resolve) => setTimeout(resolve, 200))
       }
       assert.ok(existsSync(result), 'the script writes its outcome')
-      assert.deepEqual(JSON.parse(readFileSync(result, 'utf8')), { spec: 'dsh-orb@0.2.0', ok: true, detail: '' })
+      assert.deepEqual(JSON.parse(readFileSync(result, 'utf8')), { spec: 'dsh-agi@0.2.0', ok: true, detail: '' })
       assert.equal(existsSync(join(deferredDir(dir), 'status.json')), false, 'the status goes away with the outcome')
       assert.equal(existsSync(join(deferredDir(dir), 'job.json')), false, 'the job goes away with the outcome')
       assert.equal(
@@ -121,7 +121,7 @@ describe('the after-exit script', () => {
       )
       assert.equal(
         readFileSync(join(dir, 'pnpm-workspace.yaml'), 'utf8'),
-        'packages:\n  - .\nminimumReleaseAgeExclude:\n  - dsh-orb\nallowBuilds:\n  koffi: true\n',
+        'packages:\n  - .\nminimumReleaseAgeExclude:\n  - dsh-agi\nallowBuilds:\n  koffi: true\n',
       )
       const outcome = takeDeferredOutcome(dir)
       assert.equal(outcome?.ok, true)
@@ -137,26 +137,26 @@ describe('install-in-progress detection', () => {
   it('is true while the script runs and false once its outcome lands', () => {
     const dir = profile()
     assert.equal(deferredInstallInProgress(dir), false, 'nothing scheduled')
-    statusFile(dir, 'dsh-orb@0.2.0', process.pid, Date.now())
+    statusFile(dir, 'dsh-agi@0.2.0', process.pid, Date.now())
     assert.equal(deferredInstallInProgress(dir), true)
-    writeFileSync(join(deferredDir(dir), 'result.json'), JSON.stringify({ spec: 'dsh-orb@0.2.0', ok: true, detail: '' }))
+    writeFileSync(join(deferredDir(dir), 'result.json'), JSON.stringify({ spec: 'dsh-agi@0.2.0', ok: true, detail: '' }))
     assert.equal(deferredInstallInProgress(dir), false)
   })
 
   it('keeps trusting a young status whose script is gone, and collects an old one as failed', () => {
     const dir = profile()
-    statusFile(dir, 'dsh-orb@0.2.0', deadPid(), Date.now())
+    statusFile(dir, 'dsh-agi@0.2.0', deadPid(), Date.now())
     assert.equal(deferredInstallInProgress(dir), true, 'a fresh status is trusted while the script may still fork')
 
     const stale = profile()
     const old = join(deferredDir(stale), 'status.json')
-    statusFile(stale, 'dsh-orb@0.3.0', deadPid(), Date.now() - DEFERRED_INSTALL_CEILING_MS - 1000)
+    statusFile(stale, 'dsh-agi@0.3.0', deadPid(), Date.now() - DEFERRED_INSTALL_CEILING_MS - 1000)
     const past = new Date(Date.now() - DEFERRED_INSTALL_CEILING_MS - 1000)
     utimesSync(old, past, past)
     assert.equal(deferredInstallInProgress(stale), false, 'past its own ceiling the leftover is collected')
     assert.equal(existsSync(old), false)
     assert.deepEqual(takeDeferredOutcome(stale), {
-      spec: 'dsh-orb@0.3.0',
+      spec: 'dsh-agi@0.3.0',
       ok: false,
       detail: 'deferred-install-stalled',
     })
@@ -166,7 +166,7 @@ describe('install-in-progress detection', () => {
     const dir = profile()
     const jobFile = join(deferredDir(dir), 'job.json')
     mkdirSync(deferredDir(dir), { recursive: true })
-    writeFileSync(jobFile, JSON.stringify({ profileDir: dir, spec: 'dsh-orb@0.2.0', registry: 'x', parentPid: deadPid(), approvedBuilds: [] }))
+    writeFileSync(jobFile, JSON.stringify({ profileDir: dir, spec: 'dsh-agi@0.2.0', registry: 'x', parentPid: deadPid(), approvedBuilds: [] }))
     assert.equal(deferredInstallInProgress(dir), true, 'pnpm is about to run: the ball waits')
 
     // The heartbeat stopped long ago: the script died before pnpm ran, so nothing is being replaced.
@@ -188,13 +188,13 @@ describe('install-in-progress detection', () => {
     mkdirSync(folder, { recursive: true })
     writeFileSync(join(folder, 'job.json'), JSON.stringify({
       profileDir: dir,
-      spec: 'dsh-orb@0.2.0',
+      spec: 'dsh-agi@0.2.0',
       version: '0.2.0',
       registry: 'x',
       parentPid: process.pid,
       approvedBuilds: [],
     }))
-    assert.deepEqual(pendingDeferredInstall(dir), { spec: 'dsh-orb@0.2.0', version: '0.2.0' })
+    assert.deepEqual(pendingDeferredInstall(dir), { spec: 'dsh-agi@0.2.0', version: '0.2.0' })
   })
 
   it('reads the version off an older job that did not carry one', () => {
@@ -203,20 +203,20 @@ describe('install-in-progress detection', () => {
     mkdirSync(folder, { recursive: true })
     writeFileSync(join(folder, 'job.json'), JSON.stringify({
       profileDir: dir,
-      spec: 'dsh-orb@0.2.0',
+      spec: 'dsh-agi@0.2.0',
       registry: 'x',
       parentPid: process.pid,
       approvedBuilds: [],
     }))
-    assert.deepEqual(pendingDeferredInstall(dir), { spec: 'dsh-orb@0.2.0', version: '0.2.0' })
+    assert.deepEqual(pendingDeferredInstall(dir), { spec: 'dsh-agi@0.2.0', version: '0.2.0' })
   })
 
   it('drops a queued job once its outcome lands', () => {
     const dir = profile()
     const folder = deferredDir(dir)
     mkdirSync(folder, { recursive: true })
-    writeFileSync(join(folder, 'job.json'), JSON.stringify({ profileDir: dir, spec: 'dsh-orb@0.2.0', registry: 'x', parentPid: process.pid, approvedBuilds: [] }))
-    writeFileSync(join(folder, 'result.json'), JSON.stringify({ spec: 'dsh-orb@0.2.0', ok: true, detail: '' }))
+    writeFileSync(join(folder, 'job.json'), JSON.stringify({ profileDir: dir, spec: 'dsh-agi@0.2.0', registry: 'x', parentPid: process.pid, approvedBuilds: [] }))
+    writeFileSync(join(folder, 'result.json'), JSON.stringify({ spec: 'dsh-agi@0.2.0', ok: true, detail: '' }))
     assert.equal(pendingDeferredInstall(dir), undefined)
   })
 
@@ -225,7 +225,7 @@ describe('install-in-progress detection', () => {
     const folder = deferredDir(dir)
     mkdirSync(folder, { recursive: true })
     const jobFile = join(folder, 'job.json')
-    writeFileSync(jobFile, JSON.stringify({ profileDir: dir, spec: 'dsh-orb@0.2.0', registry: 'x', parentPid: deadPid(), approvedBuilds: [] }))
+    writeFileSync(jobFile, JSON.stringify({ profileDir: dir, spec: 'dsh-agi@0.2.0', registry: 'x', parentPid: deadPid(), approvedBuilds: [] }))
     const past = new Date(Date.now() - DEFERRED_INSTALL_PENDING_MS - 1000)
     utimesSync(jobFile, past, past)
     assert.equal(pendingDeferredInstall(dir), undefined)
@@ -233,7 +233,7 @@ describe('install-in-progress detection', () => {
 
   it('does not call a running script deferred: that state is installing', () => {
     const dir = profile()
-    statusFile(dir, 'dsh-orb@0.2.0', process.pid, Date.now())
+    statusFile(dir, 'dsh-agi@0.2.0', process.pid, Date.now())
     assert.equal(pendingDeferredInstall(dir), undefined)
     assert.equal(deferredInstallInProgress(dir), true)
   })
@@ -244,9 +244,9 @@ describe('install-in-progress detection', () => {
     mkdirSync(folder, { recursive: true })
     // What a Windows lock on job.json leaves behind: the outcome is on disk, the status file is
     // gone, and the job file is still fresh enough to read as a scheduled install.
-    writeFileSync(join(folder, 'job.json'), JSON.stringify({ parentPid: deadPid(), spec: 'dsh-orb@0.2.0' }))
-    writeFileSync(join(folder, 'result.json'), JSON.stringify({ spec: 'dsh-orb@0.2.0', ok: true, detail: '' }))
+    writeFileSync(join(folder, 'job.json'), JSON.stringify({ parentPid: deadPid(), spec: 'dsh-agi@0.2.0' }))
+    writeFileSync(join(folder, 'result.json'), JSON.stringify({ spec: 'dsh-agi@0.2.0', ok: true, detail: '' }))
     assert.equal(deferredInstallInProgress(dir), false, 'an outcome on disk means the install is over')
-    assert.deepEqual(takeDeferredOutcome(dir), { spec: 'dsh-orb@0.2.0', ok: true, detail: '' })
+    assert.deepEqual(takeDeferredOutcome(dir), { spec: 'dsh-agi@0.2.0', ok: true, detail: '' })
   })
 })

@@ -55,11 +55,11 @@ function spawnOpen(target: string): Promise<void> {
   return new Promise((resolve) => {
     const child = spawn(command, args, { stdio: 'ignore', windowsHide: true, env: openEnvironment() })
     child.once('error', () => {
-      console.error('dsh-orb: could not open the main window')
+      console.error('dsh-agi: could not open the main window')
       resolve()
     })
     child.once('exit', (code) => {
-      if (code !== 0) console.error('dsh-orb: could not open the main window')
+      if (code !== 0) console.error('dsh-agi: could not open the main window')
       resolve()
     })
   })

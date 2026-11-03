@@ -24,7 +24,7 @@ interface ScreenLockState {
   owner: unknown
 }
 
-const SCREEN_LOCK = Symbol.for('dsh-orb.gui-lock')
+const SCREEN_LOCK = Symbol.for('dsh-agi.gui-lock')
 
 /** Current lock state; exported so tests can observe the hold around a clipboard write. */
 export function screenLockState(): ScreenLockState {
@@ -43,7 +43,7 @@ export function screenLockState(): ScreenLockState {
  */
 export async function withScreenLock<T>(owner: string | undefined, run: () => Promise<T>): Promise<T> {
   const state = screenLockState()
-  const key = owner ?? Symbol('dsh-orb.gui-lock.anonymous')
+  const key = owner ?? Symbol('dsh-agi.gui-lock.anonymous')
   if (state.held && state.owner !== key) throw new Error(SCREEN_BUSY_MESSAGE)
   // Same-owner re-entry passes through: per-session HID tools are already exclusive, so this only
   // guards against accidental nesting, and the outermost frame owns the release.

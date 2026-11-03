@@ -4,7 +4,7 @@ import { BALL_PRESET, desktopToolDenial, screenOwnerId } from '../../computer-us
 import { publishScreenOwner } from '../src/screen-owner.ts'
 
 /**
- * The host publishes the owner and `@dsh-orb/computer-use` reads it. The two packages are separate
+ * The host publishes the owner and `@dsh-agi/computer-use` reads it. The two packages are separate
  * builds that cannot import each other, so each defines the `Symbol.for` key itself — which is
  * exactly the seam that can drift. These tests exercise both halves in one process, the way the orb
  * host and the preset's tool layer share it at runtime.

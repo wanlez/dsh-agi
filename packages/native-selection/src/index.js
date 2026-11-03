@@ -70,7 +70,7 @@ function loadDarwin() {
     return darwin
   } catch (error) {
     darwin = null
-    console.error(`dsh-orb: selection monitor did not load: ${error instanceof Error ? error.message : String(error)}`)
+    console.error(`dsh-agi: selection monitor did not load: ${error instanceof Error ? error.message : String(error)}`)
     return undefined
   }
 }
@@ -121,7 +121,7 @@ function startDarwin(handlers) {
       },
     }
   } catch (error) {
-    console.error(`dsh-orb: selection monitor did not start: ${error instanceof Error ? error.message : String(error)}`)
+    console.error(`dsh-agi: selection monitor did not start: ${error instanceof Error ? error.message : String(error)}`)
     return undefined
   }
 }

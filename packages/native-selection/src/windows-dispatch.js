@@ -52,7 +52,7 @@ export function startWindowsSelectionMonitor(handlers, probe, install) {
   try {
     unhook = install((message) => { dispatchWindowsSelectionMessage(message, handlers, tracking, excluded, reads) })
   } catch (error) {
-    console.error(`dsh-orb: selection hook failed: ${error instanceof Error ? error.message : String(error)}`)
+    console.error(`dsh-agi: selection hook failed: ${error instanceof Error ? error.message : String(error)}`)
   }
   return {
     stop() { unhook() },

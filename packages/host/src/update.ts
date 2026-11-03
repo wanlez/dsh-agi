@@ -125,7 +125,7 @@ export interface UpdateDeps {
 /**
  * Read the installed manifest.
  * The path assumes the assembled layout: `dist/host/index.js` next to the package's
- * `package.json`, which holds both in the profile's `node_modules/dsh-orb` and in a
+ * `package.json`, which holds both in the profile's `node_modules/dsh-agi` and in a
  * `link:`ed source checkout. Running from `packages/host/lib` finds nothing, so callers
  * treat an unknown version as "no update UI".
  */
@@ -490,10 +490,10 @@ export class UpdateChecker {
     try {
       const rolled = await this.requestInstall(manager, exactSpec(previous, name), registry, approvedBuilds)
       if (rolled.application === 'failed' && rolled.error?.code !== 'already-installed') {
-        console.error(`dsh-orb: restoring ${name}@${previous} failed: ${reportedInstallError(rolled.error)}`)
+        console.error(`dsh-agi: restoring ${name}@${previous} failed: ${reportedInstallError(rolled.error)}`)
       }
     } catch (error) {
-      console.error(`dsh-orb: restoring ${name}@${previous} failed: ${error instanceof Error ? error.message : String(error)}`)
+      console.error(`dsh-agi: restoring ${name}@${previous} failed: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
@@ -507,7 +507,7 @@ export class UpdateChecker {
     this.requestSerial += 1
     return manager.installBundle(spec, {
       enabled: true,
-      requestId: `dsh-orb-update-${Date.now()}-${this.requestSerial}`,
+      requestId: `dsh-agi-update-${Date.now()}-${this.requestSerial}`,
       registry,
       ...approvedBuilds === undefined ? {} : { approvedBuilds },
     })
@@ -540,7 +540,7 @@ export class UpdateChecker {
     try {
       await manager.setBundleEnabled(name, true)
     } catch (error) {
-      console.error(`dsh-orb: could not turn the bundle back on after a failed removal: ${error instanceof Error ? error.message : String(error)}`)
+      console.error(`dsh-agi: could not turn the bundle back on after a failed removal: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
@@ -603,7 +603,7 @@ export class UpdateChecker {
     const own = this.own
     if (own === undefined) return undefined
     if (this.deps.fetchLatest !== undefined) return this.deps.fetchLatest(own.name)
-    const forced = process.env.DSH_ORB_UPDATE_LATEST?.trim()
+    const forced = process.env.DSH_AGI_UPDATE_LATEST?.trim()
     if (forced !== undefined && forced !== '') return forced
     this.source = undefined
     for (const base of registryBases()) {
@@ -626,9 +626,9 @@ export class UpdateChecker {
   }
 }
 
-/** The API base the check asks; `DSH_ORB_UPDATE_API` re-points it (tests, mirrors). */
+/** The API base the check asks; `DSH_AGI_UPDATE_API` re-points it (tests, mirrors). */
 function apiBase(): string {
-  const configured = process.env.DSH_ORB_UPDATE_API?.trim()
+  const configured = process.env.DSH_AGI_UPDATE_API?.trim()
   if (configured !== undefined && configured !== '') return configured.replace(/\/+$/, '')
   return `https://api.github.com/repos/${UPDATE_REPO}`
 }
@@ -640,18 +640,18 @@ export function releaseTag(version: string): string {
 
 /**
  * The tarball a release attaches, the name `pnpm pack` produces for the bundle.
- * `DSH_ORB_UPDATE_URL` overrides the whole address (tests, staged releases).
+ * `DSH_AGI_UPDATE_URL` overrides the whole address (tests, staged releases).
  */
 export function releaseTarballUrl(version: string): string {
   const clean = version.trim().replace(/^v/, '')
-  const overridden = process.env.DSH_ORB_UPDATE_URL?.trim()
+  const overridden = process.env.DSH_AGI_UPDATE_URL?.trim()
   if (overridden !== undefined && overridden !== '') return overridden
-  return `https://github.com/${UPDATE_REPO}/releases/download/${releaseTag(clean)}/dsh-orb-${clean}.tgz`
+  return `https://github.com/${UPDATE_REPO}/releases/download/${releaseTag(clean)}/dsh-agi-${clean}.tgz`
 }
 
-/** The registry sources the check probes; `DSH_ORB_UPDATE_REGISTRIES` re-points them (tests, mirrors). */
+/** The registry sources the check probes; `DSH_AGI_UPDATE_REGISTRIES` re-points them (tests, mirrors). */
 export function registryBases(): string[] {
-  const configured = process.env.DSH_ORB_UPDATE_REGISTRIES?.trim()
+  const configured = process.env.DSH_AGI_UPDATE_REGISTRIES?.trim()
   if (configured === undefined || configured === '') return [...REGISTRY_BASES]
   return configured
     .split(',')
@@ -682,18 +682,18 @@ export function registryTarballUrl(base: string, name: string, version: string):
  * `name@version` makes pnpm read `dist.integrity` from registry metadata.
  * pnpm 11.7 (the version the official client bundles) rejects a bare tarball
  * URL whose lockfile entry has no integrity, before it downloads the file
- * (`ERR_PNPM_MISSING_TARBALL_INTEGRITY`). `DSH_ORB_UPDATE_URL` overrides the
+ * (`ERR_PNPM_MISSING_TARBALL_INTEGRITY`). `DSH_AGI_UPDATE_URL` overrides the
  * whole spec (tests, staged releases).
  */
 export function installSpec(version: string, name: string): string {
-  const overridden = process.env.DSH_ORB_UPDATE_URL?.trim()
+  const overridden = process.env.DSH_AGI_UPDATE_URL?.trim()
   if (overridden !== undefined && overridden !== '') return overridden
   return exactSpec(version, name)
 }
 
 /**
  * `name@version`, ignoring the staged-update override. A rollback must restore the
- * version that was running, not whatever `DSH_ORB_UPDATE_URL` points at.
+ * version that was running, not whatever `DSH_AGI_UPDATE_URL` points at.
  */
 function exactSpec(version: string, name: string): string {
   return `${name}@${version.trim().replace(/^v/, '')}`
@@ -745,7 +745,7 @@ function removalStoppedBeforeDisable(error: InstallResult['error']): boolean {
  * Record the package as an explicit exemption from pnpm's minimum-release-age
  * gate. pnpm v11 defaults `minimumReleaseAge` to 24 hours, so a registry-named
  * resolution silently settles for an older version while a fresh release waits
- * out the cutoff (observed 2026-10-06: `dsh-orb` resolved to 0.1.1 everywhere
+ * out the cutoff (observed 2026-10-06: `dsh-agi` resolved to 0.1.1 everywhere
  * the hour after 0.1.2 shipped), and the manager's install pipeline verifies the
  * lockfile against the gate before pnpm's own auto-exemption can apply. The
  * entry is the bare package name — pnpm grants it to every version, and unlike
@@ -776,7 +776,7 @@ export function exemptReleaseAge(profileDir: string, name: string): void {
     // Still best-effort — the caller installs either way — but no longer silent: without the
     // exemption pnpm settles for the previous release for up to a day, which the user reads
     // as "the update did nothing".
-    console.error(`dsh-orb: could not write the release-age exemption into ${file}: ${error instanceof Error ? error.message : String(error)}`)
+    console.error(`dsh-agi: could not write the release-age exemption into ${file}: ${error instanceof Error ? error.message : String(error)}`)
   }
 }
 
@@ -793,7 +793,7 @@ export function exemptReleaseAge(profileDir: string, name: string): void {
  * @param text - complete new contents.
  */
 function writeProfileFile(file: string, text: string): void {
-  const staged = `${file}.dsh-orb-tmp`
+  const staged = `${file}.dsh-agi-tmp`
   writeFileSync(staged, text)
   try {
     renameWithRetry(staged, file)

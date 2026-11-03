@@ -1,15 +1,15 @@
 /**
- * Assemble the single installable `dsh-orb` package from the workspace builds.
+ * Assemble the single installable `dsh-agi` package from the workspace builds.
  *
  * The official loader resolves every plugin name from the profile root, so sub-packages nested inside
- * `dsh-orb/node_modules` are invisible to it. Everything ships inside this one package and is reached
- * through subpath exports: `dsh-orb`, `dsh-orb/host`, `dsh-orb/computer-use`, `dsh-orb/computer-use/code-agent`.
+ * `dsh-agi/node_modules` are invisible to it. Everything ships inside this one package and is reached
+ * through subpath exports: `dsh-agi`, `dsh-agi/host`, `dsh-agi/computer-use`, `dsh-agi/computer-use/code-agent`.
  *
  * Output (all generated, none committed; swapped in atomically so a linked install never sees a partial build):
  *   lib/index.js, lib/index.d.ts   settings page, host half   (from client-settings)
  *   client.js                      settings page, browser half (from client-settings)
- *   dist/host/                     @dsh-orb/host
- *   dist/computer-use/             @dsh-orb/computer-use, including the ScreenCaptureKit helper
+ *   dist/host/                     @dsh-agi/host
+ *   dist/computer-use/             @dsh-agi/computer-use, including the ScreenCaptureKit helper
  *   dist/helper/                   Electron entry, preload scripts, assets
  *   dist/native-selection/         selection monitor sources and prebuilt library
  */
@@ -22,9 +22,9 @@ import { fileURLToPath } from 'node:url'
 const bundleRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const packages = resolve(bundleRoot, '..')
 
-const OLD_CLIENT_ID = "id: '@dsh-orb/client-ui-settings-orb'"
-const NEW_CLIENT_ID = "id: 'dsh-orb'"
-const SELECTION_SPECIFIER = '"@dsh-orb/native-selection"'
+const OLD_CLIENT_ID = "id: '@dsh-agi/client-ui-settings-agi'"
+const NEW_CLIENT_ID = "id: 'dsh-agi'"
+const SELECTION_SPECIFIER = '"@dsh-agi/native-selection"'
 const SELECTION_RELATIVE = '"../native-selection/src/index.js"'
 
 /** Copy a workspace folder or file. A missing source is a build-order mistake, so fail loudly. */
@@ -86,8 +86,8 @@ await copyFrom('voice', 'lib', join(dist, 'voice'))
 // host stop listening while our own TTS is playing, so interjection goes dead.
 await copyFrom('voice', 'prebuilds', join(dist, 'voice', 'prebuilds'))
 for (const binary of [
-  'darwin-universal/dsh-orb-voice-capture',
-  'win32-x64/dsh-orb-voice-capture.exe',
+  'darwin-universal/dsh-agi-voice-capture',
+  'win32-x64/dsh-agi-voice-capture.exe',
 ]) {
   const file = join(dist, 'voice', 'prebuilds', binary)
   if (existsSync(file)) await chmod(file, 0o755)
@@ -112,4 +112,4 @@ if (!inPlace) {
 await rm(stage, { recursive: true, force: true })
 await rm(retired, { recursive: true, force: true })
 
-console.log(`assemble: dsh-orb is ready in ${outRoot}`)
+console.log(`assemble: dsh-agi is ready in ${outRoot}`)

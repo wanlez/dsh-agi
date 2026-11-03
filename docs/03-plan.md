@@ -1,4 +1,4 @@
-# dsh-orb 实施方案
+# dsh-agi 实施方案
 
 > 每个阶段结束时，官方 dsh 上都能装上一个真能用的东西。官方仓库始终不改。
 > 架构见 [02-architecture.md](02-architecture.md)。
@@ -12,15 +12,15 @@
 | 2 | 最小球 | 装上插件后右沿出现球，能对话，能操作屏幕 | 1 |
 | 3 | 完整球 | 拖动、停靠、历史、权限、提问卡、模型、头像、设置页 | 2 |
 | 4 | 划词、观察框、截图里没有球 | 划词三动作；操作时点击穿过球；截图不含球和边框 | 2 |
-| 5 | 发布 | npm 上的 `dsh-orb`，桌面插件页和 CLI 都能装 | 3、4 |
+| 5 | 发布 | npm 上的 `dsh-agi`，桌面插件页和 CLI 都能装 | 3、4 |
 
-阶段 1 可以单独交给会用主窗口的人。阶段 2 开始，用户安装的名字是 `dsh-orb`，一次安装包含 preset 和球。
+阶段 1 可以单独交给会用主窗口的人。阶段 2 开始，用户安装的名字是 `dsh-agi`，一次安装包含 preset 和球。
 
 ## 1. 阶段 0：脚手架（约 1 天）
 
 - pnpm workspace，ESM，`"type": "module"`，用官方各包那种 `tsdown.config.ts` 打包。
 - 开发机已有官方桌面预览 `/Applications/DeepSeek Harness.app` `0.1.7-rc.2`。CLI 用同一版本的官方 `dsh`，不要用 fork 的 `dev:desktop` 当验收对象。
-- 工作区内的包名用 `@dsh-orb/*`，它们不发布。用户安装的只有 `dsh-orb`。发布前查 npm 上 `dsh-orb` 是否被占用。
+- 工作区内的包名用 `@dsh-agi/*`，它们不发布。用户安装的只有 `dsh-agi`。发布前查 npm 上 `dsh-agi` 是否被占用。
 
 验收：`dsh plugin add file:<空 bundle 的 tgz>` 在官方 `dsh web` 上成功，配置树里看得到插入行。
 
@@ -43,13 +43,13 @@
 
 按这个顺序做，先证明窗口和会话，再搬完整 UI。
 
-1. `@dsh-orb/host`：cordis 插件、`autoStart`、本次启动的 token、loopback socket。启动时打印 `ctx.webServer.port` 和 `ctx.connection.authenticatedUrl(...)`，确认第三方插件看得到这两个服务。
+1. `@dsh-agi/host`：cordis 插件、`autoStart`、本次启动的 token、loopback socket。启动时打印 `ctx.webServer.port` 和 `ctx.connection.authenticatedUrl(...)`，确认第三方插件看得到这两个服务。
 2. 下载并校验锁定版本的 Electron，用它打开 helper 入口，建出透明、置顶、可拖的窗口。`userData` 与官方应用分开。官方应用退出后，helper 进程消失。
 3. helper 复刻 `preload.ts` 的最小子集：移动窗口和发一条消息所需的成员。
-4. Host 注册会话路由，直接调 `ctx.sessionController`。球里能完成一轮对话和一次真实 GUI 操作。`dsh_orb` 目录里出现会话。
+4. Host 注册会话路由，直接调 `ctx.sessionController`。球里能完成一轮对话和一次真实 GUI 操作。`dsh_agi` 目录里出现会话。
 5. socket 断开时 helper 退出；插件 disposer 结束 helper。
 
-验收：官方 `dsh web` 和官方桌面版各装一次 `dsh-orb`。球在屏幕右沿。球里说话能触发 Computer Use。`ps` 里在官方应用退出后没有残留 helper。
+验收：官方 `dsh web` 和官方桌面版各装一次 `dsh-agi`。球在屏幕右沿。球里说话能触发 Computer Use。`ps` 里在官方应用退出后没有残留 helper。
 
 此阶段不把官方 SPA 嵌进球。输入框和一条简单转录即可。
 
@@ -78,7 +78,7 @@
 
 - 中英 README、设置页文案、`icon.svg`。
 - 读 plugin manager 的 `evaluatePluginCompatibility`，声明兼容的官方 dsh 版本。当前目标是 `0.1.7-rc.2`。官方发新版本时 bump 依赖并重跑阶段 1 和阶段 2 的验收。
-- 只发布 `dsh-orb` 一个包，它已经包含 host、Computer Use、helper 和划词的构建产物。安装说明只有两句：桌面版在插件页填包名；命令行是 `dsh plugin add dsh-orb`。
+- 只发布 `dsh-agi` 一个包，它已经包含 host、Computer Use、helper 和划词的构建产物。安装说明只有两句：桌面版在插件页填包名；命令行是 `dsh plugin add dsh-agi`。
 - 过一遍 §8 的安全清单。
 
 ## 7. 风险

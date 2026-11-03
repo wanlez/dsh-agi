@@ -20,7 +20,7 @@ after(() => { rmSync(root, { recursive: true, force: true }) })
 
 const NOW = Date.parse('2026-10-18T00:00:00Z')
 const DAY = 24 * 60 * 60 * 1000
-const MARKER = '.dsh-orb-os-trash'
+const MARKER = '.dsh-agi-os-trash'
 
 interface FakeSession {
   readonly id: string

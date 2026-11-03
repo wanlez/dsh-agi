@@ -27,7 +27,7 @@ if (process.platform !== 'darwin') {
   process.exit(0)
 }
 
-const scratch = mkdtempSync(join(tmpdir(), 'dsh-orb-sck-'))
+const scratch = mkdtempSync(join(tmpdir(), 'dsh-agi-sck-'))
 try {
   const cliParts = targets.map((target) => compile(target, `cli-${target}`, [
     '-parse-as-library',

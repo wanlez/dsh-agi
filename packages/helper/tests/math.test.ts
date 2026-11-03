@@ -14,7 +14,7 @@ const here = fileURLToPath(new URL('.', import.meta.url))
 const assets = join(here, '../assets')
 const vendor = join(assets, 'vendor/katex.js')
 const built = existsSync(vendor)
-const skip = built ? false : 'run `pnpm --filter @dsh-orb/helper build:vendor` first'
+const skip = built ? false : 'run `pnpm --filter @dsh-agi/helper build:vendor` first'
 
 function source(file: string): string {
   return readFileSync(join(assets, file), 'utf8')

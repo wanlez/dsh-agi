@@ -1,4 +1,4 @@
-# dsh-orb 可行性与产品结论
+# dsh-agi 可行性与产品结论
 
 > 修订日期：2026-09-28。实施以本文、[02-architecture.md](02-architecture.md)、[03-plan.md](03-plan.md) 为准。与初版分析的差异见 [04-addenda.md](04-addenda.md)。
 >
@@ -24,7 +24,7 @@
 装好并且插件加载完成后，球出现在主屏右沿，置顶。之后的手感对齐 fork 版 README「悬浮球」一节：
 
 - 悬停展开，单击钉住，拖动，拖出左右边缘后收成细条。
-- 在球里说话。看得见的操作当场执行；翻文件、写文档派给后台会话，完成后摘要回到球里。后台会话出现在主窗口侧栏的 `dsh_orb` 工作区。
+- 在球里说话。看得见的操作当场执行；翻文件、写文档派给后台会话，完成后摘要回到球里。后台会话出现在主窗口侧栏的 `dsh_agi` 工作区。
 - 面板里有历史、新建、Access 权限芯片、提问卡片、绕球折行的输入框。
 - 右键可以打开官方主窗口、分别设置两条轨的模型和思考强度、开关划词、切换千分比或像素坐标、停用悬浮球。
 - 任意应用划词后出现搜索、翻译、发给 Agent。
@@ -48,7 +48,7 @@ fork 相对其 merge-base（`46a7f68`，`0.1.7-rc.1`）有 106 个自有提交�
 | GUI 工具 + `code_agent` | `packages/experimental/tool-computer-use` | 已是 cordis 插件，`"private": true`，必须改名后自己发布。`orbCodeAgentModel`、`orbCoordinateMode` 是可选的 `ctx.get` |
 | 权限、坐标、后台模型 | `apps/desktop-host/src/computer-use-orb-*.ts` | 已是 cordis 插件，但今天编进 fork 的 desktop-host。抽成独立包，由 bundle patch 插入 |
 | 球、划词条、观察框、preload | `apps/desktop/src/floating-window.ts` 等 | 不是插件。迁到 helper 进程 |
-| 设置页 | `packages/client/ui-settings-orb` | 已是 client 插件。数据面从 `window.dshDesktop.orb` 改成 HTTP，否则在官方主窗口里会静默消失 |
+| 设置页 | `packages/client/ui-settings-agi` | 已是 client 插件。数据面从 `window.dshDesktop.orb` 改成 HTTP，否则在官方主窗口里会静默消失 |
 | 紧凑聊天 | `packages/client/ui-overlay-chat` | 依赖 fork 对官方 `ui-layout` 和 `session-controller` 的修改，不能原样装进官方应用。对话 UI 留在 helper |
 
 官方插件形态里，给用户安装的单位是 bundle：`dsh.bundle.patch` 里用 `- insert:` 挂配置行。`dsh plugin add` 接受 registry 名、绝对路径、tarball、git URL。client 插件靠同一棵配置树里的一行，加上包上的 `dsh.client`，由官方 `client-modules` 扫进 Web UI。

@@ -78,7 +78,7 @@ private final class SelectionMonitor: @unchecked Sendable {
     let started = Thread { [weak self] in
       self?.run()
     }
-    started.name = "dsh-orb-selection"
+    started.name = "dsh-agi-selection"
     thread = started
     lock.unlock()
     started.start()

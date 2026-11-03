@@ -10,14 +10,14 @@ import assert from 'node:assert/strict'
 const here = dirname(fileURLToPath(import.meta.url))
 const bundle = join(here, '..')
 const repo = join(bundle, '../..')
-const scratch = mkdtempSync(join(tmpdir(), 'dsh-orb-install-'))
+const scratch = mkdtempSync(join(tmpdir(), 'dsh-agi-install-'))
 
 after(() => { rmSync(scratch, { recursive: true, force: true }) })
 
 /** Plugin names the patch inserts that belong to this package. */
 function ownNames() {
   const patch = readFileSync(join(bundle, 'cordis.patch.yml'), 'utf8')
-  const names = [...patch.matchAll(/^\s+name: '?(dsh-orb[^'\s]*)'?\s*$/gm)].map((match) => match[1])
+  const names = [...patch.matchAll(/^\s+name: '?(dsh-agi[^'\s]*)'?\s*$/gm)].map((match) => match[1])
   return [...new Set(names)]
 }
 
@@ -29,18 +29,18 @@ function resolveFromProfile(profile, specifier) {
 function profileWith(install) {
   const profile = mkdtempSync(join(scratch, 'profile-'))
   mkdirSync(join(profile, 'node_modules'), { recursive: true })
-  install(join(profile, 'node_modules', 'dsh-orb'))
+  install(join(profile, 'node_modules', 'dsh-agi'))
   return profile
 }
 
 function checkInstalled(profile, root) {
   const names = ownNames()
   assert.deepEqual(names.sort(), [
-    'dsh-orb',
-    'dsh-orb/computer-use',
-    'dsh-orb/computer-use/code-agent',
-    'dsh-orb/computer-use/code-agent-registry',
-    'dsh-orb/host',
+    'dsh-agi',
+    'dsh-agi/computer-use',
+    'dsh-agi/computer-use/code-agent',
+    'dsh-agi/computer-use/code-agent-registry',
+    'dsh-agi/host',
   ])
   for (const specifier of names) {
     const file = resolveFromProfile(profile, specifier)
@@ -49,11 +49,11 @@ function checkInstalled(profile, root) {
 
   // dsh-client-modules: nearest manifest carries the package name, declares dsh.client, exports ./client.
   const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
-  assert.equal(manifest.name, 'dsh-orb')
+  assert.equal(manifest.name, 'dsh-agi')
   assert.equal(manifest.dsh.client.platform, 'web')
   assert.deepEqual(manifest.dsh.client.inject, ['@deepseek-ai/dsh-client-ui-settings'])
   assert.equal(manifest.exports['./client'], './client.js')
-  assert.match(readFileSync(join(root, 'client.js'), 'utf8'), /id: 'dsh-orb'/)
+  assert.match(readFileSync(join(root, 'client.js'), 'utf8'), /id: 'dsh-agi'/)
 
   // Files the host reaches by relative path.
   for (const rel of [
@@ -74,17 +74,17 @@ function checkInstalled(profile, root) {
     'dist/computer-use/macos-sck-capture',
     // The voice child spawns this beside itself. Without it capture falls back to
     // node-cpal (aec:false) and the host stops listening during TTS, so interjection dies.
-    'dist/voice/prebuilds/darwin-universal/dsh-orb-voice-capture',
+    'dist/voice/prebuilds/darwin-universal/dsh-agi-voice-capture',
   ]) {
     assert.ok(existsSync(join(root, rel)), rel)
   }
-  const capture = join(root, 'dist/voice/prebuilds/darwin-universal/dsh-orb-voice-capture')
+  const capture = join(root, 'dist/voice/prebuilds/darwin-universal/dsh-agi-voice-capture')
   if (process.platform !== 'win32') {
     assert.equal(statSync(capture).mode & 0o111, 0o111, 'voice capture helper is not executable')
   }
   const host = readFileSync(join(root, 'dist/host/index.js'), 'utf8')
   assert.match(host, /new URL\("\.\.\/helper", import\.meta\.url\)/)
-  assert.equal(host.includes('from "@dsh-orb/native-selection"'), false)
+  assert.equal(host.includes('from "@dsh-agi/native-selection"'), false)
   assert.equal(readdirSync(join(root, 'dist/host')).includes('index.js'), true)
 }
 
@@ -93,7 +93,7 @@ function linkDir(target, link) {
   symlinkSync(target, link, process.platform === 'win32' ? 'junction' : 'dir')
 }
 
-describe('dsh-orb install layout', () => {
+describe('dsh-agi install layout', () => {
   // Assembled into a scratch folder so a linked desktop install is never rewritten while it runs.
   const assembled = join(scratch, 'assembled')
   before(() => {
@@ -105,10 +105,10 @@ describe('dsh-orb install layout', () => {
 
   it('resolves every patch row from the profile root when the folder is linked', async () => {
     const profile = profileWith((target) => linkDir(assembled, target))
-    checkInstalled(profile, join(profile, 'node_modules', 'dsh-orb'))
-    const host = await import(pathToFileURL(resolveFromProfile(profile, 'dsh-orb/host')).href)
+    checkInstalled(profile, join(profile, 'node_modules', 'dsh-agi'))
+    const host = await import(pathToFileURL(resolveFromProfile(profile, 'dsh-agi/host')).href)
     assert.equal(typeof host.apply, 'function')
-    assert.equal(host.name, 'orb-host')
+    assert.equal(host.name, 'agi-host')
   })
 
   it('keeps the repository client.js in step with the settings source', () => {
@@ -122,7 +122,7 @@ describe('dsh-orb install layout', () => {
     assert.match(text, /update\.deferred/, 'the deferred-install banner is missing')
     assert.match(text, /updateDeferred/)
     // Only the module id differs from the source it is assembled from.
-    assert.equal(text, source.replace("id: '@dsh-orb/client-ui-settings-orb'", "id: 'dsh-orb'"))
+    assert.equal(text, source.replace("id: '@dsh-agi/client-ui-settings-agi'", "id: 'dsh-agi'"))
   })
 
   it('carries the deferred-install banner in the assembled settings page', () => {
@@ -133,11 +133,11 @@ describe('dsh-orb install layout', () => {
 
   it('resolves every patch row when the tarball is unpacked into the profile', () => {
     // A test-only version keeps the pack away from a release tarball waiting in the
-    // repository root: the pack writes `dsh-orb-<version>.tgz` there and this test deletes it.
+    // repository root: the pack writes `dsh-agi-<version>.tgz` there and this test deletes it.
     const testVersion = '0.0.0-test'
     const packed = spawnSync(process.execPath, [join(bundle, 'scripts/pack.mjs'), '--version', testVersion], { cwd: repo, stdio: 'pipe', encoding: 'utf8' })
     assert.equal(packed.status, 0, packed.stderr)
-    const tarball = join(repo, `dsh-orb-${testVersion}.tgz`)
+    const tarball = join(repo, `dsh-agi-${testVersion}.tgz`)
     assert.ok(existsSync(tarball))
     try {
       const profile = profileWith((target) => {
@@ -154,7 +154,7 @@ describe('dsh-orb install layout', () => {
           rmSync(local, { force: true })
         }
       })
-      const root = join(profile, 'node_modules', 'dsh-orb')
+      const root = join(profile, 'node_modules', 'dsh-agi')
       checkInstalled(profile, root)
       const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
       assert.equal(manifest.devDependencies, undefined)
@@ -173,7 +173,7 @@ describe('dsh-orb install layout', () => {
         'dist/voice/child.js',
         'dist/voice/decode-worker.mjs',
         'dist/voice/tts-worker.js',
-        'dist/voice/prebuilds/darwin-universal/dsh-orb-voice-capture',
+        'dist/voice/prebuilds/darwin-universal/dsh-agi-voice-capture',
         'node_modules/sherpa-onnx-node/package.json',
         'node_modules/sherpa-onnx-darwin-arm64/sherpa-onnx.node',
         'node_modules/sherpa-onnx-darwin-x64/sherpa-onnx.node',

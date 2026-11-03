@@ -14,10 +14,10 @@
  *
  * An absent owner means unrestricted: `dsh web`, the CLI, and a ball that is switched off keep the
  * full tool surface.
- * @module @dsh-orb/computer-use/src/screen-owner
+ * @module @dsh-agi/computer-use/src/screen-owner
  */
 
-const SCREEN_OWNER = Symbol.for('dsh-orb.screen-owner')
+const SCREEN_OWNER = Symbol.for('dsh-agi.screen-owner')
 
 /**
  * Agent preset of a floating ball conversation. The overlay in `cordis.patch.yml` registers it and

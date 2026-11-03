@@ -1,9 +1,9 @@
-# dsh-orb-kws
+# dsh-agi-kws
 
-Wake-word model files for the [dsh-orb](https://www.npmjs.com/package/dsh-orb) floating ball.
+Wake-word model files for the [dsh-agi](https://www.npmjs.com/package/dsh-agi) floating ball.
 Data only: this package has no entry point and nothing to `import`.
 
-这是悬浮球的唤醒词模型数据包，只给 `dsh-orb` 插件用，不需要手动安装。
+这是悬浮球的唤醒词模型数据包，只给 `dsh-agi` 插件用，不需要手动安装。
 
 ## 里面是什么
 
@@ -22,10 +22,10 @@ chunk-8 和 chunk-16 两套都带着，因为设置里的「判定粒度」可�
 
 ## 插件怎么用它
 
-`dsh-orb` 的「下载语音唤醒模型」按钮按这个顺序拉压缩包：
+`dsh-agi` 的「下载语音唤醒模型」按钮按这个顺序拉压缩包：
 
-1. `https://registry.npmmirror.com/dsh-orb-kws/-/dsh-orb-kws-<version>.tgz`
-2. `https://registry.npmjs.org/dsh-orb-kws/-/dsh-orb-kws-<version>.tgz`
+1. `https://registry.npmmirror.com/dsh-agi-kws/-/dsh-agi-kws-<version>.tgz`
+2. `https://registry.npmjs.org/dsh-agi-kws/-/dsh-agi-kws-<version>.tgz`
 3. GitHub 上的原始 release（最后的兜底）
 
 版本号写死在插件的 `packages/voice/src/manifest.ts` 里，同时钉着这个 tarball 的 sha256。
@@ -43,16 +43,16 @@ chunk-8 和 chunk-16 两套都带着，因为设置里的「判定粒度」可�
 ## 重新打包
 
 ```sh
-node models/kws/scripts/pack.mjs --from ~/.dsh/dsh-orb/voice/kws
+node models/kws/scripts/pack.mjs --from ~/.dsh/dsh-agi/voice/kws
 ```
 
-不传 `--from` 时读默认位置 `~/.dsh/dsh-orb/voice/kws`。脚本会校验 8 个文件都在，
-打出 `dsh-orb-kws-<version>.tgz` 并打印 sha256 和字节数。
+不传 `--from` 时读默认位置 `~/.dsh/dsh-agi/voice/kws`。脚本会校验 8 个文件都在，
+打出 `dsh-agi-kws-<version>.tgz` 并打印 sha256 和字节数。
 
 然后：
 
 1. 把 sha256 和字节数填进 `packages/voice/src/manifest.ts` 的 `WAKE_MODEL_SHA256` / `WAKE_MODEL_BYTES`
-2. `npm publish ./dsh-orb-kws-<version>.tgz`
+2. `npm publish ./dsh-agi-kws-<version>.tgz`
 
 **发布的就是这个 tarball 本身**，不要 `npm pack` 重新打一遍：重新打包会换掉 mtime，
 sha256 变了，插件就再也校验不过。

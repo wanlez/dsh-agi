@@ -17,7 +17,7 @@ if (process.platform !== 'darwin') {
 }
 
 mkdirSync(resolve(packageRoot, 'prebuilds/darwin-universal'), { recursive: true })
-const scratch = mkdtempSync(join(tmpdir(), 'dsh-orb-selection-'))
+const scratch = mkdtempSync(join(tmpdir(), 'dsh-agi-selection-'))
 try {
   const parts = targets.map((target) => {
     const out = join(scratch, `${target}.dylib`)

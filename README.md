@@ -1,6 +1,6 @@
-<p align="center"><img src="docs/assets/ball.png" width="120" alt="The dsh-orb floating ball"></p>
+<p align="center"><img src="docs/assets/ball.png" width="120" alt="The dsh-agi floating ball"></p>
 
-# dsh-orb
+# dsh-agi
 
 English | [中文](README.zh-CN.md)
 
@@ -30,7 +30,7 @@ Speech is off until you turn it on: main-window **Settings → Floating Ball →
 - **Wake word.** Say **你好大肥鱼** while the ball is collapsed. It pins the panel and answers **我在呢**. The phrase, the reply, sensitivity, judging granularity and the 1.5 s cooldown are editable.
 - **Voice input.** While the ball is pinned and idle, speak a command; it is transcribed when you stop and sent like a typed message. The microphone stays closed while the agent works, while a question card is waiting, and while the ball itself is talking — say **大肥鱼** to cut in, or **退下吧** to stop and unpin.
 - **Spoken replies.** Agent text, the wake reply and the dismiss reply are read aloud. The local Matcha voices (Chinese and English) are the default; **Qwen** (Alibaba Cloud Bailian, your own API key) is the alternative backend.
-- **Models.** The wake model (about 9 MB) is the npm package `dsh-orb-kws`: npmmirror first, then registry.npmjs.org, then the GitHub release. The local TTS weights (about 197 MB) come from the Hugging Face mirror. Speech recognition uses the SenseVoice model DeepSeek Harness already manages.
+- **Models.** The wake model (about 9 MB) is the npm package `dsh-agi-kws`: npmmirror first, then registry.npmjs.org, then the GitHub release. The local TTS weights (about 197 MB) come from the Hugging Face mirror. Speech recognition uses the SenseVoice model DeepSeek Harness already manages.
 - **Privacy.** Microphone audio is decoded in a local subprocess and never leaves the machine. The only network path is the optional Qwen TTS, which sends the sentence it is about to speak.
 
 ## Dual-track agent architecture
@@ -49,7 +49,7 @@ flowchart TD
 - **Foreground track · Computer Use**: visible operations — opening apps, clicking buttons, filling forms, changing settings — are executed with GUI tools right in front of you, each step based on a live screenshot of the frontmost window. Quick lookups such as weather or news headlines stay on the ball too, answered directly with `web_search` / `web_fetch`.
 - **Background track · Code Agent**: complex tasks — digging through files, producing documents, building a website — are dispatched through `code_agent` to a background standard session. Dispatch returns immediately; the ball tells you the background is running and you can keep chatting. When the background session ends and the ball is idle, the completion summary returns to the ball automatically, and the Computer Use agent decides the next move — keep clicking, dispatch more background work, or wrap up.
 
-A background session is the same kind of session you create manually in the main window; it appears in the `dsh_orb` folder in the main-window sidebar, where you can open, continue, or stop it. Follow-up changes to the same deliverable go back to the same background session; unrelated new work opens another one. The conversation history, permissions, and per-track model settings are shared with the official dsh process — the ball reads and writes the same sessions as the main window.
+A background session is the same kind of session you create manually in the main window; it appears in the `dsh_agi` folder in the main-window sidebar, where you can open, continue, or stop it. Follow-up changes to the same deliverable go back to the same background session; unrelated new work opens another one. The conversation history, permissions, and per-track model settings are shared with the official dsh process — the ball reads and writes the same sessions as the main window.
 
 ## Computer Use
 
@@ -67,7 +67,7 @@ Every conversation on the ball runs Computer Use: the first message automaticall
 DeepSeek Harness (official, unmodified)
 └─ Electron shell (main window, dsh://open, single instance)
      └─ Host, spawned as a plain Node process (ELECTRON_RUN_AS_NODE=1)
-          └─ dsh-orb plugin
+          └─ dsh-agi plugin
                ├─ host — sessions, permissions, models, web routes, helper lifecycle
                ├─ computer-use — 13 GUI tools + code_agent (Computer Use preset)
                └─ client-settings — the "Floating Ball" section in main-window settings
@@ -77,7 +77,7 @@ Helper (its own downloaded Electron, isolated userData)
 └─ data requests → authenticated loopback URL of the official Host
 ```
 
-- One package to install: the `dsh-orb` bundle assembles the host, the Computer Use plugin, the helper, and the settings page into itself at build time.
+- One package to install: the `dsh-agi` bundle assembles the host, the Computer Use plugin, the helper, and the settings page into itself at build time.
 - The helper runtime is a stock Electron release pinned by SHA-256 (darwin/win32, arm64/x64), downloaded on first use and verified against the pinned hashes; it runs in its own `userData`, separate from the official app.
 - The helper talks to the host over a loopback-only NDJSON socket authenticated with a random 32-byte token generated per launch, passed by environment variable — never argv, never written to disk. Authenticated URLs with official credentials never reach the helper.
 - Watchdog: the helper exits when it loses the socket; the host restarts it at most three times. Computer Use in the main window keeps working even if the ball cannot start.
@@ -94,31 +94,31 @@ Helper (its own downloaded Electron, isolated userData)
 
 Releases are published to the npm registry and served from npmmirror. The install unit is the release tarball — **not the repository itself**: pasting the repo URL into a plugin page installs the monorepo root package, which fails with "this package declares no bundle".
 
-- **By name** — add `dsh-orb` in the desktop app's plugin page, or:
+- **By name** — add `dsh-agi` in the desktop app's plugin page, or:
 
   ```sh
-  dsh plugin add dsh-orb
+  dsh plugin add dsh-agi
   ```
 
-- **By version** — `dsh-orb@<version>`. An explicit version skips the release-age gate, and pnpm records `integrity` from registry metadata. Do not paste a remote tarball URL such as `https://registry.npmmirror.com/dsh-orb/-/dsh-orb-<version>.tgz`: pnpm 11.7, which the official client bundles, rejects that URL because the lockfile entry has no `integrity`.
+- **By version** — `dsh-agi@<version>`. An explicit version skips the release-age gate, and pnpm records `integrity` from registry metadata. Do not paste a remote tarball URL such as `https://registry.npmmirror.com/dsh-agi/-/dsh-agi-<version>.tgz`: pnpm 11.7, which the official client bundles, rejects that URL because the lockfile entry has no `integrity`.
 
-**A just-published version can resolve to the previous one for up to 24 hours.** The official client bundles pnpm 11, whose `minimumReleaseAge` default (1440 minutes) makes a named install settle for the newest version published more than 24 hours ago — a supply-chain guard, not a network problem. To get a fresh release immediately, install `dsh-orb@<version>`, or exempt the package in the profile's `pnpm-workspace.yaml`:
+**A just-published version can resolve to the previous one for up to 24 hours.** The official client bundles pnpm 11, whose `minimumReleaseAge` default (1440 minutes) makes a named install settle for the newest version published more than 24 hours ago — a supply-chain guard, not a network problem. To get a fresh release immediately, install `dsh-agi@<version>`, or exempt the package in the profile's `pnpm-workspace.yaml`:
 
 ```yaml
 minimumReleaseAgeExclude:
-  - dsh-orb
+  - dsh-agi
 ```
 
 With an older version installed there is no need to reinstall: the floating-ball card in the main window's settings page checks for and installs updates, and records the exemption itself.
 
-**Does the in-app update fail with `operation-error`?** Releases through 0.1.4 handed pnpm 11.7 (the client bundles that version) an npmmirror tarball URL. That URL is stored without an `integrity` field, so pnpm rejects it before downloading (`ERR_PNPM_MISSING_TARBALL_INTEGRITY`) and the card only shows the generic `operation-error`. Install `dsh-orb@<version>` from the plugin page — not the tarball URL. After that, the update button installs by version and asks npmmirror first. The raw failure detail lives in the profile's `.plugin-manager/logs/operation-*/pnpm.log`.
+**Does the in-app update fail with `operation-error`?** Releases through 0.1.4 handed pnpm 11.7 (the client bundles that version) an npmmirror tarball URL. That URL is stored without an `integrity` field, so pnpm rejects it before downloading (`ERR_PNPM_MISSING_TARBALL_INTEGRITY`) and the card only shows the generic `operation-error`. Install `dsh-agi@<version>` from the plugin page — not the tarball URL. After that, the update button installs by version and asks npmmirror first. The raw failure detail lives in the profile's `.plugin-manager/logs/operation-*/pnpm.log`.
 
 ### From a local build
 
 ```sh
 pnpm install
 pnpm build
-pnpm --filter dsh-orb run pack        # produces ./dsh-orb-<version>.tgz
+pnpm --filter dsh-agi run pack        # produces ./dsh-agi-<version>.tgz
 ```
 
 > `run` is not optional. A bare `pnpm pack` is pnpm's own command: it packs the workspace folder by its `files` list, so none of the bundled `node_modules` (`koffi`, `zod`, the platform prebuilds) end up in the tarball. The result installs, but the plugin cannot load `koffi` and Computer Use fails. `run pack` executes the bundle's `scripts/pack.mjs`, which assembles every part into the package.
@@ -126,7 +126,7 @@ pnpm --filter dsh-orb run pack        # produces ./dsh-orb-<version>.tgz
 Then either add the tarball in the desktop app's plugin page, or:
 
 ```sh
-dsh plugin add ./dsh-orb-<version>.tgz
+dsh plugin add ./dsh-agi-<version>.tgz
 ```
 
 After the first installation the helper's Electron runtime is downloaded on first use of the ball, then cached. While it downloads — and if it fails or is interrupted — **Settings → Floating ball** in the main window shows a prominent notice whose **Download again** button picks the transfer up where it stopped: the bytes already fetched are never paid for twice, and no app restart is needed. Slow lines finish too — a transfer has no total time limit, only a stall guard — and whatever an interrupted transfer did fetch is kept for the next attempt to resume.

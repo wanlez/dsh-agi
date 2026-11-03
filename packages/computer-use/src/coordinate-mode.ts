@@ -426,7 +426,7 @@ function appendCoordinateMode(
 function resolveStampCapability(): StampCapability {
   if (KNOWN_SESSION_EVENT_TYPES.has('computer-use/coordinate-mode')) return 'catalog'
   try {
-    const probe = Session.create(SessionId('dsh-orb-coordinate-mode-probe'))
+    const probe = Session.create(SessionId('dsh-agi-coordinate-mode-probe'))
     return appendCoordinateMode(probe, 'millifraction', true).ignorable === true ? 'ignorable' : 'none'
   } catch {
     return 'none'

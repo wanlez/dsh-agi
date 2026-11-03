@@ -11,9 +11,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
-import { isDismiss, isInterject, normalizeUtterance } from '@dsh-orb/voice/dismiss'
-import { createIdle, stepIdle, type IdleClock } from '@dsh-orb/voice/idle'
-import { holdsDevice, listenMode, transcribing, type ListenMode } from '@dsh-orb/voice/listen'
+import { isDismiss, isInterject, normalizeUtterance } from '@dsh-agi/voice/dismiss'
+import { createIdle, stepIdle, type IdleClock } from '@dsh-agi/voice/idle'
+import { holdsDevice, listenMode, transcribing, type ListenMode } from '@dsh-agi/voice/listen'
 import {
   bodyBusy,
   createQueue,
@@ -24,8 +24,8 @@ import {
   type QueueEffect,
   type QueueEvent,
   type QueueState,
-} from '@dsh-orb/voice/queue'
-import { hasWakeWord, ttsReady, type VoiceSettings } from '@dsh-orb/voice/settings'
+} from '@dsh-agi/voice/queue'
+import { hasWakeWord, ttsReady, type VoiceSettings } from '@dsh-agi/voice/settings'
 
 export interface VoicePresence {
   readonly wake: boolean
@@ -76,8 +76,8 @@ const RESTART_LIMIT = 3
  */
 const SLOW_RETRY_MS = 30_000
 
-const VOICE_DEBUG_MARKER = join(tmpdir(), 'dsh-orb-voice-debug.on')
-const VOICE_DEBUG_LOG = join(tmpdir(), 'dsh-orb-voice-debug.log')
+const VOICE_DEBUG_MARKER = join(tmpdir(), 'dsh-agi-voice-debug.on')
+const VOICE_DEBUG_LOG = join(tmpdir(), 'dsh-agi-voice-debug.log')
 
 /** Opt-in tracing for "the answer is on screen but nothing is spoken" reports. */
 function debug(message: string): void {

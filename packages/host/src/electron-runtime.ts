@@ -33,13 +33,13 @@ export type ElectronRuntimePhase = 'downloading' | 'extracting'
  * Marker for a step the user aborted with a manual redownload. It is not a download failure:
  * whoever cancelled the attempt owns the next one, so the caller must not count it.
  */
-const CANCELLED_CODE = 'dsh-orb-download-cancelled'
+const CANCELLED_CODE = 'dsh-agi-download-cancelled'
 
 /** The one download this process can have in flight; the lock serialises attempts across processes. */
 let active: AbortController | undefined
 
 function cancelled(): Error {
-  return Object.assign(new Error('dsh-orb: Electron download cancelled'), { code: CANCELLED_CODE })
+  return Object.assign(new Error('dsh-agi: Electron download cancelled'), { code: CANCELLED_CODE })
 }
 
 /** Whether a rejection is this module's own cancellation rather than a real download failure. */
@@ -63,7 +63,7 @@ export function cancelRuntimeDownload(): void {
  * continues those bytes rather than fetching them twice.
  */
 export async function purgeRuntimeArtifacts(): Promise<void> {
-  const dir = dshHomePath('dsh-orb')
+  const dir = dshHomePath('dsh-agi')
   let entries: string[]
   try {
     entries = await readdir(dir)
@@ -94,19 +94,19 @@ async function fileSize(path: string): Promise<number> {
 
 /**
  * Resolve the helper executable.
- * `DSH_ORB_ELECTRON_PATH` wins. Otherwise use the cached official zip, downloading it once.
+ * `DSH_AGI_ELECTRON_PATH` wins. Otherwise use the cached official zip, downloading it once.
  * @param report - optional phase callback; fires only when a download is actually needed.
  * @returns absolute path to the Electron executable.
  */
 export async function resolveElectronBinary(
   report?: (phase: ElectronRuntimePhase) => void,
 ): Promise<string> {
-  const override = process.env.DSH_ORB_ELECTRON_PATH?.trim()
+  const override = process.env.DSH_AGI_ELECTRON_PATH?.trim()
   if (override) {
     await access(override)
     return override
   }
-  const dest = dshHomePath('dsh-orb', 'electron-runtime')
+  const dest = dshHomePath('dsh-agi', 'electron-runtime')
   const binary = join(dest, binaryRelative())
   const marker = join(dest, `.complete-${ELECTRON_VERSION}`)
   if (await exists(binary) && await exists(marker)) return binary
@@ -130,7 +130,7 @@ async function downloadRuntime(
       if (signal.aborted) throw cancelled()
       if (await exists(binary) && await exists(marker)) return
       const fileName = assetName()
-      console.error(`dsh-orb: downloading Electron ${ELECTRON_VERSION} (${fileName})`)
+      console.error(`dsh-agi: downloading Electron ${ELECTRON_VERSION} (${fileName})`)
       const sums = await fetchText('SHASUMS256.txt', signal)
       const expected = expectedHash(sums, fileName)
       // One stable partial per asset: a retry continues it instead of paying for the whole
@@ -140,7 +140,7 @@ async function downloadRuntime(
       try {
         report?.('downloading')
         const resumed = await fileSize(zipPath)
-        if (resumed > 0) console.error(`dsh-orb: continuing from ${resumed} bytes left by an earlier attempt`)
+        if (resumed > 0) console.error(`dsh-agi: continuing from ${resumed} bytes left by an earlier attempt`)
         await downloadVerifiedZip(fileName, expected, zipPath, signal)
         report?.('extracting')
         await mkdir(staging, { recursive: true })
@@ -160,7 +160,7 @@ async function downloadRuntime(
       // Past the rename the zip has done its job. A failure above leaves it in place instead:
       // those bytes are exactly what the next attempt resumes from.
       await rm(zipPath, { force: true }).catch(() => undefined)
-      console.error(`dsh-orb: Electron ${ELECTRON_VERSION} is ready`)
+      console.error(`dsh-agi: Electron ${ELECTRON_VERSION} is ready`)
     }, signal)
   } finally {
     if (active === controller) active = undefined
@@ -184,7 +184,7 @@ export async function withDownloadLock(
     // Checked first, so that every path is bounded — including the immediate retry after a stale
     // lock is swept. A rename refused for a reason other than a held lock (a handle on the
     // staging directory, a deny on the parent) must not turn this into an unbounded spin.
-    if (Date.now() > deadline) throw new Error('dsh-orb: Electron download is locked by another process')
+    if (Date.now() > deadline) throw new Error('dsh-agi: Electron download is locked by another process')
     if (signal?.aborted) throw cancelled()
     const staging = `${lock}.${randomBytes(6).toString('hex')}.tmp`
     try {
@@ -284,10 +284,10 @@ function assetName(): string {
   const platform = process.platform
   const arch = process.arch
   if (platform !== 'darwin' && platform !== 'win32' && platform !== 'linux') {
-    throw new Error(`dsh-orb: unsupported platform ${platform}`)
+    throw new Error(`dsh-agi: unsupported platform ${platform}`)
   }
   if (arch !== 'arm64' && arch !== 'x64') {
-    throw new Error(`dsh-orb: unsupported architecture ${arch}`)
+    throw new Error(`dsh-agi: unsupported architecture ${arch}`)
   }
   return `electron-v${ELECTRON_VERSION}-${platform}-${arch}.zip`
 }
@@ -302,11 +302,11 @@ function binaryRelative(): string {
 export function expectedHash(sums: string, fileName: string): string {
   const pinned = PINNED_SHA256[fileName]
   if (pinned === undefined) {
-    throw new Error(`dsh-orb: ${fileName} has no pinned Electron ${ELECTRON_VERSION} checksum`)
+    throw new Error(`dsh-agi: ${fileName} has no pinned Electron ${ELECTRON_VERSION} checksum`)
   }
   const listed = hashFromSums(sums, fileName)
   if (listed !== pinned) {
-    throw new Error(`dsh-orb: Electron ${ELECTRON_VERSION} checksum list does not match the pinned hash for ${fileName}`)
+    throw new Error(`dsh-agi: Electron ${ELECTRON_VERSION} checksum list does not match the pinned hash for ${fileName}`)
   }
   return pinned
 }
@@ -316,7 +316,7 @@ function hashFromSums(sums: string, fileName: string): string {
     const match = /^([a-fA-F0-9]{64})\s+\*?(\S+)\s*$/.exec(line.trim())
     if (match?.[2] === fileName) return match[1].toLowerCase()
   }
-  throw new Error(`dsh-orb: ${fileName} is missing from Electron ${ELECTRON_VERSION} checksums`)
+  throw new Error(`dsh-agi: ${fileName} is missing from Electron ${ELECTRON_VERSION} checksums`)
 }
 
 const CURL_HTTPS = ['--proto', '=https', '--proto-redir', '=https']
@@ -366,10 +366,10 @@ async function fetchText(path: string, signal: AbortSignal): Promise<string> {
       // A cancelled attempt stops here; a dead mirror is just the next source's turn.
       if (signal.aborted) throw cancelled()
       lastError = error
-      console.error(`dsh-orb: ${error instanceof Error ? error.message : String(error)}`)
+      console.error(`dsh-agi: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
-  throw lastError instanceof Error ? lastError : new Error(`dsh-orb: failed to download ${path}`)
+  throw lastError instanceof Error ? lastError : new Error(`dsh-agi: failed to download ${path}`)
 }
 
 async function downloadVerifiedZip(fileName: string, expected: string, dest: string, signal: AbortSignal): Promise<void> {
@@ -377,7 +377,7 @@ async function downloadVerifiedZip(fileName: string, expected: string, dest: str
   // or failed at the extraction while keeping a complete file. Those bytes are the whole runtime
   // already: hashing them costs a second and saves the user another 124–150 MB.
   if (await matchesHash(dest, expected)) {
-    console.error('dsh-orb: the runtime zip on disk is already complete')
+    console.error('dsh-agi: the runtime zip on disk is already complete')
     return
   }
   // Official checksums decide what is accepted. The mirror only decides how fast it arrives.
@@ -392,7 +392,7 @@ async function downloadVerifiedZip(fileName: string, expected: string, dest: str
         // Whatever went wrong, the bytes on disk are wrong as a whole. Dropping them here is what
         // keeps a bad resume from being verified again and again: the next attempt starts at zero.
         await rm(dest, { force: true })
-        throw new Error(`dsh-orb: Electron ${ELECTRON_VERSION} checksum did not match SHASUMS256.txt`)
+        throw new Error(`dsh-agi: Electron ${ELECTRON_VERSION} checksum did not match SHASUMS256.txt`)
       }
       return
     } catch (error) {
@@ -401,10 +401,10 @@ async function downloadVerifiedZip(fileName: string, expected: string, dest: str
       // pin the file: those bytes go, and the next attempt fetches that file from zero.
       if (resume && isResumeRefused(error)) await rm(dest, { force: true }).catch(() => undefined)
       lastError = error
-      console.error(`dsh-orb: ${error instanceof Error ? error.message : String(error)}`)
+      console.error(`dsh-agi: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
-  throw lastError instanceof Error ? lastError : new Error(`dsh-orb: failed to download Electron ${ELECTRON_VERSION}`)
+  throw lastError instanceof Error ? lastError : new Error(`dsh-agi: failed to download Electron ${ELECTRON_VERSION}`)
 }
 
 /**
@@ -465,7 +465,7 @@ function run(command: string, args: string[], signal?: AbortSignal): Promise<{ s
       // `exitCode` carries curl's own status: the caller tells a refused resume (33/36/416) from
       // a mirror that is simply down.
       reject(Object.assign(
-        new Error(`dsh-orb: ${command} exited ${code ?? 'unknown'}${detail ? `: ${detail}` : ''}`),
+        new Error(`dsh-agi: ${command} exited ${code ?? 'unknown'}${detail ? `: ${detail}` : ''}`),
         { exitCode: code },
       ))
     })
@@ -560,7 +560,7 @@ function spawnChecked(command: string, args: string[], signal?: AbortSignal): Pr
         return
       }
       const detail = Buffer.concat(err).toString('utf8').trim().split('\n').slice(0, 6).join('\n')
-      reject(new Error(`dsh-orb: ${command} exited ${code ?? 'unknown'}${detail ? `: ${detail}` : ''}`))
+      reject(new Error(`dsh-agi: ${command} exited ${code ?? 'unknown'}${detail ? `: ${detail}` : ''}`))
     })
   })
 }

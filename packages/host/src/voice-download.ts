@@ -10,7 +10,7 @@ import { createWriteStream } from 'node:fs'
 import { mkdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { finished } from 'node:stream/promises'
-import { absentVoiceModels, ASR_MODEL_BYTES, TTS_EN_MODEL_SHA256, TTS_EN_REPO, TTS_MODEL_BYTES, TTS_ORIGINS, TTS_VOCODER_SHA256, TTS_ZH_MODEL_SHA256, TTS_ZH_REPO, WAKE_MODEL_NPM_MIRROR, WAKE_MODEL_NPM_OFFICIAL, WAKE_MODEL_SHA256, WAKE_MODEL_URL, type VoiceModelKind, type VoiceModels } from '@dsh-orb/voice/manifest'
+import { absentVoiceModels, ASR_MODEL_BYTES, TTS_EN_MODEL_SHA256, TTS_EN_REPO, TTS_MODEL_BYTES, TTS_ORIGINS, TTS_VOCODER_SHA256, TTS_ZH_MODEL_SHA256, TTS_ZH_REPO, WAKE_MODEL_NPM_MIRROR, WAKE_MODEL_NPM_OFFICIAL, WAKE_MODEL_SHA256, WAKE_MODEL_URL, type VoiceModelKind, type VoiceModels } from '@dsh-agi/voice/manifest'
 import { TTS_EN_FILES, TTS_VOCODER, TTS_ZH_FILES } from './tts-files.ts'
 import { asrPresent, kwsPresent, ttsPresent } from './voice-models.ts'
 

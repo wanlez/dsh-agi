@@ -1,6 +1,6 @@
-<p align="center"><img src="docs/assets/ball.png" width="120" alt="dsh-orb 悬浮球"></p>
+<p align="center"><img src="docs/assets/ball.png" width="120" alt="dsh-agi 悬浮球"></p>
 
-# dsh-orb
+# dsh-agi
 
 [English](README.md) | 中文
 
@@ -30,7 +30,7 @@
 - **唤醒词。** 球收起时喊 **你好大肥鱼**，面板展开并固定，本机回一句 **我在呢**。唤醒词、回复语、灵敏度、判定粒度和 1.5 秒冷却都能改。
 - **语音输入。** 球固定且空闲时直接说指令，停顿后整段转成文字，走和打字发送同一条路径。Agent 干活、提问卡等待、球自己在播报时麦克风是关的——说 **大肥鱼** 可以插话，说 **退下吧** 立刻停止并取消固定。
 - **播报。** Agent 正文、唤醒回复语、退下回复语都会念出来。默认用本地 Matcha 音色（中英各一），也可以切到 **千问**（阿里云百炼，填自己的 API Key）。
-- **模型。** 唤醒模型约 9 MB，是 npm 包 `dsh-orb-kws`：先取 npmmirror，再取 registry.npmjs.org，最后才回到 GitHub release。本地播报模型约 197 MB，走 Hugging Face 镜像。语音识别用 DeepSeek Harness 自己管理的那份 SenseVoice。
+- **模型。** 唤醒模型约 9 MB，是 npm 包 `dsh-agi-kws`：先取 npmmirror，再取 registry.npmjs.org，最后才回到 GitHub release。本地播报模型约 197 MB，走 Hugging Face 镜像。语音识别用 DeepSeek Harness 自己管理的那份 SenseVoice。
 - **隐私。** 麦克风音频在本机子进程里解码，不出机器；唯一的网络出口是可选千问播报，它只发要念的那句话。
 
 ## 双轨 Agent 架构
@@ -49,7 +49,7 @@ flowchart TD
 - **前台轨 · Computer Use**：看得见的操作——打开应用、点按钮、填表单、改设置——用 GUI 工具当着你的面执行，每一步都基于前台窗口的实时截图。天气、新闻这类快问快答也留在球上，用 `web_search` / `web_fetch` 直接回答。
 - **后台轨 · Code Agent**：复杂任务——翻文件、产出文档、搭网站——经 `code_agent` 派给后台标准会话。派出立即返回，球会告诉你后台在跑，你可以继续聊。后台会话结束且球空闲时，完成摘要自动回到球里，Computer Use Agent 决定下一步——继续点击、再派后台，还是收尾。
 
-后台会话和你在主窗口手动建的会话是同一种；它出现在主窗口侧栏的 `dsh_orb` 文件夹里，可以打开、继续或停止。同一产物的后续修改回到同一个后台会话，无关的新工作另开一个。对话历史、权限、两条轨的模型设置都与官方 dsh 进程共享——球读写的就是主窗口的那份会话。
+后台会话和你在主窗口手动建的会话是同一种；它出现在主窗口侧栏的 `dsh_agi` 文件夹里，可以打开、继续或停止。同一产物的后续修改回到同一个后台会话，无关的新工作另开一个。对话历史、权限、两条轨的模型设置都与官方 dsh 进程共享——球读写的就是主窗口的那份会话。
 
 ## Computer Use
 
@@ -67,7 +67,7 @@ flowchart TD
 DeepSeek Harness（官方，不改）
 └─ Electron 壳（主窗口、dsh://open、单实例）
      └─ Host，以纯 Node 进程拉起（ELECTRON_RUN_AS_NODE=1）
-          └─ dsh-orb 插件
+          └─ dsh-agi 插件
                ├─ host — 会话、权限、模型、web 路由、helper 生命周期
                ├─ computer-use — 13 个 GUI 工具 + code_agent（Computer Use preset）
                └─ client-settings — 主窗口「悬浮球」设置节
@@ -77,7 +77,7 @@ Helper（自带的下载版 Electron，独立 userData）
 └─ 数据请求 → 官方 Host 的鉴权 loopback URL
 ```
 
-- 只装一个包：`dsh-orb` bundle 在构建时把 host、Computer Use 插件、helper 和设置页装配进自身。
+- 只装一个包：`dsh-agi` bundle 在构建时把 host、Computer Use 插件、helper 和设置页装配进自身。
 - helper 运行时是官方原版 Electron 发布物，以 SHA-256 钉死（darwin/win32，arm64/x64），首次使用时下载并与钉死的哈希比对；运行在独立的 `userData`，与官方应用分开。
 - helper 与 host 之间是只听 loopback 的 NDJSON socket，用每次启动随机生成的 32 字节 token 鉴权，只经环境变量传递——不进 argv、不落盘。带官方凭据的鉴权 URL 永远不交给 helper。
 - 看门狗：socket 断开 helper 自行退出；host 最多重试 3 次。球起不来时，主窗口里的 Computer Use 仍然可用。
@@ -94,31 +94,31 @@ Helper（自带的下载版 Electron，独立 userData）
 
 插件发布到 npm registry，国内由 npmmirror 镜像分发。安装单位是 release 里的 tarball——**不是仓库本身**：把仓库链接填进插件页，装到的是 monorepo 根包，会报「这个包没有声明组合包」。
 
-- **按名字装**——桌面版插件页里直接填 `dsh-orb`，或者：
+- **按名字装**——桌面版插件页里直接填 `dsh-agi`，或者：
 
   ```sh
-  dsh plugin add dsh-orb
+  dsh plugin add dsh-agi
   ```
 
-- **按版本号装**——`dsh-orb@<版本>`。显式版本会跳过发布年龄闸门，pnpm 从 registry 元数据写入 `integrity`。不要把 `https://registry.npmmirror.com/dsh-orb/-/dsh-orb-<版本>.tgz` 这种直链贴进插件页：官方客户端自带的 pnpm 11.7 会因为 lockfile 没有 `integrity` 拒绝远程 tarball 直链。
+- **按版本号装**——`dsh-agi@<版本>`。显式版本会跳过发布年龄闸门，pnpm 从 registry 元数据写入 `integrity`。不要把 `https://registry.npmmirror.com/dsh-agi/-/dsh-agi-<版本>.tgz` 这种直链贴进插件页：官方客户端自带的 pnpm 11.7 会因为 lockfile 没有 `integrity` 拒绝远程 tarball 直链。
 
-**刚发布的版本在 24 小时内按名字装可能仍解析到上一个版本。** 官方客户端内置的 pnpm 11 默认开启 `minimumReleaseAge`（1440 分钟）：按名字解析时会退回到"发布满 24 小时的最新版本"——这是供应链保护，不是网络问题。想立即拿到新版本：装 `dsh-orb@<版本号>`，或在 profile 的 `pnpm-workspace.yaml` 里豁免该包：
+**刚发布的版本在 24 小时内按名字装可能仍解析到上一个版本。** 官方客户端内置的 pnpm 11 默认开启 `minimumReleaseAge`（1440 分钟）：按名字解析时会退回到"发布满 24 小时的最新版本"——这是供应链保护，不是网络问题。想立即拿到新版本：装 `dsh-agi@<版本号>`，或在 profile 的 `pnpm-workspace.yaml` 里豁免该包：
 
 ```yaml
 minimumReleaseAgeExclude:
-  - dsh-orb
+  - dsh-agi
 ```
 
 已装旧版时无需重装：主窗口设置页的悬浮球卡片可检查并一键更新（更新流程会自己写入这条豁免）。
 
-**插件内更新报 `operation-error` 怎么办？** 0.1.4 及更早的更新按钮把 npmmirror 的 tarball 直链交给官方客户端自带的 pnpm 11.7。这种直链在 lockfile 里没有 `integrity`，pnpm 会在下载前拒绝（`ERR_PNPM_MISSING_TARBALL_INTEGRITY`），界面只显示笼统的 `operation-error`。请在插件页按版本号安装 `dsh-orb@<版本>`（不要贴 tarball 直链）。装上之后，更新按钮改为按版本号安装，并先问 npmmirror。原始失败细节在 profile 的 `.plugin-manager/logs/operation-*/pnpm.log` 里。
+**插件内更新报 `operation-error` 怎么办？** 0.1.4 及更早的更新按钮把 npmmirror 的 tarball 直链交给官方客户端自带的 pnpm 11.7。这种直链在 lockfile 里没有 `integrity`，pnpm 会在下载前拒绝（`ERR_PNPM_MISSING_TARBALL_INTEGRITY`），界面只显示笼统的 `operation-error`。请在插件页按版本号安装 `dsh-agi@<版本>`（不要贴 tarball 直链）。装上之后，更新按钮改为按版本号安装，并先问 npmmirror。原始失败细节在 profile 的 `.plugin-manager/logs/operation-*/pnpm.log` 里。
 
 ### 从本地构建安装
 
 ```sh
 pnpm install
 pnpm build
-pnpm --filter dsh-orb run pack        # 生成 ./dsh-orb-<version>.tgz
+pnpm --filter dsh-agi run pack        # 生成 ./dsh-agi-<version>.tgz
 ```
 
 > `run` 不能省。不带 `run` 的 `pnpm pack` 是 pnpm 自带的打包命令，只按 `files` 字段打包工作区目录，捆绑的 `node_modules`（`koffi`、`zod` 与各平台预构建）一个都不会进 tarball。这样打出来的包装得上，但插件加载不了 `koffi`，Computer Use 会直接失败。`run pack` 才会执行 bundle 的 `scripts/pack.mjs`，把各部分组装进包里。
@@ -126,7 +126,7 @@ pnpm --filter dsh-orb run pack        # 生成 ./dsh-orb-<version>.tgz
 然后在桌面版插件页添加这个 tarball，或者：
 
 ```sh
-dsh plugin add ./dsh-orb-<version>.tgz
+dsh plugin add ./dsh-agi-<version>.tgz
 ```
 
 首次使用悬浮球时会下载 helper 的 Electron 运行时，之后缓存复用。下载期间、下载失败或被中途打断时，主窗口 **设置 → 悬浮球** 顶部会显示醒目的提示卡片，点其中的「重新下载」立即接着下——已经下好的部分不会重来，也不用重启应用。慢速网络也能下完：单次传输没有总时长上限，只有"连接停止供数"的停滞检测，中断时已下载的字节留给下一次续传。

@@ -1,5 +1,5 @@
 /**
- * Build `dsh-orb-kws-<version>.tgz`: the eight model files the spotter opens, under
+ * Build `dsh-agi-kws-<version>.tgz`: the eight model files the spotter opens, under
  * `package/kws/`, plus the license, notice and readme the registry page shows.
  *
  * The plugin pins this tarball's sha256, so the file built here is the file to publish.
@@ -43,7 +43,7 @@ function arg(name) {
   return index === -1 ? undefined : process.argv[index + 1]
 }
 
-const from = resolve(arg('--from') ?? join(homedir(), '.dsh', 'dsh-orb', 'voice', 'kws'))
+const from = resolve(arg('--from') ?? join(homedir(), '.dsh', 'dsh-agi', 'voice', 'kws'))
 const versionOverride = arg('--version')
 
 const missing = []
@@ -58,7 +58,7 @@ if (missing.length > 0) {
   throw new Error(`pack: ${from} is missing ${missing.join(', ')}\n  Pass --from <dir> if the model lives elsewhere.`)
 }
 
-const stage = await mkdtemp(join(tmpdir(), 'dsh-orb-kws-pack-'))
+const stage = await mkdtemp(join(tmpdir(), 'dsh-agi-kws-pack-'))
 const pkgDir = join(stage, 'package')
 const kwsDir = join(pkgDir, 'kws')
 
@@ -123,7 +123,7 @@ try {
     createReadStream(tarball).on('data', (chunk) => hash.update(chunk)).on('end', done).on('error', fail)
   })
 
-  console.log(`dsh-orb-kws: packed ${tarball}`)
+  console.log(`dsh-agi-kws: packed ${tarball}`)
   console.log(`  source   ${from}`)
   console.log(`  files    ${FILES.length} (${mb(bytes)} unpacked)`)
   console.log(`  tarball  ${size} bytes (${mb(size)})`)

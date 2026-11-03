@@ -90,7 +90,7 @@ describe('voice settings', () => {
   it('describes the three official downloads while the files are absent', () => {
     const models = absentVoiceModels()
     assert.equal(models.wake.present, false)
-    assert.match(models.wake.sources[0] ?? '', /registry\.npmmirror\.com\/dsh-orb-kws\//)
+    assert.match(models.wake.sources[0] ?? '', /registry\.npmmirror\.com\/dsh-agi-kws\//)
     assert.equal(models.wake.sources[0], WAKE_MODEL_NPM_MIRROR)
     assert.equal(models.tts.sources.length, 3)
     assert.equal(models.asr.bytes, ASR_MODEL_BYTES)

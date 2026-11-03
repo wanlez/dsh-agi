@@ -38,7 +38,7 @@ export const WAKE_MODEL_URL = 'https://github.com/k2-fsa/sherpa-onnx/releases/do
  * The version and the digest are pinned: the registry is immutable, so one tarball stays
  * valid forever, and the same bytes answer from the mirror and from npmjs.
  */
-export const WAKE_MODEL_PACKAGE = 'dsh-orb-kws'
+export const WAKE_MODEL_PACKAGE = 'dsh-agi-kws'
 export const WAKE_MODEL_PACKAGE_VERSION = '2026.10.0'
 export const WAKE_MODEL_SHA256 = '23d4055c0c20b9d440ab47aa05965780aba01e6852a2182987cca479ea91e9d3'
 

@@ -1819,7 +1819,7 @@ function main() {
           else if (item.type === 'turn') setRunning(item.running === true, item.interrupted === true)
           else if (item.type === 'reset') clearTranscript()
         } catch (error) {
-          console.error('dsh-orb: transcript frame item failed', item, error)
+          console.error('dsh-agi: transcript frame item failed', item, error)
         }
       }
       if (nearBottom) transcript.scrollTop = transcript.scrollHeight

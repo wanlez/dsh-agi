@@ -1,5 +1,5 @@
 {
-  "name": "@dsh-orb/computer-use",
+  "name": "@dsh-agi/computer-use",
   "version": "0.0.0",
   "type": "module",
   "description": "Desktop GUI tools and the Computer Use code_agent, compiled against official dsh.",

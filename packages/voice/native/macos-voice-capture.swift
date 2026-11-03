@@ -181,7 +181,7 @@ private final class Engine {
   private let scratch: UnsafeMutablePointer<Float>
   private let scratchFrames = 8192
   private let state: CallbackState
-  private let devices = DispatchQueue(label: "dsh-orb-voice-capture.devices")
+  private let devices = DispatchQueue(label: "dsh-agi-voice-capture.devices")
   private var inputListener: AudioObjectPropertyListenerBlock?
   private var outputListener: AudioObjectPropertyListenerBlock?
   private var alive = true
@@ -206,7 +206,7 @@ private final class Engine {
     }
     guard ok else { return false }
     let thread = Thread { [self] in self.writeLoop() }
-    thread.name = "dsh-orb-voice-capture.stdout"
+    thread.name = "dsh-agi-voice-capture.stdout"
     thread.start()
     return true
   }

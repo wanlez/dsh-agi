@@ -183,7 +183,7 @@ const MOVE_ATTEMPTS = 5
 const MOVE_BACKOFF_MS = 50
 const SHA256_REF = /sha256:[0-9a-f]{64}/g
 /** Hidden folder inside a trashed root Session directory. */
-const MARKER = '.dsh-orb-os-trash'
+const MARKER = '.dsh-agi-os-trash'
 const MARKER_MANIFEST = 'manifest.json'
 
 /** A candidate session plus everything a run needs to move it. */
@@ -932,7 +932,7 @@ export class HistoryCleaner {
   }
 
   private log(message: string): void {
-    (this.deps.log ?? ((line: string) => console.error(`dsh-orb: ${line}`)))(message)
+    (this.deps.log ?? ((line: string) => console.error(`dsh-agi: ${line}`)))(message)
   }
 }
 

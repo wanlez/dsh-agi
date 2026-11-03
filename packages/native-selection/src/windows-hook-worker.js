@@ -20,21 +20,21 @@ const WM_MOUSEWHEEL = 0x020A
 const MONITOR_DEFAULTTONEAREST = 2
 
 const lib = requireKoffi()
-lib.struct('DSH_ORB_SEL_POINT', { x: 'int32', y: 'int32' })
-lib.struct('DSH_ORB_SEL_MSLL', {
-  pt: 'DSH_ORB_SEL_POINT',
+lib.struct('DSH_AGI_SEL_POINT', { x: 'int32', y: 'int32' })
+lib.struct('DSH_AGI_SEL_MSLL', {
+  pt: 'DSH_AGI_SEL_POINT',
   mouseData: 'uint32',
   flags: 'uint32',
   time: 'uint32',
   dwExtraInfo: 'uintptr',
 })
-lib.struct('DSH_ORB_SEL_MSG', {
+lib.struct('DSH_AGI_SEL_MSG', {
   hwnd: 'void *',
   message: 'uint32',
   wParam: 'uintptr',
   lParam: 'intptr',
   time: 'uint32',
-  pt: 'DSH_ORB_SEL_POINT',
+  pt: 'DSH_AGI_SEL_POINT',
 })
 lib.proto('intptr __stdcall DshOrbSelHookProc(int nCode, uintptr wParam, intptr lParam)')
 
@@ -43,15 +43,15 @@ const shcore = lib.load('shcore.dll')
 const CallNextHookEx = user32.func('intptr __stdcall CallNextHookEx(void *hhk, int nCode, uintptr wParam, intptr lParam)')
 const SetWindowsHookExW = user32.func('void * __stdcall SetWindowsHookExW(int idHook, DshOrbSelHookProc *lpfn, void *hMod, uint32 dwThreadId)')
 const UnhookWindowsHookEx = user32.func('int __stdcall UnhookWindowsHookEx(void *hhk)')
-const GetMessageW = user32.func('int __stdcall GetMessageW(_Out_ DSH_ORB_SEL_MSG *msg, void *hwnd, uint32 min, uint32 max)')
-const TranslateMessage = user32.func('int __stdcall TranslateMessage(DSH_ORB_SEL_MSG *msg)')
-const DispatchMessageW = user32.func('intptr __stdcall DispatchMessageW(DSH_ORB_SEL_MSG *msg)')
+const GetMessageW = user32.func('int __stdcall GetMessageW(_Out_ DSH_AGI_SEL_MSG *msg, void *hwnd, uint32 min, uint32 max)')
+const TranslateMessage = user32.func('int __stdcall TranslateMessage(DSH_AGI_SEL_MSG *msg)')
+const DispatchMessageW = user32.func('intptr __stdcall DispatchMessageW(DSH_AGI_SEL_MSG *msg)')
 const GetCurrentThreadId = lib.load('kernel32.dll').func('uint32 __stdcall GetCurrentThreadId()')
 
 parentPort.postMessage({ type: 'ready', threadId: GetCurrentThreadId() })
 
 function dip(x, y) {
-  const monitorFromPoint = user32.func('void * __stdcall MonitorFromPoint(DSH_ORB_SEL_POINT pt, uint32 dwFlags)')
+  const monitorFromPoint = user32.func('void * __stdcall MonitorFromPoint(DSH_AGI_SEL_POINT pt, uint32 dwFlags)')
   const monitor = monitorFromPoint({ x, y }, MONITOR_DEFAULTTONEAREST)
   const dpiX = [0]
   const dpiY = [0]
@@ -69,7 +69,7 @@ const callbacks = []
 const mouse = lib.register((code, wParam, lParam) => {
   try {
     if (code >= 0) {
-      const info = lib.decode(lParam, 'DSH_ORB_SEL_MSLL')
+      const info = lib.decode(lParam, 'DSH_AGI_SEL_MSLL')
       const pointDip = dip(info.pt.x, info.pt.y)
       const kind = Number(wParam)
       if (kind === WM_MOUSEWHEEL) parentPort.postMessage({ type: 'wheel' })

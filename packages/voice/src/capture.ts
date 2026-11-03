@@ -33,11 +33,11 @@ export interface CpalNative {
 
 /** The helper named by the test env, or the prebuild next to this file. */
 export function captureBinary(): string | undefined {
-  const fromEnv = process.env.DSH_ORB_CAPTURE_BIN
+  const fromEnv = process.env.DSH_AGI_CAPTURE_BIN
   if (fromEnv) return fromEnv
   const name = process.platform === 'win32'
-    ? 'win32-x64/dsh-orb-voice-capture.exe'
-    : 'darwin-universal/dsh-orb-voice-capture'
+    ? 'win32-x64/dsh-agi-voice-capture.exe'
+    : 'darwin-universal/dsh-agi-voice-capture'
   for (const url of [new URL(`./prebuilds/${name}`, import.meta.url), new URL(`../prebuilds/${name}`, import.meta.url)]) {
     const path = fileURLToPath(url)
     if (existsSync(path)) return path

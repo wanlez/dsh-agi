@@ -66,7 +66,7 @@ export const DEFERRED_INSTALL_PENDING_MS = 30 * 1000
 
 /** Folder under the profile that holds the job, the script, its log, and its outcome. */
 export function deferredDir(profileDir: string): string {
-  return join(profileDir, '.dsh-orb-update')
+  return join(profileDir, '.dsh-agi-update')
 }
 
 /**
@@ -106,7 +106,7 @@ export function takeDeferredOutcome(profileDir: string): DeferredOutcome | undef
   } catch (error) {
     // A locked result (indexer, antivirus) is read again next start; the outcome is
     // reported now either way, and a throw here would fail the caller's start path.
-    console.error(`dsh-orb: could not clear the install outcome: ${errorDetail(error)}`)
+    console.error(`dsh-agi: could not clear the install outcome: ${errorDetail(error)}`)
   }
   try {
     const parsed = JSON.parse(raw) as Partial<DeferredOutcome>
@@ -157,7 +157,7 @@ export function deferredInstallInProgress(profileDir: string): boolean {
   try {
     rmSync(join(dir, 'status.json'), { force: true })
   } catch (error) {
-    console.error(`dsh-orb: could not clear the stalled install status: ${errorDetail(error)}`)
+    console.error(`dsh-agi: could not clear the stalled install status: ${errorDetail(error)}`)
     return false
   }
   const spec = typeof status?.spec === 'string' ? status.spec : ''
@@ -173,7 +173,7 @@ export function deferredInstallInProgress(profileDir: string): boolean {
  * Whether the folder already holds an outcome for its install. The pair `status.json` /
  * `result.json` is the whole state: the script writes the status first and the outcome last,
  * and the outcome outlives the status file.
- * @param dir - the profile's `.dsh-orb-update` folder.
+ * @param dir - the profile's `.dsh-agi-update` folder.
  * @returns true once the install has written its result.
  */
 function outcomeWritten(dir: string): boolean {
@@ -190,7 +190,7 @@ function outcomeWritten(dir: string): boolean {
  * writes its status file. The script touches the job file every 500 ms while it waits, so a
  * fresh job file plus a dead owner is an install about to run; a stale one is a script that
  * died before pnpm ever started, which replaced nothing.
- * @param dir - the profile's `.dsh-orb-update` folder.
+ * @param dir - the profile's `.dsh-agi-update` folder.
  * @returns true while the install is about to touch the package.
  */
 function installPendingAfterExit(dir: string): boolean {
@@ -400,7 +400,7 @@ function alive(pid) {
 
 /** Replace a profile file atomically: a concurrent reader never sees a half-written YAML. */
 function writeAtomic(file, text) {
-  const staged = file + '.dsh-orb-tmp'
+  const staged = file + '.dsh-agi-tmp'
   writeFileSync(staged, text)
   renameSync(staged, file)
 }

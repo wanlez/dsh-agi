@@ -15,7 +15,7 @@
 3. **一路麦克风，按需开。** Host 按当前固定状态判断有没有可达的听法：只开唤醒且收起、只开语音输入且固定时才需要设备；两列都关、对应模型不齐，或只开的那列在当前固定状态下不可达时，关闭输入流，macOS 的麦克风指示随之消失。两列都可用的状态下，切换只改「这份 PCM 喂给谁」，不关闭、不重开设备，需求里「固定之后立刻说的那句开头要留给语音输入」靠这个做到。
 4. **播放也在子进程里。** 用 `node-cpal` 的输出流播 22050Hz PCM。Host 只收到开始和结束。不要把音频送进 helper 页面。
 5. **ASR 模型只走 DeepSeek Harness 官方下载。** 调用 Host 上的 `ctx.speechToText`，提供者 id 是 `sensevoice-local`。文件留在官方目录 `dshHomePath('speech-to-text', 'sensevoice')`。插件不另存一份，也不调用官方的 `transcribe()`。官方那条是「整段 WAV 进、文本出」，球要的是常驻 VAD。子进程自己用 sherpa 读同一批已经校验过的文件。
-6. **唤醒模型和 TTS 模型由插件下载**，放在 `dshHomePath('dsh-orb', 'voice', 'kws')` 和 `dshHomePath('dsh-orb', 'voice', 'tts')`。版本就是仓库里钉死的 URL 和哈希。不做「到 GitHub 上找一个更新的模型名」的爬虫。
+6. **唤醒模型和 TTS 模型由插件下载**，放在 `dshHomePath('dsh-agi', 'voice', 'kws')` 和 `dshHomePath('dsh-agi', 'voice', 'tts')`。版本就是仓库里钉死的 URL 和哈希。不做「到 GitHub 上找一个更新的模型名」的爬虫。
 7. **官方仓库一行不改。** 全部代码在本仓库。设置页改 `packages/client-settings/client.js`，由现有装配抄进 bundle。
 
 出厂值：
@@ -48,7 +48,7 @@ flowchart LR
   host <-->|"子进程 stdin/stdout NDJSON"| child
 ```
 
-新建私有包 `packages/voice`，随 `dsh-orb` 装配进 `dist/voice`，不单独发布。Host 用相对路径找到它，和现有 helper 的找法一样。
+新建私有包 `packages/voice`，随 `dsh-agi` 装配进 `dist/voice`，不单独发布。Host 用相对路径找到它，和现有 helper 的找法一样。
 
 | 路径 | 职责 |
 |---|---|
@@ -222,7 +222,7 @@ interface VoiceSettings {
 
 下载按钮的行为见第 9 节。这一节先用假的「模型在 / 不在 / 下载中百分之多少」把页面和锁做完。
 
-设置路由沿用 `/.dsh-orb` 那一组：`GET /settings` 的 snapshot 里增加 `voice`，以及每个模型的 `present`、`downloading`、`progress`。保存用一条新的 `POST`。下载用单独的 `POST`，进行中的重复点击直接返回当前进度，不另起一次下载。
+设置路由沿用 `/.dsh-agi` 那一组：`GET /settings` 的 snapshot 里增加 `voice`，以及每个模型的 `present`、`downloading`、`progress`。保存用一条新的 `POST`。下载用单独的 `POST`，进行中的重复点击直接返回当前进度，不另起一次下载。
 
 验收：三项开关、空闲时长、文案能保存并在重启 Host 后还在。模型不在时点击被锁控件会弹出对应说明。ASR 按钮在 `present: true` 时不渲染。
 
@@ -347,7 +347,7 @@ Agent 的工具调用不等待播放。Host 把「播这段」写进子进程 st
 
 ### 9.1 唤醒模型和 TTS 模型
 
-> 2026-10-25 起唤醒模型改由 npm 数据包 `dsh-orb-kws` 分发（先 npmmirror、再 npmjs），弹窗写镜像地址和约 9 MB；下面这条 GitHub 地址降为最后的兜底。见 [04-addenda.md](04-addenda.md) 第 34 节。
+> 2026-10-25 起唤醒模型改由 npm 数据包 `dsh-agi-kws` 分发（先 npmmirror、再 npmjs），弹窗写镜像地址和约 9 MB；下面这条 GitHub 地址降为最后的兜底。见 [04-addenda.md](04-addenda.md) 第 34 节。
 
 弹窗里的来源和体积就用下面这组，和两份落地文档里的官方发布物一致。
 
@@ -401,7 +401,7 @@ dshHomePath('speech-to-text', 'sensevoice')/models/silero/silero_vad.onnx
 
 三个文件都在、并且字节数和上面一致，才算 ASR 已存在。下载进行中算不存在，被锁的控件继续不能改。
 
-验收：删掉本机对应目录后，三个按钮各自能弹窗、能出进度、完成后第 2 节的对应列开始生效。ASR 完成后按钮消失，官方目录里有文件，`dsh-orb/voice` 下面没有第二份 SenseVoice。唤醒和 TTS 在文件已齐时再点，出现「模型已经存在，不需要重新下载」。
+验收：删掉本机对应目录后，三个按钮各自能弹窗、能出进度、完成后第 2 节的对应列开始生效。ASR 完成后按钮消失，官方目录里有文件，`dsh-agi/voice` 下面没有第二份 SenseVoice。唤醒和 TTS 在文件已齐时再点，出现「模型已经存在，不需要重新下载」。
 
 ## 10. 打包
 

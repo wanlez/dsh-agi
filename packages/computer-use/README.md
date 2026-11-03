@@ -3,7 +3,7 @@ description: "Opt-in experimental GUI tools that let a vision model click, type,
 kind: "package-reference"
 ---
 
-# @dsh-orb/computer-use
+# @dsh-agi/computer-use
 
 English | [中文](README.zh.md)
 
@@ -47,7 +47,7 @@ A custom Loader composition that can resolve the package name may instead mount:
 
 ```yaml
 - id: tool-computer-use
-  name: '@dsh-orb/computer-use'
+  name: '@dsh-agi/computer-use'
   config:
     postActionWaitMs: 600
 ```

@@ -15,7 +15,7 @@ import { KOFFI_DIR_ENV, ownPackageRoot, removeStaleStages, stageKoffi } from './
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 
 /** Cordis plugin name. */
-export const name = 'orb-host'
+export const name = 'agi-host'
 
 /** Official services this plugin reads. Missing ones keep it pending. */
 export const inject = [
@@ -43,7 +43,7 @@ export function apply(ctx: OrbContext, config: { autoStart?: boolean } = {}): vo
   if (installing) {
     // The after-exit script is replacing this package right now. Staging koffi, loading it,
     // or starting the helper would fight the running pnpm, so the ball waits for the outcome.
-    console.error('dsh-orb: an update install is running; the ball waits for it to finish')
+    console.error('dsh-agi: an update install is running; the ball waits for it to finish')
   } else if (process.platform === 'win32' && own !== undefined) {
     // Before anything loads koffi: a loaded addon inside the package locks it against
     // the next update on Windows (see native-images.ts).
@@ -76,8 +76,8 @@ export function apply(ctx: OrbContext, config: { autoStart?: boolean } = {}): vo
     notify: (version) => { runtime.setUpdateAvailable(version) },
   })
   runtime.useUpdater(updater)
-  console.error(`dsh-orb: profile ${store.dir}`)
-  console.error(`dsh-orb: version ${updater.state().currentVersion || 'unknown'}`)
+  console.error(`dsh-agi: profile ${store.dir}`)
+  console.error(`dsh-agi: version ${updater.state().currentVersion || 'unknown'}`)
   ctx.effect(() => {
     const detachQuestions = runtime.attachQuestions()
     const detachPermissions = watchOrbPermissions(ctx, store)
@@ -107,11 +107,11 @@ export function apply(ctx: OrbContext, config: { autoStart?: boolean } = {}): vo
         return runtime.start()
       }).catch((error: unknown) => {
         // The chain must never reject: an unhandled rejection exits the official host.
-        console.error(`dsh-orb: ${error instanceof Error ? error.message : String(error)}`)
+        console.error(`dsh-agi: ${error instanceof Error ? error.message : String(error)}`)
       })
     } else if (start) {
       void runtime.start().catch((error: unknown) => {
-        console.error(`dsh-orb: ${error instanceof Error ? error.message : String(error)}`)
+        console.error(`dsh-agi: ${error instanceof Error ? error.message : String(error)}`)
       })
     }
     return () => {
@@ -145,10 +145,10 @@ async function waitForInstall(profileDir: string, cancelled: () => boolean): Pro
 function stageNativeImages(): void {
   const root = ownPackageRoot()
   try {
-    const dir = stageKoffi(root, dshHomePath('dsh-orb', 'native'))
+    const dir = stageKoffi(root, dshHomePath('dsh-agi', 'native'))
     if (dir !== undefined) process.env[KOFFI_DIR_ENV] = dir
   } catch (error) {
-    console.error(`dsh-orb: koffi stays in the package: ${error instanceof Error ? error.message : String(error)}`)
+    console.error(`dsh-agi: koffi stays in the package: ${error instanceof Error ? error.message : String(error)}`)
   }
   removeStaleStages(root)
 }
@@ -160,10 +160,10 @@ function logWebPort(ctx: OrbContext): void {
     const authed = ctx.connection.authenticatedUrl(`http://127.0.0.1:${port}`)
     const hostname = new URL(authed).hostname
     if (hostname !== '127.0.0.1' && hostname !== 'localhost' && hostname !== '[::1]') {
-      console.error('dsh-orb: authenticated URL is not loopback')
+      console.error('dsh-agi: authenticated URL is not loopback')
     }
   } catch {
-    console.error('dsh-orb: authenticated URL is unavailable')
+    console.error('dsh-agi: authenticated URL is unavailable')
   }
-  console.error(`dsh-orb: host web port ${port}`)
+  console.error(`dsh-agi: host web port ${port}`)
 }

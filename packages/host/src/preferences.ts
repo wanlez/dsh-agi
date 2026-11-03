@@ -12,7 +12,7 @@
 import { readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
-import { parseVoiceSettings, type VoiceSettings } from '@dsh-orb/voice/settings'
+import { parseVoiceSettings, type VoiceSettings } from '@dsh-agi/voice/settings'
 import { isAvatarPresetId } from './avatar-presets.ts'
 
 const PERMISSION_FILE = 'orb-permission.json'
@@ -124,7 +124,7 @@ export interface WorkspaceState {
 
 /** The floating-ball workspace when the profile names no other one. */
 export function defaultWorkspaceDirectory(): string {
-  return resolve(dshHomePath('dsh_orb'))
+  return resolve(dshHomePath('dsh_agi'))
 }
 
 /**

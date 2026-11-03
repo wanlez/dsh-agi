@@ -189,7 +189,7 @@ describe('manual runtime redownload', () => {
 
   it('clears what an interrupted attempt left behind, but keeps the bytes a retry resumes', async () => {
     const home = join(root, 'home-purge')
-    const orb = join(home, 'dsh-orb')
+    const orb = join(home, 'dsh-agi')
     // The kept partial is the one this platform would download; hard-coding another platform's
     // asset name made this case pass only on macOS.
     const partial = `.electron-electron-v44.0.0-${process.platform}-${process.arch}.zip.partial`
@@ -254,10 +254,10 @@ describe('manual runtime redownload', () => {
   it('marks only its own cancellation, never a real download failure', () => {
     // Nothing in flight is not an error: a redownload with no attempt running is the normal case.
     cancelRuntimeDownload()
-    assert.equal(isRuntimeDownloadCancelled(new Error('dsh-orb: curl exited 22')), false)
+    assert.equal(isRuntimeDownloadCancelled(new Error('dsh-agi: curl exited 22')), false)
     assert.equal(isRuntimeDownloadCancelled(undefined), false)
     assert.equal(
-      isRuntimeDownloadCancelled(Object.assign(new Error('cancelled'), { code: 'dsh-orb-download-cancelled' })),
+      isRuntimeDownloadCancelled(Object.assign(new Error('cancelled'), { code: 'dsh-agi-download-cancelled' })),
       true,
       'the host keys the "do not count this retry" branch on this tag',
     )

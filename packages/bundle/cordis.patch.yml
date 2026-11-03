@@ -63,16 +63,16 @@
               fetch: true
               searchTimeoutMs: 60000
           - id: tool-computer-use
-            name: 'dsh-orb/computer-use'
+            name: 'dsh-agi/computer-use'
             config:
               postActionWaitMs: 600
           - id: tool-code-agent
-            name: 'dsh-orb/computer-use/code-agent'
-    - id: orb-code-agent-registry
-      name: 'dsh-orb/computer-use/code-agent-registry'
-    - id: orb-host
-      name: 'dsh-orb/host'
+            name: 'dsh-agi/computer-use/code-agent'
+    - id: agi-code-agent-registry
+      name: 'dsh-agi/computer-use/code-agent-registry'
+    - id: agi-host
+      name: 'dsh-agi/host'
       config:
         autoStart: true
-    - id: ui-settings-orb
-      name: dsh-orb
+    - id: ui-settings-agi
+      name: dsh-agi

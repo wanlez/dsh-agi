@@ -1,6 +1,6 @@
 /**
  * Where the helper's files are.
- * Installed `dsh-orb` keeps them next to this file: `dist/host/index.js` and `dist/helper/lib/main.js`.
+ * Installed `dsh-agi` keeps them next to this file: `dist/host/index.js` and `dist/helper/lib/main.js`.
  * In the workspace the helper is a separate package that Node resolves by name.
  */
 
@@ -15,7 +15,7 @@ const require = createRequire(import.meta.url)
 export function helperRoot(): string {
   const assembled = fileURLToPath(new URL('../helper', import.meta.url))
   if (existsSync(join(assembled, 'lib', 'main.js'))) return assembled
-  return dirname(require.resolve('@dsh-orb/helper/package.json'))
+  return dirname(require.resolve('@dsh-agi/helper/package.json'))
 }
 
 /** Electron entry script of the helper. */

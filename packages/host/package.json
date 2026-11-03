@@ -1,5 +1,5 @@
 {
-  "name": "@dsh-orb/host",
+  "name": "@dsh-agi/host",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -21,9 +21,9 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@dsh-orb/helper": "file:../helper",
-    "@dsh-orb/native-selection": "file:../native-selection",
-    "@dsh-orb/voice": "file:../voice",
+    "@dsh-agi/helper": "file:../helper",
+    "@dsh-agi/native-selection": "file:../native-selection",
+    "@dsh-agi/voice": "file:../voice",
     "koffi": "^3.1.0"
   },
   "peerDependencies": {

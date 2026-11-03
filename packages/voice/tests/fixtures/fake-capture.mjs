@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Stand-in for dsh-orb-voice-capture.
+ * Stand-in for dsh-agi-voice-capture.
  * stdout is 16 kHz mono Float32. stderr is one JSON event per line, plus a
  * `pid <n>` log line. FAKE_CAPTURE=denied exits 3. FAKE_CAPTURE=silent never
  * sends ready. FAKE_PCM is paced out after ready, then one second of silence.

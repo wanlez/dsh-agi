@@ -4,12 +4,12 @@
  * The preset's tool layer refuses GUI and shell calls from any session that is not the owner; the
  * orb host is the only component that knows which conversation the ball panel shows, so it publishes
  * that here. The record itself lives on `globalThis` under a `Symbol.for` key — the host package and
- * `@dsh-orb/computer-use` are separate builds sharing one process, and duplicating the four lines
- * that touch a symbol-keyed global is the same trade `@dsh-orb/computer-use/src/gui-lock.ts` makes
+ * `@dsh-agi/computer-use` are separate builds sharing one process, and duplicating the four lines
+ * that touch a symbol-keyed global is the same trade `@dsh-agi/computer-use/src/gui-lock.ts` makes
  * for the screen mutex. Keep the key in step with that module.
  */
 
-const SCREEN_OWNER = Symbol.for('dsh-orb.screen-owner')
+const SCREEN_OWNER = Symbol.for('dsh-agi.screen-owner')
 
 interface ScreenOwnerState {
   /** Session id of the conversation the ball currently shows, or empty when unrestricted. */

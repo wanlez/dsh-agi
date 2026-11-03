@@ -50,7 +50,7 @@ function host(profile: string) {
   return { ctx, routes, provided, listeners, logs, stop: () => dispose?.() }
 }
 
-describe('orb-host plugin', () => {
+describe('agi-host plugin', () => {
   it('registers settings and Computer Use services without starting the helper', async () => {
     const profile = join(root, 'off')
     mkdirSync(profile, { recursive: true })
@@ -63,9 +63,9 @@ describe('orb-host plugin', () => {
     } finally {
       console.error = original
     }
-    assert.equal(name, 'orb-host')
+    assert.equal(name, 'agi-host')
     assert.deepEqual(inject, ['webServer', 'connection', 'sessionController', 'workspaceController', 'sessions', 'agentDefaultModel'])
-    assert.deepEqual(started.routes, [{ kind: 'prefix', path: '/.dsh-orb' }])
+    assert.deepEqual(started.routes, [{ kind: 'prefix', path: '/.dsh-agi' }])
     assert.deepEqual(started.provided, ['computerUseOverlayGuard', 'orbCodeAgentModel', 'orbCoordinateMode'])
     assert.equal(started.listeners.some((item) => item.name === 'user-questions/request' && item.prepend === true), true)
     assert.equal(started.listeners.some((item) => item.name === 'session/created'), true)
@@ -97,10 +97,10 @@ describe('orb-host plugin', () => {
 
   it('keeps the helper down while an after-exit install is still running', async () => {
     const profile = join(root, 'installing')
-    mkdirSync(join(profile, '.dsh-orb-update'), { recursive: true })
-    writeFileSync(join(profile, '.dsh-orb-update', 'status.json'), JSON.stringify({
+    mkdirSync(join(profile, '.dsh-agi-update'), { recursive: true })
+    writeFileSync(join(profile, '.dsh-agi-update', 'status.json'), JSON.stringify({
       phase: 'installing',
-      spec: 'dsh-orb@0.2.0',
+      spec: 'dsh-agi@0.2.0',
       pid: process.pid,
       startedAt: Date.now(),
     }))
@@ -109,15 +109,15 @@ describe('orb-host plugin', () => {
     const original = console.error
     // Point the runtime at a path that does not exist: if the gate ever regresses, the test
     // fails on its assertions instead of launching a real Electron helper.
-    const previousRuntime = process.env.DSH_ORB_ELECTRON_PATH
-    process.env.DSH_ORB_ELECTRON_PATH = join(root, 'no-electron-here')
+    const previousRuntime = process.env.DSH_AGI_ELECTRON_PATH
+    process.env.DSH_AGI_ELECTRON_PATH = join(root, 'no-electron-here')
     console.error = (...args: unknown[]) => { errors.push(args.map(String).join(' ')) }
     try {
       apply(started.ctx as never)
     } finally {
       console.error = original
-      if (previousRuntime === undefined) delete process.env.DSH_ORB_ELECTRON_PATH
-      else process.env.DSH_ORB_ELECTRON_PATH = previousRuntime
+      if (previousRuntime === undefined) delete process.env.DSH_AGI_ELECTRON_PATH
+      else process.env.DSH_AGI_ELECTRON_PATH = previousRuntime
     }
     assert.equal(errors.some((line) => line.includes('an update install is running')), true)
     await new Promise((resolve) => setTimeout(resolve, 20))

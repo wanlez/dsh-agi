@@ -14,7 +14,7 @@ import type { UpdateChecker } from '../src/update.ts'
 const home = mkdtempSync(join(tmpdir(), 'orb-runtime-'))
 process.env.DSH_HOME = home
 mkdirSync(join(home, 'profile'), { recursive: true })
-const orb = dshHomePath('dsh_orb')
+const orb = dshHomePath('dsh_agi')
 const runtimes: OrbRuntime[] = []
 
 after(() => {
@@ -361,8 +361,8 @@ describe('ball control socket', { concurrency: 1 }, () => {
     // A runtime path that cannot resolve stands in for a download that keeps failing: the attempt
     // fails at once, the budget schedules a retry, and the settings page is told to keep waiting.
     const harness = boot()
-    const previous = process.env.DSH_ORB_ELECTRON_PATH
-    process.env.DSH_ORB_ELECTRON_PATH = join(harness.profile, 'no-such-electron')
+    const previous = process.env.DSH_AGI_ELECTRON_PATH
+    process.env.DSH_AGI_ELECTRON_PATH = join(harness.profile, 'no-such-electron')
     try {
       await harness.runtime.start()
       assert.equal(harness.runtime.helperPhase(), 'downloading', 'a scheduled retry keeps the waiting line up')
@@ -377,8 +377,8 @@ describe('ball control socket', { concurrency: 1 }, () => {
       assert.equal(harness.runtime.helperPhase(), 'downloading', 'and the attempt that follows keeps it up')
     } finally {
       harness.runtime.halt()
-      if (previous === undefined) delete process.env.DSH_ORB_ELECTRON_PATH
-      else process.env.DSH_ORB_ELECTRON_PATH = previous
+      if (previous === undefined) delete process.env.DSH_AGI_ELECTRON_PATH
+      else process.env.DSH_AGI_ELECTRON_PATH = previous
     }
   })
 
@@ -568,7 +568,7 @@ describe('ball control socket', { concurrency: 1 }, () => {
     }
   })
 
-  it('lists only Computer Use chats in dsh_orb and replays one when opened', async () => {
+  it('lists only Computer Use chats in dsh_agi and replays one when opened', async () => {
     const harness = boot()
     const client = await connect(harness.runtime)
     try {
@@ -611,7 +611,7 @@ describe('ball control socket', { concurrency: 1 }, () => {
       assert.equal(harness.calls.create.length, creates)
       const adopted = client.messages.slice(mark).find((message) => message.type === 'session') as { sessionId: string }
       assert.equal(adopted.sessionId, 'session-keep')
-      assert.equal(JSON.parse(readFileSync(join(home, 'dsh-orb', 'floating-session.json'), 'utf8')).sessionId, 'session-keep')
+      assert.equal(JSON.parse(readFileSync(join(home, 'dsh-agi', 'floating-session.json'), 'utf8')).sessionId, 'session-keep')
       client.send({ type: 'open', sessionId: 'session-missing' })
       client.send({ type: 'open', sessionId: 'not-a-session' })
       await new Promise((resolve) => setTimeout(resolve, 40))
@@ -625,8 +625,8 @@ describe('ball control socket', { concurrency: 1 }, () => {
 
   it('restores the saved conversation on startup instead of minting an empty one', async () => {
     const harness = boot()
-    mkdirSync(join(home, 'dsh-orb'), { recursive: true })
-    writeFileSync(join(home, 'dsh-orb', 'floating-session.json'), `${JSON.stringify({ sessionId: 'session-restored' })}\n`)
+    mkdirSync(join(home, 'dsh-agi'), { recursive: true })
+    writeFileSync(join(home, 'dsh-agi', 'floating-session.json'), `${JSON.stringify({ sessionId: 'session-restored' })}\n`)
     harness.listItems.push({
       sessionId: 'session-restored',
       cwd: orb,
@@ -643,7 +643,7 @@ describe('ball control socket', { concurrency: 1 }, () => {
       await waitFor(() => client.messages.some((message) => message.type === 'session'))
       const session = client.messages.find((message) => message.type === 'session') as { sessionId: string }
       assert.equal(session.sessionId, 'session-restored')
-      assert.equal(JSON.parse(readFileSync(join(home, 'dsh-orb', 'floating-session.json'), 'utf8')).sessionId, 'session-restored')
+      assert.equal(JSON.parse(readFileSync(join(home, 'dsh-agi', 'floating-session.json'), 'utf8')).sessionId, 'session-restored')
     } finally {
       client.socket.end()
       harness.runtime.halt()
@@ -652,8 +652,8 @@ describe('ball control socket', { concurrency: 1 }, () => {
 
   it('starts a fresh conversation when the saved one is gone', async () => {
     const harness = boot()
-    mkdirSync(join(home, 'dsh-orb'), { recursive: true })
-    writeFileSync(join(home, 'dsh-orb', 'floating-session.json'), `${JSON.stringify({ sessionId: 'session-deleted' })}\n`)
+    mkdirSync(join(home, 'dsh-agi'), { recursive: true })
+    writeFileSync(join(home, 'dsh-agi', 'floating-session.json'), `${JSON.stringify({ sessionId: 'session-deleted' })}\n`)
     const client = await connect(harness.runtime)
     try {
       client.send({ type: 'prompt', text: '你好' })
@@ -664,7 +664,7 @@ describe('ball control socket', { concurrency: 1 }, () => {
       await waitFor(() => client.messages.some((message) => message.type === 'session'))
       const session = client.messages.find((message) => message.type === 'session') as { sessionId: string }
       assert.equal(session.sessionId, 'session-new-1')
-      assert.equal(JSON.parse(readFileSync(join(home, 'dsh-orb', 'floating-session.json'), 'utf8')).sessionId, 'session-new-1')
+      assert.equal(JSON.parse(readFileSync(join(home, 'dsh-agi', 'floating-session.json'), 'utf8')).sessionId, 'session-new-1')
     } finally {
       client.socket.end()
       harness.runtime.halt()
@@ -724,7 +724,7 @@ describe('ball control socket', { concurrency: 1 }, () => {
       assert.equal(harness.calls.selectModel[0]?.model, 'deepseek-v4')
       assert.equal(harness.calls.selectModel[0]?.reasoningEffort, 'high')
       assert.deepEqual(harness.savedDefaults, [])
-      const saved = JSON.parse(readFileSync(join(home, 'dsh-orb', 'floating-session.json'), 'utf8')) as { sessionId: string }
+      const saved = JSON.parse(readFileSync(join(home, 'dsh-agi', 'floating-session.json'), 'utf8')) as { sessionId: string }
       assert.equal(saved.sessionId, session.sessionId)
       assert.equal(harness.pins.at(-1)?.preset, 'danger-full-access')
       assert.equal(harness.pins.at(-1)?.cwd, orb)

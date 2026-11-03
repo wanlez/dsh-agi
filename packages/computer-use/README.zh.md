@@ -3,7 +3,7 @@ description: "可选的实验性 GUI 工具，让视觉模型点击、输入、�
 kind: "package-reference"
 ---
 
-# @dsh-orb/computer-use
+# @dsh-agi/computer-use
 
 [English](README.md) | 中文
 
@@ -47,7 +47,7 @@ pnpm dsh web --patch packages/experimental/tool-computer-use/cordis.source.patch
 
 ```yaml
 - id: tool-computer-use
-  name: '@dsh-orb/computer-use'
+  name: '@dsh-agi/computer-use'
   config:
     postActionWaitMs: 600
 ```

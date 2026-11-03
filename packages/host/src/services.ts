@@ -73,7 +73,7 @@ function pinSession(
   try {
     presets.set(session, preset)
   } catch (error) {
-    console.error(`dsh-orb: permission preset failed: ${error instanceof Error ? error.message : String(error)}`)
+    console.error(`dsh-agi: permission preset failed: ${error instanceof Error ? error.message : String(error)}`)
   }
 }
 

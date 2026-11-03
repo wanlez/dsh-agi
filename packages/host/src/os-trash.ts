@@ -39,11 +39,11 @@ function trashOnMac(path: string): Promise<void> {
 const WINDOWS_SCRIPT = [
   "$ErrorActionPreference = 'Stop'",
   'Add-Type -AssemblyName Microsoft.VisualBasic',
-  "[Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($env:DSH_ORB_TRASH_PATH, 'OnlyErrorDialogs', 'SendToRecycleBin')",
+  "[Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($env:DSH_AGI_TRASH_PATH, 'OnlyErrorDialogs', 'SendToRecycleBin')",
 ].join('; ')
 
 function trashOnWindows(path: string): Promise<void> {
-  return run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', WINDOWS_SCRIPT], 60_000, { DSH_ORB_TRASH_PATH: path })
+  return run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', WINDOWS_SCRIPT], 60_000, { DSH_AGI_TRASH_PATH: path })
 }
 
 function run(command: string, args: readonly string[], timeoutMs: number, extraEnv: Record<string, string> = {}): Promise<void> {

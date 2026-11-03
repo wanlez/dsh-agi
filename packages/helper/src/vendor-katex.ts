@@ -4,7 +4,7 @@
  * `strict: 'ignore'` retry, error span with KaTeX's stock `errorColor`) as the
  * main window's chat, so one formula settles the same way in both. Follows the
  * vendored shiki bundle: loaded lazily by assets/math.js from assets/vendor/.
- * Built to assets/vendor/katex.js by `pnpm --filter @dsh-orb/helper
+ * Built to assets/vendor/katex.js by `pnpm --filter @dsh-agi/helper
  * build:vendor`; katex.min.css and its woff2 faces are copied beside it by
  * scripts/vendor-katex-assets.mjs.
  */

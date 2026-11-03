@@ -7,7 +7,7 @@
  * an installed package by staging the new copy beside it (hard links into the
  * same store files) and deleting the old directory; while any process has
  * koffi's addon loaded from inside the package, both deletions fail with
- * `EPERM, Permission denied: \\?\…\dsh-orb_tmp_<pid>_<thread>\node_modules`
+ * `EPERM, Permission denied: \\?\…\dsh-agi_tmp_<pid>_<thread>\node_modules`
  * and the live package is left with files missing.
  *
  * So the host loads koffi from a copy outside the package (real files, new
@@ -34,7 +34,7 @@ import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /** The folder whose `node_modules` holds the koffi copy every loader in the bundle uses. */
-export const KOFFI_DIR_ENV = 'DSH_ORB_KOFFI_DIR'
+export const KOFFI_DIR_ENV = 'DSH_AGI_KOFFI_DIR'
 
 /** Written last into a copy, so a folder without it is a copy that never finished. */
 const READY_MARKER = '.ready'
@@ -54,7 +54,7 @@ export function requireKoffi<T>(from: string = import.meta.url): T {
     try {
       return createRequire(join(dir, 'index.js'))('koffi') as T
     } catch (error) {
-      console.error(`dsh-orb: koffi copy unusable, loading the packaged one: ${error instanceof Error ? error.message : String(error)}`)
+      console.error(`dsh-agi: koffi copy unusable, loading the packaged one: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
   return createRequire(from)('koffi') as T

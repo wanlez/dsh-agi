@@ -291,7 +291,7 @@ interface ShownQuestion {
 /** One host lifetime of the ball: socket, helper process, and one Computer Use session. */
 export class OrbRuntime {
   private readonly token = randomBytes(32).toString('hex')
-  private readonly sessionFile = dshHomePath('dsh-orb', 'floating-session.json')
+  private readonly sessionFile = dshHomePath('dsh-agi', 'floating-session.json')
   private server: Server | undefined
   private port = 0
   private readonly sockets = new Set<Socket>()
@@ -434,23 +434,23 @@ export class OrbRuntime {
       sessionsRoot: dshHomePath('sessions'),
       objectsRoot: dshHomePath('attachments', 'v1', 'objects'),
       trash: (path) => moveToOsTrash(path),
-      log: (message) => console.error(`dsh-orb: ${message}`),
+      log: (message) => console.error(`dsh-agi: ${message}`),
     })
     ctx.provide('computerUseOverlayGuard', this.overlay)
     this.voice = new VoiceController({
       settings: () => this.store.voice(),
       presence: () => voicePresence({
-        kws: dshHomePath('dsh-orb', 'voice', 'kws'),
+        kws: dshHomePath('dsh-agi', 'voice', 'kws'),
         asr: dshHomePath('speech-to-text', 'sensevoice'),
-        tts: dshHomePath('dsh-orb', 'voice', 'tts'),
+        tts: dshHomePath('dsh-agi', 'voice', 'tts'),
       }),
       now: () => Date.now(),
       paths: () => ({
-        kws: dshHomePath('dsh-orb', 'voice', 'kws'),
+        kws: dshHomePath('dsh-agi', 'voice', 'kws'),
         asrModel: dshHomePath('speech-to-text', 'sensevoice', 'models', 'sensevoice-onnx', 'model.int8.onnx'),
         asrTokens: dshHomePath('speech-to-text', 'sensevoice', 'models', 'sensevoice-onnx', 'tokens.txt'),
         asrVad: dshHomePath('speech-to-text', 'sensevoice', 'models', 'silero', 'silero_vad.onnx'),
-        tts: dshHomePath('dsh-orb', 'voice', 'tts'),
+        tts: dshHomePath('dsh-agi', 'voice', 'tts'),
       }),
       send: (message) => this.broadcast(message),
       open: () => openVoiceChild(),
@@ -462,9 +462,9 @@ export class OrbRuntime {
       },
     })
     this.voiceDownloads = new VoiceDownloads(() => ({
-      kws: dshHomePath('dsh-orb', 'voice', 'kws'),
+      kws: dshHomePath('dsh-agi', 'voice', 'kws'),
       asr: dshHomePath('speech-to-text', 'sensevoice'),
-      tts: dshHomePath('dsh-orb', 'voice', 'tts'),
+      tts: dshHomePath('dsh-agi', 'voice', 'tts'),
     }), undefined, () => { this.voice.applySettings() }, () => officialAsrFrom(this.ctx.get('speechToText')))
     this.listenAssistantStream()
   }
@@ -478,7 +478,7 @@ export class OrbRuntime {
     try {
       this.ctx.on('agent/assistant-stream', (payload) => this.onAssistantStream(payload), { global: true })
     } catch (error) {
-      console.error(`dsh-orb: assistant stream unavailable: ${error instanceof Error ? error.message : String(error)}`)
+      console.error(`dsh-agi: assistant stream unavailable: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
@@ -516,7 +516,7 @@ export class OrbRuntime {
     if (position === undefined) {
       if (!this.orphanFrameLogged) {
         this.orphanFrameLogged = true
-        console.error('dsh-orb: assistant stream chunk arrived without its start frame')
+        console.error('dsh-agi: assistant stream chunk arrived without its start frame')
       }
       return
     }
@@ -617,16 +617,16 @@ export class OrbRuntime {
         return false
       }
       const message = error instanceof Error ? error.message : String(error)
-      console.error(`dsh-orb: ${message}`)
+      console.error(`dsh-agi: ${message}`)
       this.runtimeRetries += 1
       const delay = RUNTIME_RETRY_DELAYS_MS[this.runtimeRetries - 1]
       if (delay !== undefined && !this.halted && generation === this.generation) {
         this.runtimePhase = 'downloading'
-        console.error(`dsh-orb: retrying the runtime download in ${Math.round(delay / 1000)}s`)
+        console.error(`dsh-agi: retrying the runtime download in ${Math.round(delay / 1000)}s`)
         this.retry = setTimeout(() => {
           this.retry = undefined
           void this.start().catch((error: unknown) => {
-            console.error(`dsh-orb: ${error instanceof Error ? error.message : String(error)}`)
+            console.error(`dsh-agi: ${error instanceof Error ? error.message : String(error)}`)
           })
         }, delay)
         this.retry.unref()
@@ -648,11 +648,11 @@ export class OrbRuntime {
       this.server = undefined
       return
     }
-    console.error(`dsh-orb: helper socket 127.0.0.1:${this.port}`)
+    console.error(`dsh-agi: helper socket 127.0.0.1:${this.port}`)
     this.startPolls()
     const sessionTask = this.ensureSession().catch((error: unknown) => {
       this.sessionError = error instanceof Error ? error.message : String(error)
-      console.error(`dsh-orb: session setup failed: ${this.sessionError}`)
+      console.error(`dsh-agi: session setup failed: ${this.sessionError}`)
     })
     if (!await this.beginRuntime(generation)) return
     await sessionTask
@@ -720,7 +720,7 @@ export class OrbRuntime {
       )
       return typeof dispose === 'function' ? dispose : () => {}
     } catch (error) {
-      console.error(`dsh-orb: question listener failed: ${error instanceof Error ? error.message : String(error)}`)
+      console.error(`dsh-agi: question listener failed: ${error instanceof Error ? error.message : String(error)}`)
       return () => {}
     }
   }
@@ -735,7 +735,7 @@ export class OrbRuntime {
       server.listen(0, '127.0.0.1', () => resolve())
     })
     const address = server.address()
-    if (address === null || typeof address === 'string') throw new Error('dsh-orb: helper socket has no port')
+    if (address === null || typeof address === 'string') throw new Error('dsh-agi: helper socket has no port')
     this.port = address.port
   }
 
@@ -879,7 +879,7 @@ export class OrbRuntime {
     } catch (error) {
       this.finishTurn()
       const message = error instanceof Error ? error.message : String(error)
-      console.error(`dsh-orb: prompt failed: ${message}`)
+      console.error(`dsh-agi: prompt failed: ${message}`)
       this.status(message)
     }
   }
@@ -915,7 +915,7 @@ export class OrbRuntime {
       this.dropBlock(key)
       this.voice.resumeAfterInterjectFailure()
       const message = error instanceof Error ? error.message : String(error)
-      console.error(`dsh-orb: prompt cancel failed: ${message}`)
+      console.error(`dsh-agi: prompt cancel failed: ${message}`)
       this.status(message)
     }
   }
@@ -961,7 +961,7 @@ export class OrbRuntime {
     const saved = await readSavedSession(this.sessionFile)
     if (saved !== undefined) {
       if (await this.openConversation(saved)) return this.adopt(saved)
-      console.error('dsh-orb: saved session cannot be opened; creating a new one')
+      console.error('dsh-agi: saved session cannot be opened; creating a new one')
       await rm(this.sessionFile, { force: true })
     }
     const session = await this.ctx.sessionController.create({
@@ -985,12 +985,12 @@ export class OrbRuntime {
       const resolved = await this.ctx.sessionController.resolveAgent(sessionId)
       if ('error' in resolved) {
         const reason = resolved.error instanceof Error ? resolved.error.message : JSON.stringify(resolved.error)
-        console.error(`dsh-orb: session ${sessionId} cannot be opened: ${reason}`)
+        console.error(`dsh-agi: session ${sessionId} cannot be opened: ${reason}`)
         return false
       }
       return true
     } catch (error) {
-      console.error(`dsh-orb: session ${sessionId} cannot be opened: ${error instanceof Error ? error.message : String(error)}`)
+      console.error(`dsh-agi: session ${sessionId} cannot be opened: ${error instanceof Error ? error.message : String(error)}`)
       return false
     }
   }
@@ -1030,7 +1030,7 @@ export class OrbRuntime {
     try {
       await refreshModelFallback(this.ctx, this.store)
     } catch (error) {
-      console.error(`dsh-orb: model fallback failed: ${error instanceof Error ? error.message : String(error)}`)
+      console.error(`dsh-agi: model fallback failed: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
@@ -1045,10 +1045,10 @@ export class OrbRuntime {
       await mkdir(dirname(this.sessionFile), { recursive: true })
       await writeFile(this.sessionFile, `${JSON.stringify({ sessionId })}\n`)
     } catch (error) {
-      console.error(`dsh-orb: could not save session id: ${error instanceof Error ? error.message : String(error)}`)
+      console.error(`dsh-agi: could not save session id: ${error instanceof Error ? error.message : String(error)}`)
     }
     this.broadcast({ type: 'session', sessionId })
-    console.error(`dsh-orb: session ${sessionId}`)
+    console.error(`dsh-agi: session ${sessionId}`)
     return sessionId
   }
 
@@ -1096,7 +1096,7 @@ export class OrbRuntime {
     if (!session) {
       if (!this.missingLogged) {
         this.missingLogged = true
-        console.error('dsh-orb: session is not in the store yet')
+        console.error('dsh-agi: session is not in the store yet')
       }
       return
     }
@@ -1111,7 +1111,7 @@ export class OrbRuntime {
         this.consume(event.type, event.data, seq)
       }
     } catch (error) {
-      console.error(`dsh-orb: transcript read failed: ${error instanceof Error ? error.message : String(error)}`)
+      console.error(`dsh-agi: transcript read failed: ${error instanceof Error ? error.message : String(error)}`)
     }
     if (fresh && this.turnRunning) {
       this.idleWarned = false
@@ -1393,7 +1393,7 @@ export class OrbRuntime {
       this.giveUp = undefined
     }
     const reply = [...this.blockOrder].reverse().map((key) => this.blocks.get(key)).find((item) => item?.kind === 'assistant')
-    console.error(`dsh-orb: turn done reply=${reply?.text.length ?? 0}`)
+    console.error(`dsh-agi: turn done reply=${reply?.text.length ?? 0}`)
     this.voice.endTurn()
   }
 
@@ -1508,11 +1508,11 @@ export class OrbRuntime {
     const questions = sanitizeQuestions(request.questions)
     if (this.sockets.size === 0 || !this.sessionId || agentId !== this.sessionId || this.pending || questions.length === 0) {
       if (this.sessionId && agentId === this.sessionId) {
-        console.error(`dsh-orb: question deferred sockets=${this.sockets.size} pending=${this.pending !== undefined} count=${questions.length}`)
+        console.error(`dsh-agi: question deferred sockets=${this.sockets.size} pending=${this.pending !== undefined} count=${questions.length}`)
       }
       return next()
     }
-    console.error(`dsh-orb: question card ${questions.length}`)
+    console.error(`dsh-agi: question card ${questions.length}`)
     const id = randomUUID()
     return new Promise((resolve, reject) => {
       this.pending = { id, resolve, reject, next }
@@ -1543,7 +1543,7 @@ export class OrbRuntime {
     this.questionBody = undefined
     this.broadcast({ type: 'question-clear', id })
     this.voice.questionClosed()
-    console.error('dsh-orb: question answered')
+    console.error('dsh-agi: question answered')
     pending.resolve(parsed)
   }
 
@@ -1559,7 +1559,7 @@ export class OrbRuntime {
     this.questionBody = undefined
     this.broadcast({ type: 'question-clear', id: pending.id })
     this.voice.questionClosed()
-    console.error('dsh-orb: question returned to the main window')
+    console.error('dsh-agi: question returned to the main window')
     void pending.next().then(pending.resolve, pending.reject)
   }
 
@@ -1570,7 +1570,7 @@ export class OrbRuntime {
     this.questionBody = undefined
     this.broadcast({ type: 'question-clear', id })
     this.voice.questionClosed()
-    console.error(`dsh-orb: question ${code}`)
+    console.error(`dsh-agi: question ${code}`)
     pending.reject(questionError(message, code))
   }
 
@@ -1612,11 +1612,11 @@ export class OrbRuntime {
     const userData = this.userData || helperDataDirectory(this.store.dir)
     const env: NodeJS.ProcessEnv = {
       ...process.env,
-      DSH_ORB_TOKEN: this.token,
-      DSH_ORB_SOCKET: `127.0.0.1:${this.port}`,
-      DSH_ORB_WEB_PORT: String(this.ctx.webServer.port),
+      DSH_AGI_TOKEN: this.token,
+      DSH_AGI_SOCKET: `127.0.0.1:${this.port}`,
+      DSH_AGI_WEB_PORT: String(this.ctx.webServer.port),
       ...(Object.keys(this.appearance).length > 0
-        ? { DSH_ORB_APPEARANCE: JSON.stringify(this.appearance) }
+        ? { DSH_AGI_APPEARANCE: JSON.stringify(this.appearance) }
         : {}),
     }
     delete env.ELECTRON_RUN_AS_NODE
@@ -1626,7 +1626,7 @@ export class OrbRuntime {
       windowsHide: true,
     })
     this.child = child
-    console.error(`dsh-orb: helper started pid ${child.pid ?? 'unknown'}`)
+    console.error(`dsh-agi: helper started pid ${child.pid ?? 'unknown'}`)
     const stable = setTimeout(() => {
       if (this.child === child) this.failures = 0
     }, 60_000)
@@ -1635,7 +1635,7 @@ export class OrbRuntime {
     const log = (chunk: string) => {
       for (const line of chunk.split('\n')) {
         if (!line.trim() || line.includes(token) || /token=|api[_-]?key|authorization/i.test(line)) continue
-        console.error(`dsh-orb helper: ${line}`)
+        console.error(`dsh-agi helper: ${line}`)
       }
     }
     child.stdout?.setEncoding('utf8')
@@ -1651,10 +1651,10 @@ export class OrbRuntime {
       const delay = HELPER_RETRY_DELAYS_MS[this.failures - 1]
       if (delay === undefined) {
         this.helperError = 'helper-exited'
-        console.error('dsh-orb: helper exited too many times; ball stays hidden')
+        console.error('dsh-agi: helper exited too many times; ball stays hidden')
         return
       }
-      console.error(`dsh-orb: helper exited (${reason}); retry ${this.failures}`)
+      console.error(`dsh-agi: helper exited (${reason}); retry ${this.failures}`)
       this.retry = setTimeout(() => this.launch(), delay)
       this.retry.unref()
     }
@@ -1696,7 +1696,7 @@ export class OrbRuntime {
       catalog = refreshed.catalog
       moved = refreshed.changed
     } catch (error) {
-      console.error(`dsh-orb: model catalog failed: ${error instanceof Error ? error.message : String(error)}`)
+      console.error(`dsh-agi: model catalog failed: ${error instanceof Error ? error.message : String(error)}`)
     }
     const models = this.store.models()
     this.broadcast({ type: 'permission', preset: this.store.permission() })
@@ -1778,7 +1778,7 @@ export class OrbRuntime {
       // A manual retry grants a fresh download budget.
       this.runtimeRetries = 0
       void this.start().catch((error: unknown) => {
-        console.error(`dsh-orb: ${error instanceof Error ? error.message : String(error)}`)
+        console.error(`dsh-agi: ${error instanceof Error ? error.message : String(error)}`)
       })
       return
     }
@@ -1800,7 +1800,7 @@ export class OrbRuntime {
     const live = this.child !== undefined && this.child.exitCode === null && this.child.signalCode === null && this.server !== undefined
     cancelRuntimeDownload()
     await purgeRuntimeArtifacts().catch((error: unknown) => {
-      console.error(`dsh-orb: could not clear the leftover runtime files: ${error instanceof Error ? error.message : String(error)}`)
+      console.error(`dsh-agi: could not clear the leftover runtime files: ${error instanceof Error ? error.message : String(error)}`)
     })
     if (live) return
     this.runtimeRetries = 0
@@ -1811,7 +1811,7 @@ export class OrbRuntime {
     // Deliberately not awaited: one attempt runs for minutes, and the page follows it through
     // `helperPhase` the same way it follows a first launch.
     void this.start().catch((error: unknown) => {
-      console.error(`dsh-orb: ${error instanceof Error ? error.message : String(error)}`)
+      console.error(`dsh-agi: ${error instanceof Error ? error.message : String(error)}`)
     })
     // `start()` clears the phase on its way in. The user just asked for a download, so the
     // waiting line stays up until the attempt reports its own phase or fails for real.
@@ -2065,7 +2065,7 @@ export class OrbRuntime {
   private run(label: string, task: () => Promise<void>): void {
     void task().catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error)
-      console.error(`dsh-orb: ${label} failed: ${message}`)
+      console.error(`dsh-agi: ${label} failed: ${message}`)
       this.status(message)
     })
   }
@@ -2088,7 +2088,7 @@ export class OrbRuntime {
       // A failing cancel must not paint the ball as stopped: the turn keeps running and
       // its own turn/end stays the authoritative close.
       const message = error instanceof Error ? error.message : String(error)
-      console.error(`dsh-orb: cancel failed: ${message}`)
+      console.error(`dsh-agi: cancel failed: ${message}`)
       this.status(message)
       return
     }
@@ -2133,7 +2133,7 @@ export class OrbRuntime {
       const rows = await this.listHistoryRows()
       return rows.find((row) => row.sessionId === current)?.blank === true
     } catch (error) {
-      console.error(`dsh-orb: could not tell whether the conversation is blank: ${error instanceof Error ? error.message : String(error)}`)
+      console.error(`dsh-agi: could not tell whether the conversation is blank: ${error instanceof Error ? error.message : String(error)}`)
       return false
     }
   }
@@ -2186,7 +2186,7 @@ export class OrbRuntime {
       }
       return items
     } catch (error) {
-      console.error(`dsh-orb: history failed: ${error instanceof Error ? error.message : String(error)}`)
+      console.error(`dsh-agi: history failed: ${error instanceof Error ? error.message : String(error)}`)
       return []
     }
   }
@@ -2241,9 +2241,9 @@ export class OrbRuntime {
       }
       // No ack means the helper never confirmed the cloak; the capture must fail rather
       // than proceed against an unprotected screen.
-      const timer = setTimeout(() => { finish(new Error('dsh-orb: overlay ack timed out')) }, OVERLAY_GUARD_ACK_TIMEOUT_MS)
+      const timer = setTimeout(() => { finish(new Error('dsh-agi: overlay ack timed out')) }, OVERLAY_GUARD_ACK_TIMEOUT_MS)
       timer.unref()
-      const onAbort = () => { finish(signal?.reason instanceof Error ? signal.reason : new Error('dsh-orb: overlay ack aborted')) }
+      const onAbort = () => { finish(signal?.reason instanceof Error ? signal.reason : new Error('dsh-agi: overlay ack aborted')) }
       if (signal?.aborted) {
         onAbort()
         return
@@ -2264,7 +2264,7 @@ export class OrbRuntime {
         ...selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort },
       })
     } catch (error) {
-      console.error(`dsh-orb: overlay model failed: ${error instanceof Error ? error.message : String(error)}`)
+      console.error(`dsh-agi: overlay model failed: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
@@ -2318,7 +2318,7 @@ export class OrbRuntime {
     try {
       items = this.agentItems(registry)
     } catch (error) {
-      console.error(`dsh-orb: agent bookmarks failed: ${error instanceof Error ? error.message : String(error)}`)
+      console.error(`dsh-agi: agent bookmarks failed: ${error instanceof Error ? error.message : String(error)}`)
       return
     }
     this.refreshCallerTitles()
@@ -2477,7 +2477,7 @@ export class OrbRuntime {
 /** Per-profile Chromium data so desktop and `dsh web` do not share one lock. */
 function helperDataDirectory(profileDir: string): string {
   const id = createHash('sha256').update(profileDir).digest('hex').slice(0, 16)
-  return dshHomePath('dsh-orb', 'helper-data', id)
+  return dshHomePath('dsh-agi', 'helper-data', id)
 }
 
 function isPrompt(message: unknown): message is { type: 'prompt'; text: string } {
@@ -2615,9 +2615,9 @@ export function scheduleBlankSweep(options: {
       try {
         const swept = await options.sweep()
         await writeFile(options.marker, `${JSON.stringify({ swept, at: Date.now() })}\n`)
-        if (swept > 0) log(`dsh-orb: moved ${swept} empty conversation(s) to the system trash`)
+        if (swept > 0) log(`dsh-agi: moved ${swept} empty conversation(s) to the system trash`)
       } catch (error) {
-        log(`dsh-orb: blank conversation sweep failed: ${error instanceof Error ? error.message : String(error)}`)
+        log(`dsh-agi: blank conversation sweep failed: ${error instanceof Error ? error.message : String(error)}`)
       }
     })()
   }, options.delayMs)

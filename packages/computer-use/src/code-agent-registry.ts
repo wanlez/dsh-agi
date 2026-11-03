@@ -7,7 +7,7 @@
  * this module at the top level, outside every agent preset. A provide from a
  * preset-internal plugin lands in the root realm and the official preset-mount
  * audit rejects it ("Preset services require isolate realms").
- * @module @dsh-orb/computer-use/src/code-agent-registry
+ * @module @dsh-agi/computer-use/src/code-agent-registry
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -123,7 +123,7 @@ function mountGuard(ctx: Context): void {
       desktopToolDenial(execution.agent?.id, execution.name, presetOf(execution.agent))
     )))
   } catch (error) {
-    console.error(`dsh-orb: the desktop-ownership guard did not install: ${error instanceof Error ? error.message : String(error)}`)
+    console.error(`dsh-agi: the desktop-ownership guard did not install: ${error instanceof Error ? error.message : String(error)}`)
   }
 }
 
@@ -199,7 +199,7 @@ function evaluate(record: BookmarkRecord): void {
     // dispatch — other listeners share it — so the bookmark keeps what it had. The log
     // keeps the failure visible instead of leaving only the "running" state behind.
     console.error(
-      `dsh-orb: bookmark ${record.sessionId} could not be refreshed: ${error instanceof Error ? error.message : String(error)}`,
+      `dsh-agi: bookmark ${record.sessionId} could not be refreshed: ${error instanceof Error ? error.message : String(error)}`,
     )
   }
 }

@@ -92,7 +92,7 @@ describe('overlay guard capture exclusion', () => {
       hasHelper: () => true,
       send: async (message) => {
         events.push(message.active === true ? 'begin' : 'end')
-        if (message.active === true) throw new Error('dsh-orb: overlay ack timed out')
+        if (message.active === true) throw new Error('dsh-agi: overlay ack timed out')
       },
       setHidInput: () => undefined,
       sleep: async () => undefined,
@@ -109,7 +109,7 @@ describe('overlay guard capture exclusion', () => {
       send: async (message) => {
         events.push(message.active === true ? 'begin' : 'end')
         // The click is already posted; only the ack for closing the interval is lost.
-        if (message.active !== true) throw new Error('dsh-orb: overlay ack timed out')
+        if (message.active !== true) throw new Error('dsh-agi: overlay ack timed out')
       },
       setHidInput: (active) => { hid.push(active) },
       sleep: async () => undefined,

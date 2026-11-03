@@ -48,12 +48,12 @@ function loadPreload(file: string): { api: PreloadApi; sent: [string, unknown][]
   }
   const original = loader._resolveFilename
   loader._resolveFilename = function (request, parent, isMain, options) {
-    if (request === 'electron') return 'electron-mock-dsh-orb'
+    if (request === 'electron') return 'electron-mock-dsh-agi'
     return original.call(this, request, parent, isMain, options)
   }
-  loader._cache['electron-mock-dsh-orb'] = {
-    id: 'electron-mock-dsh-orb',
-    filename: 'electron-mock-dsh-orb',
+  loader._cache['electron-mock-dsh-agi'] = {
+    id: 'electron-mock-dsh-agi',
+    filename: 'electron-mock-dsh-agi',
     loaded: true,
     exports: electron,
   }
@@ -63,7 +63,7 @@ function loadPreload(file: string): { api: PreloadApi; sent: [string, unknown][]
     createRequire(import.meta.url)(filename)
   } finally {
     loader._resolveFilename = original
-    delete loader._cache['electron-mock-dsh-orb']
+    delete loader._cache['electron-mock-dsh-agi']
     delete loader._cache[filename]
   }
   return { api: exposed.dshOrb ?? {}, sent, invoked }

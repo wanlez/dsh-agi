@@ -30,8 +30,8 @@ const RING_SAMPLES = TARGET_RATE / 2
 /** Label of the interject keyword inside the spotter's keyword list. */
 const INTERJECT_LABEL = 'interject'
 
-const VOICE_DEBUG_MARKER = join(tmpdir(), 'dsh-orb-voice-debug.on')
-const VOICE_DEBUG_LOG = join(tmpdir(), 'dsh-orb-voice-debug.log')
+const VOICE_DEBUG_MARKER = join(tmpdir(), 'dsh-agi-voice-debug.on')
+const VOICE_DEBUG_LOG = join(tmpdir(), 'dsh-agi-voice-debug.log')
 
 /** Opt-in tracing shared with the host; inert unless the marker file exists. */
 function debug(message: string): void {
@@ -63,7 +63,7 @@ const emit = (message: unknown) => {
 
 const fail = (error: unknown) => {
   const message = error instanceof Error ? error.message : String(error)
-  process.stderr.write(`dsh-orb voice: ${message}\n`)
+  process.stderr.write(`dsh-agi voice: ${message}\n`)
 }
 
 class Ring {
@@ -756,7 +756,7 @@ class Engine {
     }
     const key = `${settings.wakeChunk}:${settings.wakeThreshold}:${settings.wakeScore}:${lines.join('|')}`
     if (key === this.kwsKey && this.kws) return
-    const keywordsFile = join(tmpdir(), `dsh-orb-kws-${process.pid}.txt`)
+    const keywordsFile = join(tmpdir(), `dsh-agi-kws-${process.pid}.txt`)
     writeFileSync(keywordsFile, `${lines.join('\n')}\n`)
     try {
       const spotter = new this.native.sherpa.KeywordSpotter({

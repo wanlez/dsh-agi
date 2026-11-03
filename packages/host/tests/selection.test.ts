@@ -7,7 +7,7 @@ import {
   dispatchWindowsSelectionMessage,
   draggedFarEnough,
   parseSelectionHelperLine,
-} from '@dsh-orb/native-selection'
+} from '@dsh-agi/native-selection'
 import { createOverlayGuard } from '../src/overlay-guard.ts'
 import {
   composeSelectionTranslatePrompt,

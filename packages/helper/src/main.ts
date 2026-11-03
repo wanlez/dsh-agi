@@ -13,9 +13,9 @@ import { contextMenuTemplate } from './menu.ts'
 import { attachOverlays, denyWindowPermissions } from './overlays.ts'
 import { type MenuCatalog, type MenuSelection } from './model-menu.ts'
 
-const socketAddress = process.env.DSH_ORB_SOCKET ?? ''
-const token = process.env.DSH_ORB_TOKEN ?? ''
-const webPort = process.env.DSH_ORB_WEB_PORT ?? ''
+const socketAddress = process.env.DSH_AGI_SOCKET ?? ''
+const token = process.env.DSH_AGI_TOKEN ?? ''
+const webPort = process.env.DSH_AGI_WEB_PORT ?? ''
 
 /** Theme preference as stored by the official ui-theme settings section. */
 type ThemeSource = 'light' | 'dark' | 'system'
@@ -54,10 +54,10 @@ let avatarToken = 0
 // locale falls back to the system languages.
 let appearance: Appearance = readAppearanceEnv()
 
-process.title = 'dsh-orb-helper'
+process.title = 'dsh-agi-helper'
 
 if (!socketAddress || !token) {
-  console.error('dsh-orb helper: socket environment is missing')
+  console.error('dsh-agi helper: socket environment is missing')
   process.exit(1)
 }
 
@@ -96,7 +96,7 @@ void app.whenReady().then(async () => {
   try {
     overlays = await attachOverlays({ ball: () => win, write })
   } catch (error) {
-    console.error(`dsh-orb helper: overlays did not open: ${error instanceof Error ? error.message : String(error)}`)
+    console.error(`dsh-agi helper: overlays did not open: ${error instanceof Error ? error.message : String(error)}`)
   }
   placement = new FloatingPlacement(win, (point) => {
     const display = screen.getDisplayNearestPoint({ x: Math.round(point.x), y: Math.round(point.y) })
@@ -272,7 +272,7 @@ ipcMain.handle('orb:tcc-open', (event, right) => {
 function openWindow(): BrowserWindow {
   const bounds = initialWindowBounds(screen.getPrimaryDisplay().workArea)
   const created = new BrowserWindow({
-    title: 'dsh-orb',
+    title: 'dsh-agi',
     x: bounds.x,
     y: bounds.y,
     width: bounds.width,
@@ -327,7 +327,7 @@ function openWindow(): BrowserWindow {
   created.once('ready-to-show', () => {
     created.showInactive()
     const shown = created.getBounds()
-    console.error(`dsh-orb helper: ball ${shown.x},${shown.y} ${shown.width}x${shown.height}`)
+    console.error(`dsh-agi helper: ball ${shown.x},${shown.y} ${shown.width}x${shown.height}`)
   })
   return created
 }
@@ -378,7 +378,7 @@ function connect(attempt: number): void {
       return
     }
     if (attempt >= 30) {
-      console.error('dsh-orb helper: host socket did not open')
+      console.error('dsh-agi helper: host socket did not open')
       app.exit(1)
       return
     }
@@ -549,14 +549,14 @@ function write(message: unknown): void {
 }
 
 /**
- * Docking diagnostics, off unless `DSH_ORB_DOCK_DEBUG` is set. One stderr line per
+ * Docking diagnostics, off unless `DSH_AGI_DOCK_DEBUG` is set. One stderr line per
  * drag release: the cursor the drag ended on, the window bounds the OS applied,
  * every display with its scaleFactor, and the decision. A machine that will not
  * dock reports here, which is the only way to diagnose a display/DPI layout we
  * cannot reproduce.
  */
 function logDockDiagnostics(cursor: { x: number; y: number }, result: { docked?: 'left' | 'right' }): void {
-  if (process.env.DSH_ORB_DOCK_DEBUG !== '1') return
+  if (process.env.DSH_AGI_DOCK_DEBUG !== '1') return
   if (!win || win.isDestroyed()) return
   const displays = screen.getAllDisplays().map((display) => ({
     bounds: display.bounds,
@@ -579,7 +579,7 @@ function zhLocale(): boolean {
 
 /** Appearance seed from the host: the preferences as of helper launch. */
 function readAppearanceEnv(): Appearance {
-  const raw = process.env.DSH_ORB_APPEARANCE
+  const raw = process.env.DSH_AGI_APPEARANCE
   if (typeof raw !== 'string' || raw.length > 200) return {}
   try {
     return readAppearanceMessage(JSON.parse(raw))
@@ -750,9 +750,9 @@ function fetchAvatar(version: number): Promise<{ mime: string; body: Buffer } | 
     const req = httpRequest({
       hostname: '127.0.0.1',
       port,
-      path: `/.dsh-orb/avatar?v=${Math.trunc(version)}`,
+      path: `/.dsh-agi/avatar?v=${Math.trunc(version)}`,
       method: 'GET',
-      headers: { 'x-dsh-orb-helper': token },
+      headers: { 'x-dsh-agi-helper': token },
     }, (res) => {
       const chunks: Buffer[] = []
       let size = 0

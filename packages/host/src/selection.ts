@@ -9,7 +9,7 @@ import {
   promptAccessibility,
   startSelectionMonitor,
   type SelectionHelperEvent,
-} from '@dsh-orb/native-selection'
+} from '@dsh-agi/native-selection'
 
 export const SELECTION_DEDUPE_MS = 3_000
 export const SELECTION_RESTORE_FRONT_MS = 80
@@ -63,7 +63,7 @@ export function openSystemUrl(url: string): void {
   const args = process.platform === 'win32' ? ['/c', 'start', '', url] : [url]
   const child = spawn(command, args, { stdio: 'ignore', windowsHide: true })
   child.once('error', (error) => {
-    console.error(`dsh-orb: open failed: ${error.message}`)
+    console.error(`dsh-agi: open failed: ${error.message}`)
   })
   child.unref()
 }

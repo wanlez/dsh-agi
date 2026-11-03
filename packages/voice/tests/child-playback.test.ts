@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 
-const tts = join(homedir(), '.dsh', 'dsh-orb', 'voice', 'tts')
+const tts = join(homedir(), '.dsh', 'dsh-agi', 'voice', 'tts')
 const ready = existsSync(join(tts, 'matcha-icefall-zh-baker', 'model-steps-3.onnx'))
 const childPath = join(import.meta.dirname, '../src/child.ts')
 

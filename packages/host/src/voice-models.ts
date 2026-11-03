@@ -5,7 +5,7 @@
 
 import { existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { ASR_MODEL_BYTES } from '@dsh-orb/voice/manifest'
+import { ASR_MODEL_BYTES } from '@dsh-agi/voice/manifest'
 import { type VoicePresence } from './voice.ts'
 
 const ASR_FILES = [

@@ -107,7 +107,7 @@ function checker(options: {
     manager: () => fake.service,
     notify: (version) => { announced.push(version); options.notify?.(version) },
     fetchLatest: async () => options.latest,
-    own: 'own' in options ? options.own : { name: 'dsh-orb', version: '0.1.0' },
+    own: 'own' in options ? options.own : { name: 'dsh-agi', version: '0.1.0' },
     mappedImages: () => options.mapped ?? [],
     deferInstall: (job) => {
       fake.trace.push('defer')
@@ -182,33 +182,33 @@ describe('update versions', () => {
     assert.equal(versionFromRelease('not json'), undefined)
     assert.equal(
       releaseTarballUrl('0.2.0'),
-      'https://github.com/mini-yifan/dsh-orb-cordis/releases/download/plugin-v0.2.0/dsh-orb-0.2.0.tgz',
+      'https://github.com/mini-yifan/dsh-orb-cordis/releases/download/plugin-v0.2.0/dsh-agi-0.2.0.tgz',
     )
-    process.env.DSH_ORB_UPDATE_URL = 'http://127.0.0.1:9/downloads/dsh-orb-0.2.0.tgz'
-    assert.equal(releaseTarballUrl('0.2.0'), 'http://127.0.0.1:9/downloads/dsh-orb-0.2.0.tgz')
-    delete process.env.DSH_ORB_UPDATE_URL
+    process.env.DSH_AGI_UPDATE_URL = 'http://127.0.0.1:9/downloads/dsh-agi-0.2.0.tgz'
+    assert.equal(releaseTarballUrl('0.2.0'), 'http://127.0.0.1:9/downloads/dsh-agi-0.2.0.tgz')
+    delete process.env.DSH_AGI_UPDATE_URL
   })
 })
 
 describe('release-age exemption', () => {
   it('replaces a versioned rule with the bare name, written first', () => {
-    const before = 'packages:\n  - .\n\nnodeLinker: hoisted\nminimumReleaseAgeExclude:\n  - dsh-orb@0.1.0\n'
+    const before = 'packages:\n  - .\n\nnodeLinker: hoisted\nminimumReleaseAgeExclude:\n  - dsh-agi@0.1.0\n'
     assert.equal(
-      withReleaseAgeExclusion(before, 'dsh-orb'),
-      'packages:\n  - .\n\nnodeLinker: hoisted\nminimumReleaseAgeExclude:\n  - dsh-orb\n',
+      withReleaseAgeExclusion(before, 'dsh-agi'),
+      'packages:\n  - .\n\nnodeLinker: hoisted\nminimumReleaseAgeExclude:\n  - dsh-agi\n',
     )
   })
 
   it('adds the key when the file has none', () => {
     assert.equal(
-      withReleaseAgeExclusion('packages:\n  - .\n', 'dsh-orb'),
-      'packages:\n  - .\nminimumReleaseAgeExclude:\n  - dsh-orb\n',
+      withReleaseAgeExclusion('packages:\n  - .\n', 'dsh-agi'),
+      'packages:\n  - .\nminimumReleaseAgeExclude:\n  - dsh-agi\n',
     )
   })
 
   it('keeps quiet when the package is already exempt by name', () => {
-    assert.equal(withReleaseAgeExclusion('minimumReleaseAgeExclude:\n  - dsh-orb\n', 'dsh-orb'), undefined)
-    assert.equal(withReleaseAgeExclusion('minimumReleaseAgeExclude:\n  - dsh-orb\n  - other\n', 'dsh-orb'), undefined)
+    assert.equal(withReleaseAgeExclusion('minimumReleaseAgeExclude:\n  - dsh-agi\n', 'dsh-agi'), undefined)
+    assert.equal(withReleaseAgeExclusion('minimumReleaseAgeExclude:\n  - dsh-agi\n  - other\n', 'dsh-agi'), undefined)
   })
 
   it('collapses every rule a profile collected for one package into the first bare name', () => {
@@ -216,17 +216,17 @@ describe('release-age exemption', () => {
     // release, and reads only the first rule per name, so the bare entry in the
     // middle exempts nothing (pnpm #732) — which is what blocked uninstalls.
     const before =
-      'packages:\n  - .\nminimumReleaseAgeExclude:\n  - dsh-orb@0.1.0\n  - dsh-orb@0.1.2\n  - dsh-orb\n  - dsh-orb@0.1.4\n  - dsh-orb@0.1.3\n  - other@1.0.0 || 2.0.0\n'
+      'packages:\n  - .\nminimumReleaseAgeExclude:\n  - dsh-agi@0.1.0\n  - dsh-agi@0.1.2\n  - dsh-agi\n  - dsh-agi@0.1.4\n  - dsh-agi@0.1.3\n  - other@1.0.0 || 2.0.0\n'
     assert.equal(
-      withReleaseAgeExclusion(before, 'dsh-orb'),
-      'packages:\n  - .\nminimumReleaseAgeExclude:\n  - dsh-orb\n  - other@1.0.0 || 2.0.0\n',
+      withReleaseAgeExclusion(before, 'dsh-agi'),
+      'packages:\n  - .\nminimumReleaseAgeExclude:\n  - dsh-agi\n  - other@1.0.0 || 2.0.0\n',
     )
   })
 
   it('drops a rule pnpm appends behind the bare name', () => {
     assert.equal(
-      withReleaseAgeExclusion('minimumReleaseAgeExclude:\n  - dsh-orb\n  - dsh-orb@0.1.4\n', 'dsh-orb'),
-      'minimumReleaseAgeExclude:\n  - dsh-orb\n',
+      withReleaseAgeExclusion('minimumReleaseAgeExclude:\n  - dsh-agi\n  - dsh-agi@0.1.4\n', 'dsh-agi'),
+      'minimumReleaseAgeExclude:\n  - dsh-agi\n',
     )
   })
 
@@ -239,27 +239,27 @@ describe('release-age exemption', () => {
 
   it('adds the bare name even when only versioned entries exist', () => {
     assert.equal(
-      withReleaseAgeExclusion('minimumReleaseAgeExclude:\n  - dsh-orb@0.1.2\n', 'dsh-orb'),
-      'minimumReleaseAgeExclude:\n  - dsh-orb\n',
+      withReleaseAgeExclusion('minimumReleaseAgeExclude:\n  - dsh-agi@0.1.2\n', 'dsh-agi'),
+      'minimumReleaseAgeExclude:\n  - dsh-agi\n',
     )
   })
 
   it('leaves an unfamiliar file shape alone', () => {
-    assert.equal(withReleaseAgeExclusion('minimumReleaseAgeExclude: [dsh-orb]\n', 'dsh-orb'), undefined)
+    assert.equal(withReleaseAgeExclusion('minimumReleaseAgeExclude: [dsh-agi]\n', 'dsh-agi'), undefined)
   })
 
   it('writes the exemption into the profile before installing', async () => {
     const profile = store()
     writeFileSync(
       join(profile.dir, 'pnpm-workspace.yaml'),
-      'packages:\n  - .\nminimumReleaseAgeExclude:\n  - dsh-orb@0.1.0\n',
+      'packages:\n  - .\nminimumReleaseAgeExclude:\n  - dsh-agi@0.1.0\n',
     )
     const { update } = checker({ store: profile, latest: '0.2.0' })
     await update.check()
     await update.install()
     assert.equal(
       readFileSync(join(profile.dir, 'pnpm-workspace.yaml'), 'utf8'),
-      'packages:\n  - .\nminimumReleaseAgeExclude:\n  - dsh-orb\n',
+      'packages:\n  - .\nminimumReleaseAgeExclude:\n  - dsh-agi\n',
     )
   })
 
@@ -267,19 +267,19 @@ describe('release-age exemption', () => {
     const profile = store()
     // What the market's or the plugin manager's own `pnpm add` leaves behind:
     // pnpm's appended rule sits behind the first rule, which keeps governing.
-    const broken = 'packages:\n  - .\nminimumReleaseAgeExclude:\n  - dsh-orb@0.1.4\n  - dsh-orb@0.1.5\n'
+    const broken = 'packages:\n  - .\nminimumReleaseAgeExclude:\n  - dsh-agi@0.1.4\n  - dsh-agi@0.1.5\n'
     writeFileSync(join(profile.dir, 'pnpm-workspace.yaml'), broken)
-    exemptReleaseAge(profile.dir, 'dsh-orb')
-    const repaired = 'packages:\n  - .\nminimumReleaseAgeExclude:\n  - dsh-orb\n'
+    exemptReleaseAge(profile.dir, 'dsh-agi')
+    const repaired = 'packages:\n  - .\nminimumReleaseAgeExclude:\n  - dsh-agi\n'
     assert.equal(readFileSync(join(profile.dir, 'pnpm-workspace.yaml'), 'utf8'), repaired)
     // Idempotent: starting again changes nothing.
-    exemptReleaseAge(profile.dir, 'dsh-orb')
+    exemptReleaseAge(profile.dir, 'dsh-agi')
     assert.equal(readFileSync(join(profile.dir, 'pnpm-workspace.yaml'), 'utf8'), repaired)
   })
 
   it('leaves a profile without a workspace file alone', () => {
     const profile = store()
-    exemptReleaseAge(profile.dir, 'dsh-orb')
+    exemptReleaseAge(profile.dir, 'dsh-agi')
     assert.equal(existsSync(join(profile.dir, 'pnpm-workspace.yaml')), false)
   })
 
@@ -314,10 +314,10 @@ describe('release-age exemption', () => {
     const file = join(profile.dir, 'pnpm-workspace.yaml')
     writeFileSync(file, 'packages:\n  - .\n')
     // A directory where the staged sibling goes: the write cannot land, whichever platform.
-    mkdirSync(`${file}.dsh-orb-tmp`, { recursive: true })
-    exemptReleaseAge(profile.dir, 'dsh-orb')
+    mkdirSync(`${file}.dsh-agi-tmp`, { recursive: true })
+    exemptReleaseAge(profile.dir, 'dsh-agi')
     assert.equal(readFileSync(file, 'utf8'), 'packages:\n  - .\n', 'the profile file is untouched')
-    assert.equal(existsSync(`${file}.dsh-orb-tmp`), true, 'what the test itself created is still a directory')
+    assert.equal(existsSync(`${file}.dsh-agi-tmp`), true, 'what the test itself created is still a directory')
 
     // The rename path is the one that must clean up after itself. Read with normalized line
     // endings: the pin is about the code, and a Windows checkout has CRLF on disk.
@@ -328,35 +328,35 @@ describe('release-age exemption', () => {
 
 describe('update sources', () => {
   it('reads a registry dist-tag document and its tarball address', () => {
-    assert.equal(versionFromRegistry('{"name":"dsh-orb","version":"0.2.0"}'), '0.2.0')
-    assert.equal(versionFromRegistry('{"name":"dsh-orb","version":"v0.2.0-rc.1"}'), '0.2.0-rc.1')
-    assert.equal(versionFromRegistry('{"name":"dsh-orb"}'), undefined)
+    assert.equal(versionFromRegistry('{"name":"dsh-agi","version":"0.2.0"}'), '0.2.0')
+    assert.equal(versionFromRegistry('{"name":"dsh-agi","version":"v0.2.0-rc.1"}'), '0.2.0-rc.1')
+    assert.equal(versionFromRegistry('{"name":"dsh-agi"}'), undefined)
     assert.equal(versionFromRegistry('not json'), undefined)
     assert.equal(
-      registryTarballUrl('https://registry.npmmirror.com', 'dsh-orb', '0.2.0'),
-      'https://registry.npmmirror.com/dsh-orb/-/dsh-orb-0.2.0.tgz',
+      registryTarballUrl('https://registry.npmmirror.com', 'dsh-agi', '0.2.0'),
+      'https://registry.npmmirror.com/dsh-agi/-/dsh-agi-0.2.0.tgz',
     )
-    assert.equal(installSpec('0.2.0', 'dsh-orb'), 'dsh-orb@0.2.0')
-    assert.equal(installSpec('v0.2.0-rc.1', 'dsh-orb'), 'dsh-orb@0.2.0-rc.1')
+    assert.equal(installSpec('0.2.0', 'dsh-agi'), 'dsh-agi@0.2.0')
+    assert.equal(installSpec('v0.2.0-rc.1', 'dsh-agi'), 'dsh-agi@0.2.0-rc.1')
     assert.equal(
       installRegistry(undefined),
       'https://registry.npmmirror.com',
       'an unknown source asks the primary mirror first',
     )
     assert.equal(installRegistry('https://registry.npmjs.org'), 'https://registry.npmjs.org')
-    process.env.DSH_ORB_UPDATE_URL = 'http://127.0.0.1:9/downloads/dsh-orb-0.2.0.tgz'
+    process.env.DSH_AGI_UPDATE_URL = 'http://127.0.0.1:9/downloads/dsh-agi-0.2.0.tgz'
     assert.equal(
-      installSpec('0.2.0', 'dsh-orb'),
-      'http://127.0.0.1:9/downloads/dsh-orb-0.2.0.tgz',
+      installSpec('0.2.0', 'dsh-agi'),
+      'http://127.0.0.1:9/downloads/dsh-agi-0.2.0.tgz',
       'the env override wins over the version spec',
     )
-    delete process.env.DSH_ORB_UPDATE_URL
+    delete process.env.DSH_AGI_UPDATE_URL
   })
 
   it('prefers a registry that answers and installs that version from it, over real HTTP', async () => {
-    const registry = await mockServer({ '/dsh-orb/latest': [200, '{"name":"dsh-orb","version":"0.3.0"}'] })
+    const registry = await mockServer({ '/dsh-agi/latest': [200, '{"name":"dsh-agi","version":"0.3.0"}'] })
     try {
-      await withEnv({ DSH_ORB_UPDATE_REGISTRIES: registry.base }, async () => {
+      await withEnv({ DSH_AGI_UPDATE_REGISTRIES: registry.base }, async () => {
         const profile = store()
         const announced: string[] = []
         const fake = manager()
@@ -364,13 +364,13 @@ describe('update sources', () => {
           store: profile,
           manager: () => fake.service,
           notify: (version) => announced.push(version),
-          own: { name: 'dsh-orb', version: '0.1.0' },
+          own: { name: 'dsh-agi', version: '0.1.0' },
         })
         await update.check(true)
         assert.deepEqual(announced, ['0.3.0'])
         assert.equal(update.state().error, null)
         await update.install()
-        assert.deepEqual(fake.specs, ['dsh-orb@0.3.0'])
+        assert.deepEqual(fake.specs, ['dsh-agi@0.3.0'])
         assert.deepEqual(fake.registries, [registry.base])
       })
     } finally {
@@ -379,9 +379,9 @@ describe('update sources', () => {
   })
 
   it('moves down the registry chain when one is unreachable', async () => {
-    const registry = await mockServer({ '/dsh-orb/latest': [200, '{"name":"dsh-orb","version":"0.4.0"}'] })
+    const registry = await mockServer({ '/dsh-agi/latest': [200, '{"name":"dsh-agi","version":"0.4.0"}'] })
     try {
-      await withEnv({ DSH_ORB_UPDATE_REGISTRIES: `${DEAD_SOURCE},${registry.base}` }, async () => {
+      await withEnv({ DSH_AGI_UPDATE_REGISTRIES: `${DEAD_SOURCE},${registry.base}` }, async () => {
         const profile = store()
         const announced: string[] = []
         const fake = manager()
@@ -389,12 +389,12 @@ describe('update sources', () => {
           store: profile,
           manager: () => fake.service,
           notify: (version) => announced.push(version),
-          own: { name: 'dsh-orb', version: '0.1.0' },
+          own: { name: 'dsh-agi', version: '0.1.0' },
         })
         await update.check(true)
         assert.deepEqual(announced, ['0.4.0'], 'the second registry answered')
         await update.install()
-        assert.deepEqual(fake.specs, ['dsh-orb@0.4.0'])
+        assert.deepEqual(fake.specs, ['dsh-agi@0.4.0'])
         assert.deepEqual(fake.registries, [registry.base])
       })
     } finally {
@@ -403,10 +403,10 @@ describe('update sources', () => {
   })
 
   it('falls back to GitHub when no registry knows the package', async () => {
-    const registry = await mockServer({ '/dsh-orb/latest': [404, '{"error":"not found"}'] })
+    const registry = await mockServer({ '/dsh-agi/latest': [404, '{"error":"not found"}'] })
     const github = await mockServer({ '/releases/latest': [200, '{"tag_name":"plugin-v0.2.0"}'] })
     try {
-      await withEnv({ DSH_ORB_UPDATE_REGISTRIES: registry.base, DSH_ORB_UPDATE_API: github.base }, async () => {
+      await withEnv({ DSH_AGI_UPDATE_REGISTRIES: registry.base, DSH_AGI_UPDATE_API: github.base }, async () => {
         const profile = store()
         const announced: string[] = []
         const fake = manager()
@@ -414,12 +414,12 @@ describe('update sources', () => {
           store: profile,
           manager: () => fake.service,
           notify: (version) => announced.push(version),
-          own: { name: 'dsh-orb', version: '0.1.0' },
+          own: { name: 'dsh-agi', version: '0.1.0' },
         })
         await update.check(true)
         assert.deepEqual(announced, ['0.2.0'], 'the release answered after the registry 404ed')
         await update.install()
-        assert.deepEqual(fake.specs, ['dsh-orb@0.2.0'])
+        assert.deepEqual(fake.specs, ['dsh-agi@0.2.0'])
         assert.deepEqual(fake.registries, ['https://registry.npmmirror.com'], 'the version still installs from the primary mirror')
       })
     } finally {
@@ -470,16 +470,16 @@ describe('update checker', () => {
   it('reports a network failure when every mirror 404s and GitHub is unreachable', async () => {
     // A mirror that has not synced yet answers 404: that is not an answer about the
     // version, so a transfer failure on the remaining source stays a network error.
-    const registry = await mockServer({ '/dsh-orb/latest': [404, '{"error":"not found"}'] })
+    const registry = await mockServer({ '/dsh-agi/latest': [404, '{"error":"not found"}'] })
     try {
-      await withEnv({ DSH_ORB_UPDATE_REGISTRIES: registry.base, DSH_ORB_UPDATE_API: DEAD_SOURCE }, async () => {
+      await withEnv({ DSH_AGI_UPDATE_REGISTRIES: registry.base, DSH_AGI_UPDATE_API: DEAD_SOURCE }, async () => {
         const profile = store()
         const fake = manager()
         const update = new UpdateChecker({
           store: profile,
           manager: () => fake.service,
           notify: () => {},
-          own: { name: 'dsh-orb', version: '0.1.0' },
+          own: { name: 'dsh-agi', version: '0.1.0' },
         })
         await update.check(true)
         const state = update.state()
@@ -497,7 +497,7 @@ describe('update checker', () => {
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'status.json'), JSON.stringify({
       phase: 'installing',
-      spec: 'dsh-orb@0.2.0',
+      spec: 'dsh-agi@0.2.0',
       pid: process.pid,
       startedAt: Date.now(),
     }))
@@ -512,16 +512,16 @@ describe('update checker', () => {
     // The mirror answers 200 but the body carries no version. That says nothing about
     // whether a release exists, so GitHub's transfer failure stays a network error instead
     // of clearing it and refreshing the quiet period.
-    const registry = await mockServer({ '/dsh-orb/latest': [200, '<html>gateway error</html>'] })
+    const registry = await mockServer({ '/dsh-agi/latest': [200, '<html>gateway error</html>'] })
     try {
-      await withEnv({ DSH_ORB_UPDATE_REGISTRIES: registry.base, DSH_ORB_UPDATE_API: DEAD_SOURCE }, async () => {
+      await withEnv({ DSH_AGI_UPDATE_REGISTRIES: registry.base, DSH_AGI_UPDATE_API: DEAD_SOURCE }, async () => {
         const profile = store()
         const fake = manager()
         const update = new UpdateChecker({
           store: profile,
           manager: () => fake.service,
           notify: () => {},
-          own: { name: 'dsh-orb', version: '0.1.0' },
+          own: { name: 'dsh-agi', version: '0.1.0' },
         })
         await update.check(true)
         const state = update.state()
@@ -550,14 +550,14 @@ describe('update checker', () => {
       '/releases/latest': [404, '{"message":"Not Found","documentation_url":"https://docs.github.com/rest"}'],
     })
     try {
-      await withEnv({ DSH_ORB_UPDATE_REGISTRIES: DEAD_SOURCE, DSH_ORB_UPDATE_API: github.base }, async () => {
+      await withEnv({ DSH_AGI_UPDATE_REGISTRIES: DEAD_SOURCE, DSH_AGI_UPDATE_API: github.base }, async () => {
         const profile = store()
         const fake = manager()
         const update = new UpdateChecker({
           store: profile,
           manager: () => fake.service,
           notify: () => {},
-          own: { name: 'dsh-orb', version: '0.1.0' },
+          own: { name: 'dsh-agi', version: '0.1.0' },
         })
         await update.check(true)
         const state = update.state()
@@ -574,7 +574,7 @@ describe('update checker', () => {
   it('resolves the latest version through curl end to end', async () => {
     const github = await mockServer({ '/releases/latest': [200, '{"tag_name":"plugin-v0.2.0","name":"0.2.0"}'] })
     try {
-      await withEnv({ DSH_ORB_UPDATE_REGISTRIES: DEAD_SOURCE, DSH_ORB_UPDATE_API: github.base }, async () => {
+      await withEnv({ DSH_AGI_UPDATE_REGISTRIES: DEAD_SOURCE, DSH_AGI_UPDATE_API: github.base }, async () => {
         const profile = store()
         const announced: string[] = []
         const fake = manager()
@@ -582,7 +582,7 @@ describe('update checker', () => {
           store: profile,
           manager: () => fake.service,
           notify: (version) => announced.push(version),
-          own: { name: 'dsh-orb', version: '0.1.0' },
+          own: { name: 'dsh-agi', version: '0.1.0' },
         })
         await update.check(true)
         assert.deepEqual(announced, ['0.2.0'])
@@ -607,7 +607,7 @@ describe('update checker', () => {
       manager: () => undefined,
       notify: () => {},
       fetchLatest: async () => { asked += 1; return '0.3.0' },
-      own: { name: 'dsh-orb', version: '0.1.0' },
+      own: { name: 'dsh-agi', version: '0.1.0' },
     })
     await second.check()
     assert.equal(asked, 0)
@@ -625,7 +625,7 @@ describe('update checker', () => {
       manager: () => undefined,
       notify: () => {},
       fetchLatest: async () => { asked += 1; return '0.2.0' },
-      own: { name: 'dsh-orb', version: '0.1.0' },
+      own: { name: 'dsh-agi', version: '0.1.0' },
     })
     await update.check()
     assert.equal(asked, 0)
@@ -641,7 +641,7 @@ describe('update checker', () => {
     const { update, specs, registries } = checker({ store: profile, latest: '0.2.0' })
     await update.check()
     await update.install()
-    assert.deepEqual(specs, ['dsh-orb@0.2.0'])
+    assert.deepEqual(specs, ['dsh-agi@0.2.0'])
     assert.deepEqual(registries, ['https://registry.npmmirror.com'], 'no check source still asks the primary mirror')
     const state = update.state()
     assert.equal(state.updating, false)
@@ -662,7 +662,7 @@ describe('update checker', () => {
     await update.check()
     await update.install()
     assert.deepEqual(removed, [], 'a manager that installs over the package is not asked to remove it')
-    assert.deepEqual(specs, ['dsh-orb@0.2.0'])
+    assert.deepEqual(specs, ['dsh-agi@0.2.0'])
     assert.equal(update.state().installedVersion, '0.2.0')
   })
 
@@ -682,8 +682,8 @@ describe('update checker', () => {
     await update.check()
     assert.equal(update.state().error, 'stale', 'checking again does not clear a stored upgrade failure')
     await update.install()
-    assert.deepEqual(removed, ['dsh-orb'])
-    assert.deepEqual(specs, ['dsh-orb@0.2.0', 'dsh-orb@0.2.0'])
+    assert.deepEqual(removed, ['dsh-agi'])
+    assert.deepEqual(specs, ['dsh-agi@0.2.0', 'dsh-agi@0.2.0'])
     assert.deepEqual(enabled, [true, true], 'both installs leave the bundle selected')
     const state = update.state()
     assert.equal(state.error, null)
@@ -703,8 +703,8 @@ describe('update checker', () => {
     })
     await update.check()
     await update.install()
-    assert.deepEqual(removed, ['dsh-orb'])
-    assert.deepEqual(specs, ['dsh-orb@0.2.0'], 'a refused removal does not install again')
+    assert.deepEqual(removed, ['dsh-agi'])
+    assert.deepEqual(specs, ['dsh-agi@0.2.0'], 'a refused removal does not install again')
     assert.deepEqual(reenabled, [], 'the bundle was never deselected')
     assert.equal(update.state().error, 'not-removable')
     assert.equal(update.state().installedVersion, '0.1.0')
@@ -722,8 +722,8 @@ describe('update checker', () => {
     })
     await update.check()
     await update.install()
-    assert.deepEqual(specs, ['dsh-orb@0.2.0'])
-    assert.deepEqual(reenabled, ['dsh-orb'])
+    assert.deepEqual(specs, ['dsh-agi@0.2.0'])
+    assert.deepEqual(reenabled, ['dsh-agi'])
     assert.equal(update.state().error, 'bundle-in-use')
     assert.equal(profile.updateRecord().lastError, 'bundle-in-use')
     const restored = checker({ store: profile, latest: '0.2.0' })
@@ -744,10 +744,10 @@ describe('update checker', () => {
     })
     await update.check()
     await update.install()
-    assert.deepEqual(specs, ['dsh-orb@0.2.0'], 'the locked package is not installed again in this process')
+    assert.deepEqual(specs, ['dsh-agi@0.2.0'], 'the locked package is not installed again in this process')
     assert.deepEqual(trace, ['remove', 'defer', 'enable'], 'the job exists before the reload starts the next instance')
     assert.equal(deferred.length, 1)
-    assert.equal(deferred[0]?.spec, 'dsh-orb@0.2.0')
+    assert.equal(deferred[0]?.spec, 'dsh-agi@0.2.0')
     assert.equal(update.state().error, null)
     assert.equal(update.state().deferred, true)
 
@@ -771,8 +771,8 @@ describe('update checker', () => {
     })
     await update.check()
     await update.install()
-    assert.deepEqual(removed, ['dsh-orb'])
-    assert.deepEqual(reenabled, ['dsh-orb'], 'a rejected removal may have deselected the bundle')
+    assert.deepEqual(removed, ['dsh-agi'])
+    assert.deepEqual(reenabled, ['dsh-agi'], 'a rejected removal may have deselected the bundle')
     assert.deepEqual(trace, ['remove', 'enable'])
     assert.equal(update.state().error, 'removal request rejected')
     assert.equal(profile.updateRecord().lastError, 'removal request rejected', 'the reloaded page can read it')
@@ -792,8 +792,8 @@ describe('update checker', () => {
     })
     await update.check()
     await update.install()
-    assert.deepEqual(removed, ['dsh-orb'])
-    assert.deepEqual(specs, ['dsh-orb@0.2.0', 'dsh-orb@0.2.0', 'dsh-orb@0.1.0'], 'the rollback installs the running version')
+    assert.deepEqual(removed, ['dsh-agi'])
+    assert.deepEqual(specs, ['dsh-agi@0.2.0', 'dsh-agi@0.2.0', 'dsh-agi@0.1.0'], 'the rollback installs the running version')
     assert.equal(update.state().error, 'install request rejected')
     assert.equal(update.state().installedVersion, '0.1.0')
     assert.equal(profile.updateRecord().lastError, 'install request rejected')
@@ -841,8 +841,8 @@ describe('update checker', () => {
     })
     await update.check()
     await update.install()
-    assert.deepEqual(removed, ['dsh-orb'])
-    assert.deepEqual(specs, ['dsh-orb@0.2.0', 'dsh-orb@0.2.0', 'dsh-orb@0.1.0'])
+    assert.deepEqual(removed, ['dsh-agi'])
+    assert.deepEqual(specs, ['dsh-agi@0.2.0', 'dsh-agi@0.2.0', 'dsh-agi@0.1.0'])
     assert.equal(update.state().error, 'incompatible-version')
     assert.equal(update.state().installedVersion, '0.1.0', 'the failed upgrade does not count as installed')
     assert.equal(update.availableVersion(), '0.2.0')
@@ -861,7 +861,7 @@ describe('update checker', () => {
     await update.check()
     await update.install()
     assert.deepEqual(removed, [])
-    assert.deepEqual(specs, ['dsh-orb@0.2.0'])
+    assert.deepEqual(specs, ['dsh-agi@0.2.0'])
     assert.equal(update.state().error, 'already-installed')
     assert.equal(update.state().installedVersion, '0.1.0')
   })
@@ -914,7 +914,7 @@ describe('update checker', () => {
         application: 'failed',
         error: {
           code: 'operation-error',
-          diagnostic: 'Progress: resolved 1, reused 0, downloaded 0, added 0\n[ERR_PNPM_MISSING_TARBALL_INTEGRITY] Cannot install package "dsh-orb@https://example.invalid/dsh-orb.tgz"\nmore',
+          diagnostic: 'Progress: resolved 1, reused 0, downloaded 0, added 0\n[ERR_PNPM_MISSING_TARBALL_INTEGRITY] Cannot install package "dsh-agi@https://example.invalid/dsh-agi.tgz"\nmore',
         },
       },
     })
@@ -922,7 +922,7 @@ describe('update checker', () => {
     await wrapped.update.install()
     assert.equal(
       wrapped.update.state().error,
-      '[ERR_PNPM_MISSING_TARBALL_INTEGRITY] Cannot install package "dsh-orb@https://example.invalid/dsh-orb.tgz"',
+      '[ERR_PNPM_MISSING_TARBALL_INTEGRITY] Cannot install package "dsh-agi@https://example.invalid/dsh-agi.tgz"',
       'the generic operation-error wrapper yields to the pnpm line',
     )
   })
@@ -935,7 +935,7 @@ describe('update checker', () => {
     assert.deepEqual(specs, [], 'pnpm never sees a package it cannot replace')
     assert.deepEqual(deferred, [{
       profileDir: profile.dir,
-      spec: 'dsh-orb@0.2.0',
+      spec: 'dsh-agi@0.2.0',
       version: '0.2.0',
       registry: 'https://registry.npmmirror.com',
       parentPid: process.pid,
@@ -960,13 +960,13 @@ describe('update checker', () => {
         application: 'failed',
         error: {
           code: 'operation-error',
-          diagnostic: '[ERR_PNPM_EPERM] [importPackage C:\\p\\node_modules\\dsh-orb] EPERM, Permission denied: \\\\?\\C:\\p\\node_modules\\dsh-orb_tmp_1_1\\node_modules',
+          diagnostic: '[ERR_PNPM_EPERM] [importPackage C:\\p\\node_modules\\dsh-agi] EPERM, Permission denied: \\\\?\\C:\\p\\node_modules\\dsh-agi_tmp_1_1\\node_modules',
         },
       },
     })
     await update.check()
     await update.install()
-    assert.deepEqual(specs, ['dsh-orb@0.2.0'])
+    assert.deepEqual(specs, ['dsh-agi@0.2.0'])
     assert.equal(deferred.length, 1, 'the half-replaced package is repaired once the app quits')
     assert.equal(update.state().error, null)
     assert.equal(update.state().deferred, true)
@@ -976,7 +976,7 @@ describe('update checker', () => {
     const profile = store()
     mkdirSync(deferredDir(profile.dir), { recursive: true })
     const result = join(deferredDir(profile.dir), 'result.json')
-    writeFileSync(result, JSON.stringify({ spec: 'dsh-orb@0.2.0', ok: false, detail: 'ERR_PNPM_FETCH_404 not found' }))
+    writeFileSync(result, JSON.stringify({ spec: 'dsh-agi@0.2.0', ok: false, detail: 'ERR_PNPM_FETCH_404 not found' }))
     const { update } = checker({ store: profile, latest: '0.2.0' })
     assert.equal(update.state().error, 'ERR_PNPM_FETCH_404 not found')
     assert.equal(existsSync(result), false, 'the outcome is reported once')
@@ -990,7 +990,7 @@ describe('update checker', () => {
       manager: () => undefined,
       notify: () => {},
       fetchLatest: async () => '0.2.0',
-      own: { name: 'dsh-orb', version: '0.1.0' },
+      own: { name: 'dsh-agi', version: '0.1.0' },
     })
     await update.check()
     assert.equal(update.state().available, true, 'the notice needs no manager')

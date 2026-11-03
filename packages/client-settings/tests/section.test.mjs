@@ -21,7 +21,7 @@ function loadSection(hooks = {}) {
   let confirm = false
   let previewRoots = 2
   let jump = null
-  /** Armed floating-ball-settings target, as `/.dsh-orb/settings-open` reports it. */
+  /** Armed floating-ball-settings target, as `/.dsh-agi/settings-open` reports it. */
   let settingsOpen = null
   /** The `sidebar.settings` ledger, where a mounted settings shell leaves its store handle. */
   const shellEntries = []
@@ -34,9 +34,9 @@ function loadSection(hooks = {}) {
     ballEnabled: true,
     helperError: '',
     helperPhase: '',
-    avatarUrl: '/.dsh-orb/avatar?v=0',
+    avatarUrl: '/.dsh-agi/avatar?v=0',
     avatarPresetId: null,
-    avatarPresets: AVATAR_PRESETS.map((preset) => ({ id: preset.id, url: `/.dsh-orb/avatar/preset/${preset.id}` })),
+    avatarPresets: AVATAR_PRESETS.map((preset) => ({ id: preset.id, url: `/.dsh-agi/avatar/preset/${preset.id}` })),
     qwenVoices: qwenVoiceViews(),
     overlay: { provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: 'max' },
     background: { provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: 'max' },
@@ -46,13 +46,13 @@ function loadSection(hooks = {}) {
     voice: { voiceEnabled: true },
     tcc: { applicable: true, appName: 'DeepSeek Harness', screen: 'missing', accessibility: 'granted' },
     workspace: {
-      path: '/Users/test/.dsh/dsh_orb',
-      defaultPath: '/Users/test/.dsh/dsh_orb',
+      path: '/Users/test/.dsh/dsh_agi',
+      defaultPath: '/Users/test/.dsh/dsh_agi',
       custom: false,
     },
     history: {
       available: true,
-      workspacePath: '/Users/test/.dsh/dsh_orb',
+      workspacePath: '/Users/test/.dsh/dsh_agi',
       retentionDays: 0,
       cleaning: false,
       phase: '',
@@ -151,72 +151,72 @@ function loadSection(hooks = {}) {
       const custom = hooks.answer?.(path, options, snapshot)
       if (custom !== undefined) return custom
       if (String(path).includes('token') || String(path).startsWith('http')) throw new Error(`credentialed fetch ${path}`)
-      if (path === '/.dsh-orb/jump') {
+      if (path === '/.dsh-agi/jump') {
         if (options.method === 'POST') return json({ ok: true })
         if (jump === null) return { ok: false, status: 404, async text() { return JSON.stringify({ error: 'missing' }) } }
         return json(jump)
       }
-      if (path === '/.dsh-orb/settings-open') {
+      if (path === '/.dsh-agi/settings-open') {
         if (options.method === 'POST') {
           if (settingsOpen !== null && settingsOpen.at === JSON.parse(options.body).at) settingsOpen = null
           return json({ ok: true })
         }
         return json({ at: settingsOpen === null ? null : settingsOpen.at })
       }
-      if (path === '/.dsh-orb/settings') {
+      if (path === '/.dsh-agi/settings') {
         return json(mode === 'linux' ? { ...snapshot, supported: false, tcc: { ...snapshot.tcc, applicable: false } } : snapshot)
       }
-      if (path === '/.dsh-orb/models') return json(catalog)
-      if (path === '/.dsh-orb/update') return json(snapshot.update)
-      if (path === '/.dsh-orb/history') return json(snapshot.history)
-      if (options.method === 'POST' && path === '/.dsh-orb/history/preview') {
+      if (path === '/.dsh-agi/models') return json(catalog)
+      if (path === '/.dsh-agi/update') return json(snapshot.update)
+      if (path === '/.dsh-agi/history') return json(snapshot.history)
+      if (options.method === 'POST' && path === '/.dsh-agi/history/preview') {
         const days = JSON.parse(options.body).days
         const sessions = [{ id: 'session-a', title: '会话 A', updatedAt: 1 }, { id: 'session-b', title: '会话 B', updatedAt: 2 }].slice(0, previewRoots)
         return json({ preview: { days, cutoff: 0, roots: previewRoots, members: previewRoots, images: previewRoots, bytes: previewRoots * 1024 * 1024, oldest: null, newest: null, skipped: { active: 0, pinned: 0, archived: 0, current: 0, unchanged: 0, unreadable: 0, restored: 0 }, sessions } })
       }
-      if (options.method === 'POST' && path === '/.dsh-orb/history/retention') {
+      if (options.method === 'POST' && path === '/.dsh-agi/history/retention') {
         snapshot.history = { ...snapshot.history, retentionDays: JSON.parse(options.body).days }
       }
-      if (options.method === 'POST' && path === '/.dsh-orb/workspace/pick') {
+      if (options.method === 'POST' && path === '/.dsh-agi/workspace/pick') {
         return json({ path: '/tmp/picked-workspace' })
       }
-      if (options.method === 'POST' && path === '/.dsh-orb/workspace') {
+      if (options.method === 'POST' && path === '/.dsh-agi/workspace') {
         const next = JSON.parse(options.body).path
         if (next === '/not-empty') return { ok: false, status: 400, async text() { return JSON.stringify({ error: 'workspace-not-empty' }) } }
         if (next === '/running') return { ok: false, status: 409, async text() { return JSON.stringify({ error: 'workspace-running' }) } }
         snapshot.workspace = { ...snapshot.workspace, path: next, custom: next !== snapshot.workspace.defaultPath }
         return json(snapshot)
       }
-      if (options.method === 'POST' && path === '/.dsh-orb/history/clean') {
+      if (options.method === 'POST' && path === '/.dsh-agi/history/clean') {
         snapshot.history = { ...snapshot.history, cleaning: false, lastCleanupAt: 1700000000000 }
       }
-      if (options.method === 'POST' && path === '/.dsh-orb/ball') snapshot.ballEnabled = JSON.parse(options.body).enabled
-      if (options.method === 'POST' && path === '/.dsh-orb/runtime/redownload') {
+      if (options.method === 'POST' && path === '/.dsh-agi/ball') snapshot.ballEnabled = JSON.parse(options.body).enabled
+      if (options.method === 'POST' && path === '/.dsh-agi/runtime/redownload') {
         // The host drops the failure and arms a fresh attempt, exactly like a first launch.
         snapshot.helperError = ''
         snapshot.helperPhase = 'downloading'
       }
-      if (options.method === 'POST' && path === '/.dsh-orb/millifraction') snapshot.millifractionEnabled = JSON.parse(options.body).enabled
-      if (options.method === 'POST' && path === '/.dsh-orb/observation-frame') snapshot.observationFrameEnabled = JSON.parse(options.body).enabled
-      if (options.method === 'POST' && path === '/.dsh-orb/overlay-model') snapshot.overlay = JSON.parse(options.body)
-      if (options.method === 'POST' && path === '/.dsh-orb/avatar/preset') snapshot.avatarPresetId = JSON.parse(options.body).preset
-      if (options.method === 'POST' && path === '/.dsh-orb/update/check') {
+      if (options.method === 'POST' && path === '/.dsh-agi/millifraction') snapshot.millifractionEnabled = JSON.parse(options.body).enabled
+      if (options.method === 'POST' && path === '/.dsh-agi/observation-frame') snapshot.observationFrameEnabled = JSON.parse(options.body).enabled
+      if (options.method === 'POST' && path === '/.dsh-agi/overlay-model') snapshot.overlay = JSON.parse(options.body)
+      if (options.method === 'POST' && path === '/.dsh-agi/avatar/preset') snapshot.avatarPresetId = JSON.parse(options.body).preset
+      if (options.method === 'POST' && path === '/.dsh-agi/update/check') {
         snapshot.update = { ...snapshot.update, latestVersion: '0.2.0', available: true, checkedAt: 1700000000000 }
       }
-      if (options.method === 'POST' && path === '/.dsh-orb/update/install') {
+      if (options.method === 'POST' && path === '/.dsh-agi/update/install') {
         const builds = JSON.parse(options.body).approvedBuilds
         snapshot.update = builds
           ? { ...snapshot.update, error: null, pendingBuilds: [], updating: true }
           : { ...snapshot.update, updating: true }
       }
-      if (options.method === 'POST' && path === '/.dsh-orb/update/auto') snapshot.update = { ...snapshot.update, autoCheck: JSON.parse(options.body).enabled }
-      if (options.method === 'POST' && path === '/.dsh-orb/whats-new/dismiss') {
+      if (options.method === 'POST' && path === '/.dsh-agi/update/auto') snapshot.update = { ...snapshot.update, autoCheck: JSON.parse(options.body).enabled }
+      if (options.method === 'POST' && path === '/.dsh-agi/whats-new/dismiss') {
         const id = JSON.parse(options.body).id
         if (snapshot.whatsNew && snapshot.whatsNew.id === id) snapshot.whatsNew = null
         return json(snapshot)
       }
-      if (options.method === 'POST' && path === '/.dsh-orb/voice') snapshot.voice = JSON.parse(options.body)
-      if (options.method === 'POST' && path === '/.dsh-orb/voice/download') {
+      if (options.method === 'POST' && path === '/.dsh-agi/voice') snapshot.voice = JSON.parse(options.body)
+      if (options.method === 'POST' && path === '/.dsh-agi/voice/download') {
         const kind = JSON.parse(options.body).kind
         const model = snapshot.voiceModels && snapshot.voiceModels[kind]
         if (model && model.downloading) return json(snapshot)
@@ -344,7 +344,7 @@ function find(node, predicate, found = []) {
 }
 
 describe('settings section', () => {
-  it('registers 悬浮球 and talks to /.dsh-orb with relative fetches', async () => {
+  it('registers 悬浮球 and talks to /.dsh-agi with relative fetches', async () => {
     const page = loadSection()
     assert.equal(page.spec.id, 'orb')
     assert.equal(page.spec.order, 25)
@@ -353,16 +353,16 @@ describe('settings section', () => {
     let view = page.render()
     await page.flush()
     view = page.render()
-    assert.deepEqual(page.calls.map((call) => call.path), ['/.dsh-orb/settings', '/.dsh-orb/models'])
+    assert.deepEqual(page.calls.map((call) => call.path), ['/.dsh-agi/settings', '/.dsh-agi/models'])
     const avatar = find(view, (node) => node.type === 'img')[0]
-    assert.equal(avatar.props.src, '/.dsh-orb/avatar?v=0')
+    assert.equal(avatar.props.src, '/.dsh-agi/avatar?v=0')
     assert.equal(String(avatar.props.src).includes('token'), false)
 
     const ball = find(view, (node) => node.props?.['aria-label'] === '启用悬浮球')[0]
     ball.props.onClick()
     await settle()
     const ballCall = page.calls.at(-1)
-    assert.equal(ballCall.path, '/.dsh-orb/ball')
+    assert.equal(ballCall.path, '/.dsh-agi/ball')
     assert.equal(JSON.parse(ballCall.options.body).enabled, false)
 
     view = page.render()
@@ -370,25 +370,25 @@ describe('settings section', () => {
     page.setConfirm(false)
     fraction.props.onClick()
     await settle()
-    assert.equal(page.calls.some((call) => call.path === '/.dsh-orb/millifraction'), false)
+    assert.equal(page.calls.some((call) => call.path === '/.dsh-agi/millifraction'), false)
     page.setConfirm(true)
     fraction.props.onClick()
     await settle()
-    const fractionCall = page.calls.find((call) => call.path === '/.dsh-orb/millifraction')
+    const fractionCall = page.calls.find((call) => call.path === '/.dsh-agi/millifraction')
     assert.equal(JSON.parse(fractionCall.options.body).enabled, true)
 
     view = page.render()
     const frame = find(view, (node) => node.props?.['aria-label'] === '显示观察框彩带')[0]
     frame.props.onClick()
     await settle()
-    const frameCall = page.calls.find((call) => call.path === '/.dsh-orb/observation-frame')
+    const frameCall = page.calls.find((call) => call.path === '/.dsh-agi/observation-frame')
     assert.equal(JSON.parse(frameCall.options.body).enabled, false)
 
     view = page.render()
     const overlay = find(view, (node) => node.type === 'select' && node.props['aria-label'] === '悬浮球 Agent')[0]
     overlay.props.onChange({ target: { value: 'deepseek-official\u001fdeepseek-pro' } })
     await settle()
-    const modelCall = page.calls.find((call) => call.path === '/.dsh-orb/overlay-model')
+    const modelCall = page.calls.find((call) => call.path === '/.dsh-agi/overlay-model')
     assert.deepEqual(JSON.parse(modelCall.options.body), { provider: 'deepseek-official', model: 'deepseek-pro' })
 
     const choose = find(view, (node) => node.type === 'button' && node.children?.includes('选择图片'))[0]
@@ -398,19 +398,19 @@ describe('settings section', () => {
     choose.props.onClick()
     view = page.render()
     assert.equal(find(view, (node) => node.children?.includes('图片 5.3 MB，超过 4 MB 上限。')).length, 1)
-    assert.equal(page.calls.some((call) => call.path === '/.dsh-orb/avatar'), false)
+    assert.equal(page.calls.some((call) => call.path === '/.dsh-agi/avatar'), false)
     // Under the cap but unreadable: the upload must say so rather than do nothing at all.
     page.setFile({ size: 1024, async arrayBuffer() { throw new Error('unread') } })
     choose.props.onClick()
     await settle()
     view = page.render()
     assert.equal(find(view, (node) => node.children?.includes('读不到这个文件，请重新选择一次。')).length, 1)
-    assert.equal(page.calls.some((call) => call.path === '/.dsh-orb/avatar'), false)
+    assert.equal(page.calls.some((call) => call.path === '/.dsh-agi/avatar'), false)
     // The copy states the same limit the check enforces.
     assert.equal(find(view, (node) => node.children?.includes('点一张内置动图，或选择自己的图片。上传支持 GIF、PNG、WebP，4 MB 以内。')).length, 1)
 
     // Built-in GIFs: one animated thumbnail per shipped preset, named, and pickable.
-    const gallery = find(view, (node) => node.props?.className === 'dsh-orb-set-presets-row')[0]
+    const gallery = find(view, (node) => node.props?.className === 'dsh-agi-set-presets-row')[0]
     assert.ok(gallery)
     const thumbs = gallery.children
     // The built-ins, plus the trailing text link into the community GIF gallery.
@@ -418,7 +418,7 @@ describe('settings section', () => {
     for (const [index, preset] of AVATAR_PRESETS.entries()) {
       const button = thumbs[index]
       const image = find(button, (node) => node.type === 'img')[0]
-      assert.equal(image.props.src, `/.dsh-orb/avatar/preset/${preset.id}`)
+      assert.equal(image.props.src, `/.dsh-agi/avatar/preset/${preset.id}`)
       const name = button.children.find((child) => child.type === 'span')
       assert.ok(name.children[0].length > 0, `${preset.id} has copy`)
       assert.equal(name.children[0] === preset.id, false, `${preset.id} has a real label, not the raw id`)
@@ -430,7 +430,7 @@ describe('settings section', () => {
     // fetch of our own.
     const more = thumbs.at(-1)
     assert.equal(more.type, 'a')
-    assert.equal(more.props.className, 'dsh-orb-set-more')
+    assert.equal(more.props.className, 'dsh-agi-set-more')
     assert.equal(more.props.href, 'https://dshgif.hicp.fun/')
     assert.equal(more.props.target, '_blank')
     assert.equal(more.props.rel, 'noopener noreferrer')
@@ -439,12 +439,12 @@ describe('settings section', () => {
     assert.equal(page.calls.some((call) => String(call.path).includes('dshgif')), false)
     thumbs[1].props.onClick()
     await settle()
-    const pick = page.calls.find((call) => call.path === '/.dsh-orb/avatar/preset')
+    const pick = page.calls.find((call) => call.path === '/.dsh-agi/avatar/preset')
     assert.equal(JSON.parse(pick.options.body).preset, AVATAR_PRESETS[1].id)
 
     // The snapshot the host echoes back is what marks the pick.
     view = page.render()
-    const selected = find(view, (node) => node.props?.className === 'dsh-orb-set-preset is-selected')
+    const selected = find(view, (node) => node.props?.className === 'dsh-agi-set-preset is-selected')
     assert.equal(selected.length, 1)
     assert.equal(selected[0].props['aria-pressed'], 'true')
 
@@ -459,13 +459,13 @@ describe('settings section', () => {
     assert.equal(find(view, (node) => node.children?.includes('悬浮球在 Linux 上不可用。')).length, 1)
 
     const pkg = JSON.parse(readFileSync(join(here, '../package.json'), 'utf8'))
-    assert.equal(pkg.name, '@dsh-orb/client-ui-settings-orb')
+    assert.equal(pkg.name, '@dsh-agi/client-ui-settings-agi')
     assert.equal(pkg.exports['./client'], './client.js')
     assert.deepEqual(pkg.dsh.client.inject, ['@deepseek-ai/dsh-client-ui-settings'])
     const patch = readFileSync(join(root, 'packages/bundle/cordis.patch.yml'), 'utf8')
-    assert.match(patch, /id: ui-settings-orb/)
+    assert.match(patch, /id: ui-settings-agi/)
     // \r? so a Windows checkout of the patch (CRLF) matches the same way.
-    assert.match(patch, /id: ui-settings-orb\r?\n\s+name: dsh-orb\r?\n/)
+    assert.match(patch, /id: ui-settings-agi\r?\n\s+name: dsh-agi\r?\n/)
     const client = readFileSync(join(here, '../client.js'), 'utf8')
     // The selection toolbar is disabled (buggy): no settings entry point may ship.
     assert.equal(client.includes('划词'), false)
@@ -482,15 +482,15 @@ describe('settings section', () => {
     page.snapshot.avatarPresets = []
     await page.tick()
     let view = page.render()
-    assert.equal(find(view, (node) => node.props?.className === 'dsh-orb-set-presets-title').length, 0)
-    const row = find(view, (node) => node.props?.className === 'dsh-orb-set-presets-row')[0]
+    assert.equal(find(view, (node) => node.props?.className === 'dsh-agi-set-presets-title').length, 0)
+    const row = find(view, (node) => node.props?.className === 'dsh-agi-set-presets-row')[0]
     assert.ok(row, 'the gallery link does not depend on the host preset list')
     assert.equal(row.props['aria-label'], '更多动图')
     assert.equal(row.props['aria-labelledby'], undefined)
     assert.equal(row.children.length, 1)
     const link = row.children[0]
     assert.equal(link.type, 'a')
-    assert.equal(link.props.className, 'dsh-orb-set-more is-alone', 'nothing to trail, so it sits flush left')
+    assert.equal(link.props.className, 'dsh-agi-set-more is-alone', 'nothing to trail, so it sits flush left')
     assert.equal(link.props.href, 'https://dshgif.hicp.fun/')
     assert.equal(link.props.target, '_blank')
 
@@ -506,26 +506,26 @@ describe('settings section', () => {
     const page = loadSection()
     assert.equal(page.styles.length, 1, 'one stylesheet per document')
     const node = page.styles[0]
-    assert.equal(node.id, 'dsh-orb-settings-style')
-    assert.match(node.textContent, /\.dsh-orb-set-more \{/, 'the gallery link is styled')
+    assert.equal(node.id, 'dsh-agi-settings-style')
+    assert.match(node.textContent, /\.dsh-agi-set-more \{/, 'the gallery link is styled')
     // A hot reload keeps the previous run's <style> in the document. Skipping the write
     // because the node exists would leave old rules on markup that already expects new ones
     // (a wrapped, underlined plain <a> in place of the link), which is exactly what shipped.
     node.textContent = 'stale rules'
     page.reapply()
     assert.equal(page.styles.length, 1, 'no second stylesheet node')
-    assert.match(node.textContent, /\.dsh-orb-set-more \{/, 'the live node is rewritten, not left stale')
+    assert.match(node.textContent, /\.dsh-agi-set-more \{/, 'the live node is rewritten, not left stale')
   })
 
   it('shows the runtime wait and its failure as loud notices whose button downloads again', async () => {
     const page = loadSection()
-    const notice = (view, tone) => find(view, (node) => node.props?.className === `dsh-orb-set-notice is-${tone}`)[0]
+    const notice = (view, tone) => find(view, (node) => node.props?.className === `dsh-agi-set-notice is-${tone}`)[0]
     const said = (node) => {
       if (typeof node === 'string') return node
       if (!node || typeof node !== 'object') return ''
       return (node.children ?? []).map(said).join('')
     }
-    const actionOf = (node) => find(node, (child) => child.type === 'button' && String(child.props?.className).includes('dsh-orb-set-notice-action'))[0]
+    const actionOf = (node) => find(node, (child) => child.type === 'button' && String(child.props?.className).includes('dsh-agi-set-notice-action'))[0]
 
     page.snapshot.helperPhase = 'downloading'
     let view = page.render()
@@ -540,7 +540,7 @@ describe('settings section', () => {
     assert.equal(waitAction.children[0], '重新下载')
     waitAction.props.onClick()
     await settle()
-    assert.equal(page.calls.at(-1).path, '/.dsh-orb/runtime/redownload', 'the wait action downloads again')
+    assert.equal(page.calls.at(-1).path, '/.dsh-agi/runtime/redownload', 'the wait action downloads again')
 
     page.snapshot.helperPhase = ''
     page.snapshot.helperError = 'runtime-download'
@@ -557,7 +557,7 @@ describe('settings section', () => {
     assert.doesNotMatch(String(action.props.className), /ghost/)
     action.props.onClick()
     await settle()
-    assert.equal(page.calls.at(-1).path, '/.dsh-orb/runtime/redownload')
+    assert.equal(page.calls.at(-1).path, '/.dsh-agi/runtime/redownload')
     assert.equal(JSON.parse(page.calls.at(-1).options.body).enabled, undefined, 'a redownload is not a ball toggle')
 
     page.snapshot.helperError = 'helper-exited'
@@ -569,7 +569,7 @@ describe('settings section', () => {
     assert.equal(retry.children[0], '重试')
     retry.props.onClick()
     await settle()
-    assert.equal(page.calls.at(-1).path, '/.dsh-orb/ball')
+    assert.equal(page.calls.at(-1).path, '/.dsh-agi/ball')
     assert.equal(JSON.parse(page.calls.at(-1).options.body).enabled, true, 'retry asks the host to start the ball again')
 
     page.snapshot.helperError = ''
@@ -577,7 +577,7 @@ describe('settings section', () => {
 
   it('shows the 0.2.0 release note once, with two ways to close it', async () => {
     const note = { id: WHATS_NEW_VERSION, version: WHATS_NEW_VERSION }
-    const cardOf = (view) => find(view, (node) => String(node.props?.className).includes('dsh-orb-set-whats-new'))[0]
+    const cardOf = (view) => find(view, (node) => String(node.props?.className).includes('dsh-agi-set-whats-new'))[0]
     const said = (node) => {
       if (typeof node === 'string') return node
       if (!node || typeof node !== 'object') return ''
@@ -595,17 +595,17 @@ describe('settings section', () => {
     const card = cardOf(view)
     assert.ok(card, 'the first open of the settings page shows the note')
     assert.equal(card.props.role, 'region')
-    assert.equal(card.props['aria-labelledby'], 'dsh-orb-set-whats-new-title')
+    assert.equal(card.props['aria-labelledby'], 'dsh-agi-set-whats-new-title')
     assert.match(said(card), /悬浮球 0\.2\.0 更新/)
     assert.match(said(card), /Windows 首次安装修复/)
     assert.match(said(card), /语音唤醒与输入/)
     assert.match(said(card), /语音播报与插话/)
     assert.match(said(card), /语音模型下载/)
-    const known = find(card, (node) => node.type === 'button' && String(node.props?.className).includes('dsh-orb-set-whats-new-known'))[0]
+    const known = find(card, (node) => node.type === 'button' && String(node.props?.className).includes('dsh-agi-set-whats-new-known'))[0]
     assert.equal(known.children[0], '知道了')
     known.props.onClick()
     await settle()
-    assert.equal(page.calls.at(-1).path, '/.dsh-orb/whats-new/dismiss')
+    assert.equal(page.calls.at(-1).path, '/.dsh-agi/whats-new/dismiss')
     assert.deepEqual(JSON.parse(page.calls.at(-1).options.body), { id: WHATS_NEW_VERSION })
     assert.equal(cardOf(page.render()), undefined, 'the card disappears as soon as the host confirms')
 
@@ -616,7 +616,7 @@ describe('settings section', () => {
     assert.ok(close, 'the corner × is labelled for screen readers')
     close.props.onClick()
     await settle()
-    assert.equal(corner.calls.at(-1).path, '/.dsh-orb/whats-new/dismiss')
+    assert.equal(corner.calls.at(-1).path, '/.dsh-agi/whats-new/dismiss')
     assert.deepEqual(JSON.parse(corner.calls.at(-1).options.body), { id: WHATS_NEW_VERSION })
     assert.equal(cardOf(corner.render()), undefined)
 
@@ -640,9 +640,9 @@ describe('settings section', () => {
     await mismatched.flush()
     assert.equal(cardOf(mismatched.render()), undefined, 'client copy and host id must agree')
 
-    assert.match(page.styles[0].textContent, /\.dsh-orb-set-notice\.is-info/)
-    assert.match(page.styles[0].textContent, /\.dsh-orb-set-whats-new-close/)
-    assert.match(page.styles[0].textContent, /\.dsh-orb-set-whats-new-list/)
+    assert.match(page.styles[0].textContent, /\.dsh-agi-set-notice\.is-info/)
+    assert.match(page.styles[0].textContent, /\.dsh-agi-set-whats-new-close/)
+    assert.match(page.styles[0].textContent, /\.dsh-agi-set-whats-new-list/)
   })
 
   it('follows the main window locale on <html lang>', () => {
@@ -663,7 +663,7 @@ describe('settings section', () => {
     page.setJump({ sessionId: 'session-agent-9', at: 7 })
     await page.tick()
     assert.deepEqual(opened, ['session-agent-9'])
-    const posts = () => page.calls.filter((call) => call.path === '/.dsh-orb/jump' && call.options.method === 'POST')
+    const posts = () => page.calls.filter((call) => call.path === '/.dsh-agi/jump' && call.options.method === 'POST')
     assert.equal(posts().length, 1, 'the confirmed target is consumed with a POST')
     assert.deepEqual(JSON.parse(posts()[0].options.body), { sessionId: 'session-agent-9' })
 
@@ -686,7 +686,7 @@ describe('settings section', () => {
     const opened = []
     const instance = { actions: { openSection(id) { opened.push(id) } } }
     const handle = { create: () => instance }
-    const posts = () => page.calls.filter((call) => call.path === '/.dsh-orb/settings-open' && call.options.method === 'POST')
+    const posts = () => page.calls.filter((call) => call.path === '/.dsh-agi/settings-open' && call.options.method === 'POST')
 
     // The ball was clicked while this window was still composing its plugins: the
     // target must survive, and nothing may be confirmed before the panel really opens.
@@ -738,25 +738,25 @@ describe('settings section', () => {
     await page.flush()
     view = page.render()
     assert.equal(find(view, (node) => node.type === 'h3' && node.children?.[0] === 'Agent 工作区').length, 1)
-    assert.equal(find(view, (node) => node.children?.includes('当前工作区：/Users/test/.dsh/dsh_orb（默认）')).length, 1)
+    assert.equal(find(view, (node) => node.children?.includes('当前工作区：/Users/test/.dsh/dsh_agi（默认）')).length, 1)
     const defaultButton = find(view, (node) => node.type === 'button' && node.children?.includes('恢复默认工作区'))[0]
     assert.equal(defaultButton.props.disabled, true)
     assert.equal(find(view, (node) => node.type === 'button' && node.children?.includes('修改')).length, 0)
-    const pathButton = find(view, (node) => node.type === 'button' && node.props?.className === 'dsh-orb-set-path')[0]
-    assert.equal(pathButton.children?.[0], '/Users/test/.dsh/dsh_orb')
+    const pathButton = find(view, (node) => node.type === 'button' && node.props?.className === 'dsh-agi-set-path')[0]
+    assert.equal(pathButton.children?.[0], '/Users/test/.dsh/dsh_agi')
     pathButton.props.onClick()
     await settle()
     view = page.render()
     let dialog = find(view, (node) => node.props?.role === 'dialog')[0]
     assert.ok(dialog)
-    assert.equal(find(dialog, (node) => node.children?.includes('工作区将从 /Users/test/.dsh/dsh_orb 改为 /tmp/picked-workspace。')).length, 1)
+    assert.equal(find(dialog, (node) => node.children?.includes('工作区将从 /Users/test/.dsh/dsh_agi 改为 /tmp/picked-workspace。')).length, 1)
     assert.equal(find(dialog, (node) => node.children?.includes('旧工作区中的会话和文件会保持不变，不会被移动或删除。')).length, 1)
-    assert.ok(!page.calls.some((call) => call.path === '/.dsh-orb/workspace'))
+    assert.ok(!page.calls.some((call) => call.path === '/.dsh-agi/workspace'))
     const cancel = find(dialog, (node) => node.type === 'button' && node.children?.includes('取消'))[0]
     cancel.props.onClick()
     await settle()
-    assert.ok(!page.calls.some((call) => call.path === '/.dsh-orb/workspace'))
-    assert.equal(page.snapshot.workspace.path, '/Users/test/.dsh/dsh_orb')
+    assert.ok(!page.calls.some((call) => call.path === '/.dsh-agi/workspace'))
+    assert.equal(page.snapshot.workspace.path, '/Users/test/.dsh/dsh_agi')
 
     view = page.render()
     const pick = find(view, (node) => node.type === 'button' && node.props?.['aria-label'] === '选择…')[0]
@@ -770,7 +770,7 @@ describe('settings section', () => {
     assert.equal(page.snapshot.workspace.path, '/tmp/picked-workspace')
     view = page.render()
     assert.equal(find(view, (node) => node.children?.includes('当前工作区：/tmp/picked-workspace（自定义）')).length, 1)
-    assert.equal(find(view, (node) => node.type === 'button' && node.props?.className === 'dsh-orb-set-path')[0].children?.[0], '/tmp/picked-workspace')
+    assert.equal(find(view, (node) => node.type === 'button' && node.props?.className === 'dsh-agi-set-path')[0].children?.[0], '/tmp/picked-workspace')
     assert.equal(find(view, (node) => node.children?.includes('工作区已切换。')).length, 1)
     let restore = find(view, (node) => node.type === 'button' && node.children?.includes('恢复默认工作区'))[0]
     assert.equal(restore.props.disabled, false)
@@ -781,13 +781,13 @@ describe('settings section', () => {
     view = page.render()
     dialog = find(view, (node) => node.props?.role === 'dialog')[0]
     assert.ok(dialog)
-    assert.equal(find(dialog, (node) => node.children?.includes('工作区将从 /tmp/picked-workspace 改为 /Users/test/.dsh/dsh_orb。')).length, 1)
+    assert.equal(find(dialog, (node) => node.children?.includes('工作区将从 /tmp/picked-workspace 改为 /Users/test/.dsh/dsh_agi。')).length, 1)
     const confirmRestore = find(dialog, (node) => node.type === 'button' && node.children?.includes('确定'))[0]
     confirmRestore.props.onClick()
     await settle()
     view = page.render()
-    assert.equal(page.snapshot.workspace.path, '/Users/test/.dsh/dsh_orb')
-    assert.equal(find(view, (node) => node.children?.includes('当前工作区：/Users/test/.dsh/dsh_orb（默认）')).length, 1)
+    assert.equal(page.snapshot.workspace.path, '/Users/test/.dsh/dsh_agi')
+    assert.equal(find(view, (node) => node.children?.includes('当前工作区：/Users/test/.dsh/dsh_agi（默认）')).length, 1)
     const restored = find(view, (node) => node.type === 'button' && node.children?.includes('恢复默认工作区'))[0]
     assert.equal(restored.props.disabled, true)
   })
@@ -805,7 +805,7 @@ describe('settings section', () => {
     await page.flush()
     view = page.render()
     assert.equal(find(view, (node) => node.type === 'h3' && node.children?.[0] === '旧会话清理').length, 1)
-    assert.equal(find(view, (node) => node.children?.includes('工作区：/Users/test/.dsh/dsh_orb')).length, 1)
+    assert.equal(find(view, (node) => node.children?.includes('工作区：/Users/test/.dsh/dsh_agi')).length, 1)
 
     let select = find(view, (node) => node.type === 'select' && node.props?.['aria-label'] === '保留期限')[0]
     assert.equal(select.props.value, '0')
@@ -828,7 +828,7 @@ describe('settings section', () => {
     select = find(view, (node) => node.type === 'select' && node.props?.['aria-label'] === '保留期限')[0]
     assert.equal(select.props.value, '0')
     assert.ok(!find(view, (node) => node.props?.role === 'dialog')[0])
-    assert.ok(!page.calls.some((call) => call.path === '/.dsh-orb/history/retention'))
+    assert.ok(!page.calls.some((call) => call.path === '/.dsh-agi/history/retention'))
 
     select.props.onChange({ target: { value: '30' } })
     await settle()
@@ -839,15 +839,15 @@ describe('settings section', () => {
     assert.equal(find(dialog, (node) => node.children?.includes('以后只保留最近 30 天的会话。')).length, 1)
     assert.equal(find(dialog, (node) => node.children?.includes('会话 A')).length, 1)
     assert.equal(find(dialog, (node) => node.children?.includes('会话 B')).length, 1)
-    assert.ok(!page.calls.some((call) => call.path === '/.dsh-orb/history/retention'))
-    assert.ok(!page.calls.some((call) => call.path === '/.dsh-orb/history/clean'))
+    assert.ok(!page.calls.some((call) => call.path === '/.dsh-agi/history/retention'))
+    assert.ok(!page.calls.some((call) => call.path === '/.dsh-agi/history/clean'))
     const confirmButton = find(dialog, (node) => node.type === 'button' && node.children?.includes('确定'))[0]
     confirmButton.props.onClick()
     await settle()
-    assert.ok(page.calls.some((call) => call.path === '/.dsh-orb/history/preview'))
-    const retention = page.calls.find((call) => call.path === '/.dsh-orb/history/retention')
+    assert.ok(page.calls.some((call) => call.path === '/.dsh-agi/history/preview'))
+    const retention = page.calls.find((call) => call.path === '/.dsh-agi/history/retention')
     assert.equal(JSON.parse(retention.options.body).days, 30)
-    assert.ok(page.calls.some((call) => call.path === '/.dsh-orb/history/clean'))
+    assert.ok(page.calls.some((call) => call.path === '/.dsh-agi/history/clean'))
     assert.equal(page.snapshot.history.retentionDays, 30)
 
     view = page.render()
@@ -857,7 +857,7 @@ describe('settings section', () => {
     assert.ok(find(view, (node) => node.children?.some?.((child) => typeof child === 'string' && child.includes('系统回收站'))).length > 0)
 
     // Switching back to forever also asks first, and never starts a cleanup.
-    const cleanCalls = page.calls.filter((call) => call.path === '/.dsh-orb/history/clean').length
+    const cleanCalls = page.calls.filter((call) => call.path === '/.dsh-agi/history/clean').length
     select.props.onChange({ target: { value: '0' } })
     await settle()
     view = page.render()
@@ -868,7 +868,7 @@ describe('settings section', () => {
     forever.props.onClick()
     await settle()
     assert.equal(page.snapshot.history.retentionDays, 0)
-    assert.equal(page.calls.filter((call) => call.path === '/.dsh-orb/history/clean').length, cleanCalls)
+    assert.equal(page.calls.filter((call) => call.path === '/.dsh-agi/history/clean').length, cleanCalls)
 
     // Even a window with nothing old enough to delete asks for confirmation before applying.
     const second = loadSection()
@@ -916,7 +916,7 @@ describe('settings section', () => {
     check.props.onClick()
     await settle()
     view = page.render()
-    assert.equal(page.calls.at(-1).path, '/.dsh-orb/update/check')
+    assert.equal(page.calls.at(-1).path, '/.dsh-agi/update/check')
     assert.match(texts(), /新版本 0\.2\.0 可用。/)
     const install = find(view, (node) => node.type === 'button' && text(node) === '更新')[0]
     assert.ok(install)
@@ -925,7 +925,7 @@ describe('settings section', () => {
     install.props.onClick()
     await settle()
     const installCall = page.calls.at(-1)
-    assert.equal(installCall.path, '/.dsh-orb/update/install')
+    assert.equal(installCall.path, '/.dsh-agi/update/install')
     assert.deepEqual(JSON.parse(installCall.options.body), {})
     view = page.render()
     assert.match(texts(), /正在更新到 0\.2\.0…/)
@@ -933,7 +933,7 @@ describe('settings section', () => {
     // The settings poll runs alongside the bookmark jump bridge's poll, so the
     // interval count is only "at least the install poll".
     assert.ok(await page.tick() >= 1, 'the page polls while the install runs')
-    assert.equal(page.calls.slice(before).some((call) => call.path === '/.dsh-orb/update'), true)
+    assert.equal(page.calls.slice(before).some((call) => call.path === '/.dsh-agi/update'), true)
 
     // A blocked install offers the approval retry with the pending package names.
     page.setUpdate({ updating: false, available: true, error: 'build-blocked', pendingBuilds: ['koffi'] })
@@ -979,7 +979,7 @@ describe('settings section', () => {
     toggle.props.onClick()
     await settle()
     assert.deepEqual(JSON.parse(page.calls.at(-1).options.body), { enabled: false })
-    assert.equal(page.calls.at(-1).path, '/.dsh-orb/update/auto')
+    assert.equal(page.calls.at(-1).path, '/.dsh-agi/update/auto')
   })
 
   it('leaves the update card out where the host has no version to report', async () => {
@@ -998,7 +998,7 @@ describe('settings section', () => {
     let armed = false
     const page = loadSection({
       answer: (path, _options, snapshot) => {
-        if (!armed || path !== '/.dsh-orb/settings') return undefined
+        if (!armed || path !== '/.dsh-agi/settings') return undefined
         armed = false
         // What the page showed before the save: this reload arrives late.
         const stale = JSON.stringify({ ...snapshot, ballEnabled: true })
@@ -1037,12 +1037,12 @@ describe('settings section', () => {
     let holdReload = false
     const page = loadSection({
       answer: (path, options, snapshot) => {
-        if (options.method === 'POST' && path === '/.dsh-orb/ball') {
+        if (options.method === 'POST' && path === '/.dsh-agi/ball') {
           // Same bookkeeping as the default handler, but the answer is held back.
           snapshot.ballEnabled = JSON.parse(options.body).enabled
           return { ok: true, status: 200, async text() { await saved.promise; return JSON.stringify(snapshot) } }
         }
-        if (!holdReload || path !== '/.dsh-orb/settings') return undefined
+        if (!holdReload || path !== '/.dsh-agi/settings') return undefined
         holdReload = false
         // Captured while the save was still in flight: this reload cannot know about it.
         const stale = JSON.stringify({ ...snapshot, ballEnabled: true })
@@ -1083,7 +1083,7 @@ describe('settings section', () => {
     let hold = false
     const page = loadSection({
       answer: (path, options, snapshot) => {
-        if (!hold || options.method !== 'POST' || path !== '/.dsh-orb/ball') return undefined
+        if (!hold || options.method !== 'POST' || path !== '/.dsh-agi/ball') return undefined
         hold = false
         snapshot.ballEnabled = JSON.parse(options.body).enabled
         return { ok: true, status: 200, async text() { await held.promise; return JSON.stringify(snapshot) } }
@@ -1143,7 +1143,7 @@ describe('settings section', () => {
     assert.equal(find(view, (node) => node.props?.['aria-label'] === '启用语音')[0].props['aria-checked'], 'true')
     assert.equal(find(view, (node) => node.props?.['aria-label'] === '语音唤醒')[0].props['aria-checked'], 'true', 'the stored column mix comes back')
     assert.equal(find(view, (node) => node.props?.['aria-label'] === '灵敏度').length, 1)
-    const saved = JSON.parse(page.calls.filter((call) => call.path === '/.dsh-orb/voice').at(-1).options.body)
+    const saved = JSON.parse(page.calls.filter((call) => call.path === '/.dsh-agi/voice').at(-1).options.body)
     assert.equal(saved.voiceEnabled, true)
     assert.equal(saved.wakeEnabled, true)
     assert.equal(saved.commandEnabled, true)
@@ -1165,7 +1165,7 @@ describe('settings section', () => {
     assert.equal(find(view, (node) => node.props?.['aria-label'] === '语音输入').length, 0)
     assert.equal(find(view, (node) => node.props?.['aria-label'] === 'TTS' && node.props.role === 'switch').length, 0)
     assert.equal(find(view, (node) => node.props?.['aria-label'] === '空闲时长（秒）').length, 1)
-    const saved = JSON.parse(page.calls.filter((call) => call.path === '/.dsh-orb/voice').at(-1).options.body)
+    const saved = JSON.parse(page.calls.filter((call) => call.path === '/.dsh-agi/voice').at(-1).options.body)
     assert.equal(saved.voiceEnabled, false)
     assert.equal(saved.wakeEnabled, true, 'the column choices are kept')
     assert.equal(saved.commandEnabled, false, 'the column choices are kept')
@@ -1212,7 +1212,7 @@ describe('settings section', () => {
     assert.equal(dragged.props['aria-valuetext'], '0.35')
     dragged.props.onPointerUp({ target: { value: '0.35' } })
     await settle()
-    const saved = JSON.parse(page.calls.filter((call) => call.path === '/.dsh-orb/voice').at(-1).options.body)
+    const saved = JSON.parse(page.calls.filter((call) => call.path === '/.dsh-agi/voice').at(-1).options.body)
     assert.equal(saved.wakeThreshold, 0.35)
     const before = page.calls.length
     dragged.props.onBlur({ target: { value: '0.35' } })
@@ -1236,7 +1236,7 @@ describe('settings section', () => {
     assert.ok(mic)
     mic.props.onClick()
     await settle()
-    assert.equal(page.calls.some((call) => call.path === '/.dsh-orb/voice/mic'), true)
+    assert.equal(page.calls.some((call) => call.path === '/.dsh-agi/voice/mic'), true)
     page.snapshot.voiceMic = null
     page.reset()
     view = page.render()
@@ -1248,19 +1248,19 @@ describe('settings section', () => {
     assert.equal(wake.props['aria-checked'], 'true')
     wake.props.onClick()
     await settle()
-    const saved = page.calls.find((call) => call.path === '/.dsh-orb/voice')
+    const saved = page.calls.find((call) => call.path === '/.dsh-agi/voice')
     assert.equal(JSON.parse(saved.options.body).wakeEnabled, false)
     assert.equal(JSON.parse(saved.options.body).wakeReply, '我在')
     view = page.render()
     const idle = find(view, (node) => node.props?.['aria-label'] === '空闲时长（秒）')[0]
     idle.props.onBlur({ target: { value: '45' } })
     await settle()
-    const idleCall = page.calls.filter((call) => call.path === '/.dsh-orb/voice').at(-1)
+    const idleCall = page.calls.filter((call) => call.path === '/.dsh-agi/voice').at(-1)
     assert.equal(JSON.parse(idleCall.options.body).idleMs, 45000)
     const prompt = find(view, (node) => node.props?.['aria-label'] === '提问提示语')[0]
     prompt.props.onBlur({ target: { value: '你来选' } })
     await settle()
-    const promptCall = page.calls.filter((call) => call.path === '/.dsh-orb/voice').at(-1)
+    const promptCall = page.calls.filter((call) => call.path === '/.dsh-agi/voice').at(-1)
     assert.equal(JSON.parse(promptCall.options.body).questionPrompt, '你来选')
     const volume = find(view, (node) => node.type === 'input' && node.props?.['aria-label'] === '音量')[0]
     assert.ok(volume)
@@ -1276,13 +1276,13 @@ describe('settings section', () => {
     assert.equal(find(view, (node) => node.children?.includes('65%')).length, 1)
     changedVolume.props.onBlur({ target: { value: '65' } })
     await settle()
-    const volumeCall = page.calls.filter((call) => call.path === '/.dsh-orb/voice').at(-1)
+    const volumeCall = page.calls.filter((call) => call.path === '/.dsh-agi/voice').at(-1)
     assert.equal(JSON.parse(volumeCall.options.body).ttsVolume, 0.65)
     const keyword = find(view, (node) => node.props?.['aria-label'] === '插话关键词')[0]
     assert.equal(String(keyword.props.className).includes('is-locked'), false)
     keyword.props.onBlur({ target: { value: '小肥鱼' } })
     await settle()
-    const keywordCall = page.calls.filter((call) => call.path === '/.dsh-orb/voice').at(-1)
+    const keywordCall = page.calls.filter((call) => call.path === '/.dsh-agi/voice').at(-1)
     assert.equal(JSON.parse(keywordCall.options.body).interjectKeyword, '小肥鱼')
     assert.equal(find(view, (node) => node.children?.includes('按拼音匹配，同音字自动生效，不需要另填别名。')).length, 1)
     find(page.render(), (node) => node.props?.['aria-label'] === '语音输入' && node.props.role === 'switch')[0].props.onClick()
@@ -1292,7 +1292,7 @@ describe('settings section', () => {
     assert.equal(String(stillOpen.props.className).includes('is-locked'), false)
     stillOpen.props.onBlur({ target: { value: '再插一句' } })
     await settle()
-    const afterOff = page.calls.filter((call) => call.path === '/.dsh-orb/voice').at(-1)
+    const afterOff = page.calls.filter((call) => call.path === '/.dsh-agi/voice').at(-1)
     assert.equal(JSON.parse(afterOff.options.body).interjectKeyword, '再插一句')
     assert.equal(JSON.parse(afterOff.options.body).commandEnabled, false)
   })
@@ -1348,7 +1348,7 @@ describe('settings section', () => {
     assert.equal(String(idle.props.className).includes('is-locked'), false)
     idle.props.onBlur({ target: { value: '12' } })
     await settle()
-    assert.equal(JSON.parse(page.calls.filter((call) => call.path === '/.dsh-orb/voice').at(-1).options.body).idleMs, 12000)
+    assert.equal(JSON.parse(page.calls.filter((call) => call.path === '/.dsh-agi/voice').at(-1).options.body).idleMs, 12000)
   })
 
   it('confirms a model download, shows progress, and does not offer ASR once it exists', async () => {
@@ -1357,7 +1357,7 @@ describe('settings section', () => {
     await page.flush()
     view = page.render()
     const button = find(view, (node) => node.type === 'button' && node.children?.includes('下载语音唤醒模型'))[0]
-    assert.match(button.props.className, /dsh-orb-set-primary/)
+    assert.match(button.props.className, /dsh-agi-set-primary/)
     const asr = find(view, (node) => node.type === 'button' && node.children?.includes('启动 ASR 语音模型'))[0]
     assert.ok(asr)
     page.snapshot.voiceModels = { wake: { present: false }, tts: { present: false }, asr: { present: false, official: false } }
@@ -1378,8 +1378,8 @@ describe('settings section', () => {
     find(view, (node) => node.type === 'button' && node.children?.includes('下载语音唤醒模型'))[0].props.onClick()
     view = page.render()
     const dialog = find(view, (node) => node.props?.role === 'dialog')[0]
-    assert.equal(find(dialog, (node) => node.children?.includes('https://registry.npmmirror.com/dsh-orb-kws/-/dsh-orb-kws-2026.10.0.tgz')).length, 1)
-    assert.equal(find(dialog, (node) => node.children?.includes('https://registry.npmjs.org/dsh-orb-kws/-/dsh-orb-kws-2026.10.0.tgz')).length, 1)
+    assert.equal(find(dialog, (node) => node.children?.includes('https://registry.npmmirror.com/dsh-agi-kws/-/dsh-agi-kws-2026.10.0.tgz')).length, 1)
+    assert.equal(find(dialog, (node) => node.children?.includes('https://registry.npmjs.org/dsh-agi-kws/-/dsh-agi-kws-2026.10.0.tgz')).length, 1)
     assert.equal(find(dialog, (node) => node.children?.includes('约 9 MB')).length, 1)
     const before = page.calls.length
     find(dialog, (node) => node.type === 'button' && node.children?.includes('取消'))[0].props.onClick()
@@ -1389,7 +1389,7 @@ describe('settings section', () => {
     view = page.render()
     find(find(view, (node) => node.props?.role === 'dialog')[0], (node) => node.type === 'button' && node.children?.includes('下载'))[0].props.onClick()
     await settle()
-    const download = page.calls.filter((call) => call.path === '/.dsh-orb/voice/download').at(-1)
+    const download = page.calls.filter((call) => call.path === '/.dsh-agi/voice/download').at(-1)
     assert.deepEqual(JSON.parse(download.options.body), { kind: 'wake' })
 
     page.snapshot.voiceModels = {
@@ -1416,7 +1416,7 @@ describe('settings section', () => {
     await page.flush()
     view = page.render()
     const again = find(view, (node) => node.type === 'button' && node.children?.includes('重新下载'))[0]
-    assert.match(again.props.className, /dsh-orb-set-ghost/)
+    assert.match(again.props.className, /dsh-agi-set-ghost/)
     again.props.onClick()
     await settle()
     view = page.render()
@@ -1436,11 +1436,11 @@ describe('settings section', () => {
     assert.equal(find(view, (node) => node.props?.['aria-label'] === '阿里云百炼 API Key').length, 0)
     assert.equal(find(view, (node) => node.props?.['aria-label'] === '语速').length, 1)
     assert.equal(find(view, (node) => node.props?.['aria-label'] === '音量').length, 1)
-    assert.equal(find(ttsPanel(view), (node) => String(node.props?.className).includes('dsh-orb-set-voice-model-block')).length, 1, 'the local backend shows its model row')
+    assert.equal(find(ttsPanel(view), (node) => String(node.props?.className).includes('dsh-agi-set-voice-model-block')).length, 1, 'the local backend shows its model row')
 
     find(backend, (node) => node.props?.role === 'radio' && node.children?.includes('千问'))[0].props.onClick()
     await settle()
-    const firstSave = page.calls.filter((call) => call.path === '/.dsh-orb/voice').at(-1)
+    const firstSave = page.calls.filter((call) => call.path === '/.dsh-agi/voice').at(-1)
     assert.equal(JSON.parse(firstSave.options.body).ttsBackend, 'qwen')
     assert.equal(JSON.parse(firstSave.options.body).qwenVoice, 'Cherry')
 
@@ -1467,27 +1467,27 @@ describe('settings section', () => {
 
     key.props.onBlur({ target: { value: '  sk-test  ' } })
     await settle()
-    assert.equal(JSON.parse(page.calls.filter((call) => call.path === '/.dsh-orb/voice').at(-1).options.body).qwenApiKey, '  sk-test  ')
+    assert.equal(JSON.parse(page.calls.filter((call) => call.path === '/.dsh-agi/voice').at(-1).options.body).qwenApiKey, '  sk-test  ')
 
     voice.props.onChange({ target: { value: 'Eldric Sage' } })
     await settle()
-    const voiceSave = page.calls.filter((call) => call.path === '/.dsh-orb/voice').at(-1)
+    const voiceSave = page.calls.filter((call) => call.path === '/.dsh-agi/voice').at(-1)
     assert.equal(JSON.parse(voiceSave.options.body).qwenVoice, 'Eldric Sage')
 
     view = page.render()
     find(view, (node) => node.props?.['aria-label'] === '语速')[0].props.onBlur({ target: { value: '1.8' } })
     await settle()
-    assert.equal(JSON.parse(page.calls.filter((call) => call.path === '/.dsh-orb/voice').at(-1).options.body).qwenSpeed, 1.8)
+    assert.equal(JSON.parse(page.calls.filter((call) => call.path === '/.dsh-agi/voice').at(-1).options.body).qwenSpeed, 1.8)
     view = page.render()
     const qwenVolume = find(view, (node) => node.type === 'input' && node.props?.['aria-label'] === '音量')[0]
     qwenVolume.props.onChange({ target: { value: '150' } })
     view = page.render()
     find(view, (node) => node.type === 'input' && node.props?.['aria-label'] === '音量')[0].props.onBlur({ target: { value: '150' } })
     await settle()
-    assert.equal(JSON.parse(page.calls.filter((call) => call.path === '/.dsh-orb/voice').at(-1).options.body).ttsVolume, 1.5)
+    assert.equal(JSON.parse(page.calls.filter((call) => call.path === '/.dsh-agi/voice').at(-1).options.body).ttsVolume, 1.5)
     const qwenPanel = ttsPanel(view)
     assert.ok(qwenPanel)
-    assert.equal(find(qwenPanel, (node) => String(node.props?.className).includes('dsh-orb-set-voice-model-block')).length, 0, 'qwen hides the local model row')
+    assert.equal(find(qwenPanel, (node) => String(node.props?.className).includes('dsh-agi-set-voice-model-block')).length, 0, 'qwen hides the local model row')
     assert.equal(find(qwenPanel, (node) => node.type === 'button' && node.children?.includes('重新下载')).length, 0)
   })
 
@@ -1504,10 +1504,10 @@ describe('settings section', () => {
       const field = find(view, (node) => node.props?.['aria-label'] === label)[0]
       assert.equal(String(field.props.className).includes('is-locked'), false, label)
     }
-    assert.equal(find(ttsPanel(view), (node) => String(node.props?.className).includes('dsh-orb-set-voice-model-block')).length, 0, 'qwen hides the missing local model row')
+    assert.equal(find(ttsPanel(view), (node) => String(node.props?.className).includes('dsh-agi-set-voice-model-block')).length, 0, 'qwen hides the missing local model row')
     tts.props.onClick()
     await settle()
-    const saved = page.calls.filter((call) => call.path === '/.dsh-orb/voice').at(-1)
+    const saved = page.calls.filter((call) => call.path === '/.dsh-agi/voice').at(-1)
     assert.equal(JSON.parse(saved.options.body).ttsEnabled, false)
     assert.equal(find(page.render(), (node) => node.props?.role === 'dialog').length, 0)
 
@@ -1523,11 +1523,11 @@ describe('settings section', () => {
     assert.equal(String(localSpeed.props.max), '3')
     const localVolume = find(view, (node) => node.props?.['aria-label'] === '音量')[0]
     assert.equal(String(localVolume.props.className).includes('is-locked'), true, 'the local volume waits for the model')
-    const localModel = find(ttsPanel(view), (node) => String(node.props?.className).includes('dsh-orb-set-voice-model-block'))[0]
+    const localModel = find(ttsPanel(view), (node) => String(node.props?.className).includes('dsh-agi-set-voice-model-block'))[0]
     assert.ok(localModel, 'the local backend brings the model row back')
     const ttsDownload = find(localModel, (node) => node.type === 'button' && node.children?.includes('下载 TTS 语音播报模型'))[0]
     assert.ok(ttsDownload)
-    assert.match(ttsDownload.props.className, /dsh-orb-set-primary/)
+    assert.match(ttsDownload.props.className, /dsh-agi-set-primary/)
     const locked = find(view, (node) => node.props?.['aria-label'] === 'TTS' && node.props.role === 'switch')[0]
     assert.equal(locked.props['aria-disabled'], 'true')
     locked.props.onClick()
@@ -1544,7 +1544,7 @@ function readyVoiceModels() {
 
 /** The TTS panel, found by its heading rather than by position in the voice card. */
 function ttsPanel(view) {
-  return find(view, (node) => String(node.props?.className).includes('dsh-orb-set-voice-panel')
+  return find(view, (node) => String(node.props?.className).includes('dsh-agi-set-voice-panel')
     && find(node, (child) => child.type === 'h4' && child.children?.includes('TTS')).length === 1)[0]
 }
 

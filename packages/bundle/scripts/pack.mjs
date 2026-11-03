@@ -26,7 +26,7 @@ const KOFFI_PLATFORMS = ['@koromix/koffi-darwin-arm64', '@koromix/koffi-darwin-x
 /** sherpa-onnx-node loads `../sherpa-onnx-<platform>/sherpa-onnx.node`. Linux is not a ball platform. */
 const SHERPA_PLATFORMS = ['sherpa-onnx-darwin-arm64', 'sherpa-onnx-darwin-x64', 'sherpa-onnx-win-x64']
 
-const stage = await mkdtemp(join(tmpdir(), 'dsh-orb-pack-'))
+const stage = await mkdtemp(join(tmpdir(), 'dsh-agi-pack-'))
 const pkgDir = join(stage, 'package')
 
 try {
@@ -68,8 +68,8 @@ try {
   const fetchPlatform = async (platform, version) => {
     const fetchDir = join(stage, 'fetch')
     // npmmirror: the prebuilds are pure tarballs, and the mirror is reachable where
-    // registry.npmjs.org stalls. `DSH_ORB_PACK_REGISTRY` re-points it.
-    const registry = process.env.DSH_ORB_PACK_REGISTRY?.trim() || 'https://registry.npmmirror.com/'
+    // registry.npmjs.org stalls. `DSH_AGI_PACK_REGISTRY` re-points it.
+    const registry = process.env.DSH_AGI_PACK_REGISTRY?.trim() || 'https://registry.npmmirror.com/'
     // `npm` is `npm.cmd` on Windows: only a shell resolves it (and Node refuses .cmd
     // targets outright). One command string, no spaces in any token, and a relative
     // pack destination so a space in the temp path cannot split the line.
@@ -136,7 +136,7 @@ try {
   // and the whole point is a tarball that installs without touching any registry.
   // Everything tar sees stays relative — GNU tar (Git for Windows) reads a
   // drive-letter `C:\...` argument, even for `-C`, as a remote host.
-  const tarball = join(repoRoot, `dsh-orb-${manifest.version}.tgz`)
+  const tarball = join(repoRoot, `dsh-agi-${manifest.version}.tgz`)
   const staged = join(stage, 'package.tgz')
   // COPYFILE_DISABLE: macOS tar otherwise stores extended attributes as AppleDouble
   // `._*` entries, which the npm registry rejects at publish (415 invalid path).
@@ -153,7 +153,7 @@ try {
     await rm(staged)
   }
   if (packed.status !== 0) process.exit(packed.status ?? 1)
-  console.log(`dsh-orb: packed ${tarball}`)
+  console.log(`dsh-agi: packed ${tarball}`)
 } finally {
   await rm(stage, { recursive: true, force: true })
 }

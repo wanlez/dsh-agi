@@ -1,5 +1,5 @@
 {
-  "name": "dsh-orb",
+  "name": "dsh-agi",
   "version": "0.2.0",
   "type": "module",
   "description": "Installable Orb bundle. Inserts the Computer Use preset and the floating-ball host.",
@@ -98,12 +98,12 @@
     "@deepseek-ai/dsh-user-approval": "0.1.7-rc.2",
     "@deepseek-ai/dsh-user-questions": "0.1.7-rc.2",
     "@deepseek-ai/schemastery": "3.18.4",
-    "@dsh-orb/client-ui-settings-orb": "workspace:*",
-    "@dsh-orb/computer-use": "workspace:*",
-    "@dsh-orb/helper": "workspace:*",
-    "@dsh-orb/host": "workspace:*",
-    "@dsh-orb/native-selection": "workspace:*",
-    "@dsh-orb/voice": "workspace:*"
+    "@dsh-agi/client-ui-settings-agi": "workspace:*",
+    "@dsh-agi/computer-use": "workspace:*",
+    "@dsh-agi/helper": "workspace:*",
+    "@dsh-agi/host": "workspace:*",
+    "@dsh-agi/native-selection": "workspace:*",
+    "@dsh-agi/voice": "workspace:*"
   },
   "dsh": {
     "client": {

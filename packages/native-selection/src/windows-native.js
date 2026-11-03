@@ -35,9 +35,9 @@ let activationApi
 function prepareKoffi() {
   const lib = koffi()
   if (prepared) return lib
-  lib.struct('DSH_ORB_SEL_POINT', { x: 'int32', y: 'int32' })
-  lib.struct('DSH_ORB_SEL_MSLL', {
-    pt: 'DSH_ORB_SEL_POINT',
+  lib.struct('DSH_AGI_SEL_POINT', { x: 'int32', y: 'int32' })
+  lib.struct('DSH_AGI_SEL_MSLL', {
+    pt: 'DSH_AGI_SEL_POINT',
     mouseData: 'uint32',
     flags: 'uint32',
     time: 'uint32',
@@ -72,7 +72,7 @@ function windowsActivationApi() {
 function monitorScale(x, y) {
   const lib = prepareKoffi()
   const monitor = lib.load('user32.dll')
-    .func('void * __stdcall MonitorFromPoint(DSH_ORB_SEL_POINT pt, uint32 dwFlags)')({ x, y }, 2)
+    .func('void * __stdcall MonitorFromPoint(DSH_AGI_SEL_POINT pt, uint32 dwFlags)')({ x, y }, 2)
   const dpiX = [0]
   const dpiY = [0]
   const status = lib.load('shcore.dll')
@@ -82,9 +82,9 @@ function monitorScale(x, y) {
       dpiX,
       dpiY,
     )
-  if (status !== 0) throw new Error(`dsh-orb: GetDpiForMonitor failed with ${String(status)}`)
+  if (status !== 0) throw new Error(`dsh-agi: GetDpiForMonitor failed with ${String(status)}`)
   const scale = (dpiX[0] ?? 96) / 96
-  if (!Number.isFinite(scale) || scale <= 0) throw new Error('dsh-orb: the monitor DPI reading is unusable')
+  if (!Number.isFinite(scale) || scale <= 0) throw new Error('dsh-agi: the monitor DPI reading is unusable')
   return scale
 }
 
@@ -172,7 +172,7 @@ export function installWindowsSelectionHooks(dispatch) {
     dispatch(event)
   })
   worker.on('error', (error) => {
-    console.error(`dsh-orb selection: windows hook worker failed: ${error instanceof Error ? error.message : String(error)}`)
+    console.error(`dsh-agi selection: windows hook worker failed: ${error instanceof Error ? error.message : String(error)}`)
   })
   return () => {
     if (threadId > 0) postQuit(threadId)
@@ -189,7 +189,7 @@ function postQuit(threadId) {
     const post = user32.func('int __stdcall PostThreadMessageW(uint32 idThread, uint32 msg, uintptr wParam, intptr lParam)')
     post(threadId, WM_QUIT, 0, 0)
   } catch (error) {
-    console.error(`dsh-orb selection: could not stop the windows hook worker: ${error instanceof Error ? error.message : String(error)}`)
+    console.error(`dsh-agi selection: could not stop the windows hook worker: ${error instanceof Error ? error.message : String(error)}`)
   }
 }
 

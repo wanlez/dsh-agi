@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { WAKE_MODEL_NPM_MIRROR, WAKE_MODEL_NPM_OFFICIAL, WAKE_MODEL_SHA256, WAKE_MODEL_URL } from '@dsh-orb/voice/manifest'
+import { WAKE_MODEL_NPM_MIRROR, WAKE_MODEL_NPM_OFFICIAL, WAKE_MODEL_SHA256, WAKE_MODEL_URL } from '@dsh-agi/voice/manifest'
 import { VoiceDownloads, wakeModelSources } from '../src/voice-download.ts'
 
 const root = mkdtempSync(join(tmpdir(), 'orb-voice-download-'))

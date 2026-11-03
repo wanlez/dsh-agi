@@ -1,4 +1,4 @@
-# dsh-orb 架构
+# dsh-agi 架构
 
 > 实施蓝图。为什么这样做见 [01-analysis.md](01-analysis.md)，分几步做见 [03-plan.md](03-plan.md)。
 > 源仓库指 fork `mini-yifan/deepseek-harness-orb`。本仓库是插件 monorepo，不修改源仓库。
@@ -11,7 +11,7 @@
 │    └─ spawn Host（ELECTRON_RUN_AS_NODE=1）
 │         ├─ 官方 cordis 树
 │         └─ 我们的插件
-│              ├─ dsh-orb/host
+│              ├─ dsh-agi/host
 │              │    会话、权限、坐标、后台模型、web 路由、helper 生命周期、划词监控
 │              ├─ computer-use 工具与 code_agent（挂在 computer-use preset 上）
 │              └─ 设置页 client 插件
@@ -30,36 +30,36 @@ helper 不使用 `/Applications/DeepSeek Harness.app` 里的可执行文件。�
 
 ## 2. 包
 
-用户只安装一个 bundle：`dsh-orb`。装上它就同时得到 Computer Use preset 和悬浮球。
+用户只安装一个 bundle：`dsh-agi`。装上它就同时得到 Computer Use preset 和悬浮球。
 
 | 包 | 名称 | 形态 | 职责 |
 |---|---|---|---|
-| `packages/overlay` | `@dsh-orb/overlay` | 类型 | Host 与 helper 之间的窗口控制类型。无运行时 |
-| `packages/computer-use` | `@dsh-orb/computer-use` | cordis 插件 | vendor 自 `tool-computer-use`。13 个 GUI 工具、`code_agent`、macOS `screencapture` / `osascript`、Windows koffi。去掉 `private`，保留 `./code-agent` |
-| `packages/host` | `@dsh-orb/host` | cordis 插件 | 见 §3 |
-| `packages/helper` | `@dsh-orb/helper` | Electron 入口 | 球、工具条、观察框、preload、页面 |
-| `packages/native-selection` | `@dsh-orb/native-selection` | 原生模块 | macOS 划词（napi + Swift）。Windows 划词继续用 koffi，不必单独预编译 |
-| `packages/client-settings` | `@dsh-orb/client-ui-settings-orb` | client 插件 | 主窗口「悬浮球」设置。`desktop-api.ts` 改为请求 Host 的 HTTP |
-| `packages/bundle` | `dsh-orb` | bundle | 唯一发布给用户安装的包，也是设置页 client 插件本身。`scripts/assemble.mjs` 把其余包的构建产物收进 `dsh-orb/dist`。patch 插入 preset、host、设置页 |
+| `packages/overlay` | `@dsh-agi/overlay` | 类型 | Host 与 helper 之间的窗口控制类型。无运行时 |
+| `packages/computer-use` | `@dsh-agi/computer-use` | cordis 插件 | vendor 自 `tool-computer-use`。13 个 GUI 工具、`code_agent`、macOS `screencapture` / `osascript`、Windows koffi。去掉 `private`，保留 `./code-agent` |
+| `packages/host` | `@dsh-agi/host` | cordis 插件 | 见 §3 |
+| `packages/helper` | `@dsh-agi/helper` | Electron 入口 | 球、工具条、观察框、preload、页面 |
+| `packages/native-selection` | `@dsh-agi/native-selection` | 原生模块 | macOS 划词（napi + Swift）。Windows 划词继续用 koffi，不必单独预编译 |
+| `packages/client-settings` | `@dsh-agi/client-ui-settings-agi` | client 插件 | 主窗口「悬浮球」设置。`desktop-api.ts` 改为请求 Host 的 HTTP |
+| `packages/bundle` | `dsh-agi` | bundle | 唯一发布给用户安装的包，也是设置页 client 插件本身。`scripts/assemble.mjs` 把其余包的构建产物收进 `dsh-agi/dist`。patch 插入 preset、host、设置页 |
 
-除 `dsh-orb` 以外的 `@dsh-orb/*` 都只是工作区里的源码包，`private`，不发布，也不会出现在用户的 `node_modules`。原因：官方加载器（`readPluginMeta`、`manifestOf`、`dsh-client-modules` 的 `resolveMeta`）总是从 profile 根目录解析 patch 里的包名。嵌在 `dsh-orb/node_modules` 里的子包，或者 `link:` 安装时不会被安装的依赖，都解析不到。所以用户只装一个包，各部分用子路径导出：
+除 `dsh-agi` 以外的 `@dsh-agi/*` 都只是工作区里的源码包，`private`，不发布，也不会出现在用户的 `node_modules`。原因：官方加载器（`readPluginMeta`、`manifestOf`、`dsh-client-modules` 的 `resolveMeta`）总是从 profile 根目录解析 patch 里的包名。嵌在 `dsh-agi/node_modules` 里的子包，或者 `link:` 安装时不会被安装的依赖，都解析不到。所以用户只装一个包，各部分用子路径导出：
 
 | patch 里的名字 | 指向 |
 |---|---|
-| `dsh-orb` | `lib/index.js`（设置页 Host 半边）。`./client` 是浏览器半边，模块 id 也是 `dsh-orb` |
-| `dsh-orb/host` | `dist/host/index.js` |
-| `dsh-orb/computer-use` | `dist/computer-use/index.js`，旁边是 ScreenCaptureKit 二进制 |
-| `dsh-orb/computer-use/code-agent` | `dist/computer-use/code-agent.js` |
+| `dsh-agi` | `lib/index.js`（设置页 Host 半边）。`./client` 是浏览器半边，模块 id 也是 `dsh-agi` |
+| `dsh-agi/host` | `dist/host/index.js` |
+| `dsh-agi/computer-use` | `dist/computer-use/index.js`，旁边是 ScreenCaptureKit 二进制 |
+| `dsh-agi/computer-use/code-agent` | `dist/computer-use/code-agent.js` |
 
 helper 在 `dist/helper`，划词监控在 `dist/native-selection`。Host 用相对路径找它们，工作区里回退到按包名解析。`lib/`、`dist/`、`client.js` 都是 `pnpm build` 生成的，不提交。
 
-阶段 1 可以先发一个只有 preset 的 `dsh-computer-use` bundle，用来在没有球的时候验证工具。阶段 2 把这条 preset 收进 `dsh-orb`，避免两个 bundle 插入同一个 `preset-computer-use`。用户文档只保留 `dsh plugin add dsh-orb`。
+阶段 1 可以先发一个只有 preset 的 `dsh-computer-use` bundle，用来在没有球的时候验证工具。阶段 2 把这条 preset 收进 `dsh-agi`，避免两个 bundle 插入同一个 `preset-computer-use`。用户文档只保留 `dsh plugin add dsh-agi`。
 
-`@deepseek-ai/dsh-*` 依赖范围是 `>=0.1.7-rc.2 <0.3.0-0`。代码按 `0.1.7-rc.2` 编译。上限写成 `<0.3.0-0`，这样 `0.3.0-rc.1` 不会被算进兼容范围。发布前确认 npm 上无 scope 的 `dsh-orb` 是否被占用；被占用就换名，文档里的职责不变。因为只发布这一个包，`@dsh-orb` scope 不需要注册。
+`@deepseek-ai/dsh-*` 依赖范围是 `>=0.1.7-rc.2 <0.3.0-0`。代码按 `0.1.7-rc.2` 编译。上限写成 `<0.3.0-0`，这样 `0.3.0-rc.1` 不会被算进兼容范围。发布前确认 npm 上无 scope 的 `dsh-agi` 是否被占用；被占用就换名，文档里的职责不变。因为只发布这一个包，`@dsh-agi` scope 不需要注册。
 
 ## 3. 从 fork 搬什么
 
-### 3.1 进 `@dsh-orb/host`
+### 3.1 进 `@dsh-agi/host`
 
 | 源文件 | 处理 |
 |---|---|
@@ -68,7 +68,7 @@ helper 在 `dist/helper`，划词监控在 `dist/native-selection`。Host 用相
 | `apps/desktop-host/src/computer-use-orb-code-agent-model.ts` | 原样搬。后台轨模型 |
 | `apps/desktop/src/orb-permission.ts` | 原样搬。`orb-permission.json`，和上面的服务是存储 / 服务分工 |
 | `apps/desktop/src/orb-agent-models.ts` | 原样搬。两条轨的模型选择。Host 自己读写，不再由壳推送 |
-| `apps/desktop/src/floating-session.ts` | 原样搬。球会话 id 与 `dsh_orb` 目录 |
+| `apps/desktop/src/floating-session.ts` | 原样搬。球会话 id 与 `dsh_agi` 目录 |
 | `apps/desktop/src/orb-avatar.ts` | 只留存储和 URL 签发。展示在 helper |
 | `apps/desktop/src/tcc.ts` | 状态查询留在 Host。采集和点击发生在 Host 进程，权限属于官方应用或终端 |
 | `apps/desktop/src/selection-monitor.ts` 与工具条的配置读写 | 监控和配置在 Host。窗口在 helper |
@@ -79,7 +79,7 @@ helper 在 `dist/helper`，划词监控在 `dist/native-selection`。Host 用相
 
 `computer-use-overlay-guard.ts` 里 Host 向官方壳要窗口 id 的 IPC 删掉。Host 仍向工具提供 `computerUseOverlayGuard`：`withCapture` 是空操作（窗口采集排除由 helper 自己做），`withInput` 通知 helper 在点击期间让球穿透，`setObservationFrame` 通知 helper 显示或隐藏边框。
 
-### 3.2 进 `@dsh-orb/helper`
+### 3.2 进 `@dsh-agi/helper`
 
 | 源文件 | 处理 |
 |---|---|
@@ -96,7 +96,7 @@ preload 里需要跨进程的成员走控制 socket，问 Host：会话、权限
 
 对话记录做在 helper 页面里。Host 读官方会话存储，经控制 socket 把块推过来。不装 `ui-overlay-chat`，也不请求 `index.html?surface=overlay`。头像由 Host 存文件；helper 带本次 token 去取，再交给页面。页面的 CSP 不允许它自己去打带凭据的地址。
 
-### 3.3 进 `@dsh-orb/computer-use`
+### 3.3 进 `@dsh-agi/computer-use`
 
 整个 `packages/experimental/tool-computer-use`，包含 `presets/`、Swift 源和 `libmacos-sck-capture.dylib`。macOS 常规路径不加载这只 dylib。dylib 留在包里，供阶段 4 若要在 helper 里走 ScreenCaptureKit 时使用。
 
@@ -110,18 +110,18 @@ fork 对 `packages/client/ui-layout`、`packages/client/ui-chat`、`packages/api
 
 ## 4. helper 怎么启动
 
-`@dsh-orb/host` 在 `apply` 时，若 `autoStart` 为真，按这个顺序找 Electron：
+`@dsh-agi/host` 在 `apply` 时，若 `autoStart` 为真，按这个顺序找 Electron：
 
-1. 环境变量 `DSH_ORB_ELECTRON_PATH` 指向一个未打包的 Electron 可执行文件。开发时用。
-2. 已经下载过的副本：`dshHomePath('dsh-orb', 'electron-runtime')`。
+1. 环境变量 `DSH_AGI_ELECTRON_PATH` 指向一个未打包的 Electron 可执行文件。开发时用。
+2. 已经下载过的副本：`dshHomePath('dsh-agi', 'electron-runtime')`。
 3. 否则从 Electron 的官方发布物下载与我们锁定的版本一致的 dist zip。源码里钉死了该版本 darwin、win32、linux 的 arm64 和 x64 共六个包的 SHA256。下载到的 `SHASUMS256.txt` 必须和钉死的值一致，zip 再对这个值校验。桌面版和 `dsh web` 走同一步。语音输入 bundle 的「首次使用再下载运行时」是这个模式的先例。
 
 启动参数：
 
 - 入口是 helper 的主脚本。
-- `--user-data-dir` 指向 `dshHome/dsh-orb/helper-data`，避开官方应用的单实例锁和存储。
+- `--user-data-dir` 指向 `dshHome/dsh-agi/helper-data`，避开官方应用的单实例锁和存储。
 - 环境里不要带 `ELECTRON_RUN_AS_NODE`。
-- `DSH_ORB_SOCKET` 和 `DSH_ORB_TOKEN` 放在环境变量里，不放 argv。
+- `DSH_AGI_SOCKET` 和 `DSH_AGI_TOKEN` 放在环境变量里，不放 argv。
 
 helper 启动后调用 `app.setActivationPolicy('accessory')`（macOS）并隐藏 Dock 图标。窗口使用 `setContentProtection(true)`：macOS 上这是 `NSWindowSharingNone`，Windows 上是 `WDA_EXCLUDEFROMCAPTURE`。这样 Host 的 `screencapture` 看不到球。阶段 4 用一次真实截图确认。
 
@@ -166,7 +166,7 @@ client 插件改为 `fetch` 上面的路由。类型 `OrbSettingsSnapshot`、`Tc
 
 ## 7. bundle patch
 
-`dsh-orb` 的 `cordis.patch.yml` 插入下面三行。`plugins` 不在这里展开：从源仓库 `packages/experimental/tool-computer-use/cordis.patch.yml` 整段搬来，把其中的包名改成 `dsh-orb/computer-use` 和 `dsh-orb/computer-use/code-agent`。显示名和说明用这里写的中文，不用再读 `preset.yml`。
+`dsh-agi` 的 `cordis.patch.yml` 插入下面三行。`plugins` 不在这里展开：从源仓库 `packages/experimental/tool-computer-use/cordis.patch.yml` 整段搬来，把其中的包名改成 `dsh-agi/computer-use` 和 `dsh-agi/computer-use/code-agent`。显示名和说明用这里写的中文，不用再读 `preset.yml`。
 
 ```yaml
 - insert:
@@ -178,12 +178,12 @@ client 插件改为 `fetch` 上面的路由。类型 `OrbSettingsSnapshot`、`Tc
         description: 精简工具集：Shell、网页检索与抓取、桌面 GUI 操作、向用户提问。
         order: 20
         plugins: []   # 实施时替换为源 patch 里的插件列表
-    - id: orb-host
-      name: 'dsh-orb/host'
+    - id: agi-host
+      name: 'dsh-agi/host'
       config:
         autoStart: true
-    - id: ui-settings-orb
-      name: dsh-orb
+    - id: ui-settings-agi
+      name: dsh-agi
 ```
 
 GUI 工具只出现在 `computer-use` 这个 preset 上，不写进官方默认的 `standard` preset。
@@ -192,7 +192,7 @@ GUI 工具只出现在 `computer-use` 这个 preset 上，不写进官方默认�
 
 ## 8. 窗口控制类型
 
-`@dsh-orb/overlay` 只描述 Host 里的服务。Provider 由 `@dsh-orb/host` 实现，真正的 `BrowserWindow` 在 helper。
+`@dsh-agi/overlay` 只描述 Host 里的服务。Provider 由 `@dsh-agi/host` 实现，真正的 `BrowserWindow` 在 helper。
 
 ```ts
 interface OrbOverlay {
@@ -213,7 +213,7 @@ interface OverlaySpec {
 }
 ```
 
-悬浮球拖动由主进程按系统光标定位,渲染端只发信号。按下时主进程记录 `grab = 光标 - 球原点`(`orb:drag-press`);拖动中每次 `pointermove` 发 `orb:drag-move`,主进程把球放到 `光标 - grab`(`FloatingPlacement.dragTo`);松手时 `orb:drag-end` 同样以光标位置落位,再判定吸边。`screen.getCursorScreenPoint()` 与 `BrowserWindow.setBounds()` 按 Electron 的约定同处 DIP 坐标系,且读取的都是实时值(Windows 混合 DPI 下的表现需实机验证),因此球的位置不再依赖渲染端的坐标。渲染端只用 `clientX` 判定 4 px 拖动阈值与拉出吸边标签,这段时间窗口通常是静止的(提问、附件或书签条变化可能在按住期间改动窗口,此时阈值判定会有偏差)。此前的实现用 `screenX`,或「按下时缓存的窗口原点 + `clientX`」推算球位置,窗口移动期间这些值滞后,误差来回震荡,表现为拖动抖动和跳跃。拖动公式无状态;光标到达左右两侧显示器外缘时球靠边(缝隙处除外,见 `edgeTouchesDisplay`;运行中或提问中不吸边)。吸边判定看拖动请求的球原点,而不是窗口读回值。Windows 在缩放不是 100% 时会把窗口拉回屏幕内,12px 透明边就让读回的球停在边缘内侧大约 12 DIP,超过 `DOCK_OVERLAP`(3 DIP);120% 时 96px 的球窗口还会被向上取整读成 97px,必须仍当作球而不是展开的面板。`DOCK_OVERLAP` 继续吸收剩余的 1–2 DIP 量化误差(`物理宽 / scaleFactor` 不是整数时,如 1920/1.5、2560/1.25、3840/1.75)。松手结果同时携带展开方向,运行中的面板若因松手位置改变朝向,渲染端会同步更新。设 `DSH_ORB_DOCK_DEBUG=1` 后每次松手向 stderr 输出一行 `[orb-dock]` 诊断日志,记录光标位置、窗口 bounds、各显示器 scaleFactor 与停靠结果,供无法复现的 DPI/多屏布局定位。
+悬浮球拖动由主进程按系统光标定位,渲染端只发信号。按下时主进程记录 `grab = 光标 - 球原点`(`orb:drag-press`);拖动中每次 `pointermove` 发 `orb:drag-move`,主进程把球放到 `光标 - grab`(`FloatingPlacement.dragTo`);松手时 `orb:drag-end` 同样以光标位置落位,再判定吸边。`screen.getCursorScreenPoint()` 与 `BrowserWindow.setBounds()` 按 Electron 的约定同处 DIP 坐标系,且读取的都是实时值(Windows 混合 DPI 下的表现需实机验证),因此球的位置不再依赖渲染端的坐标。渲染端只用 `clientX` 判定 4 px 拖动阈值与拉出吸边标签,这段时间窗口通常是静止的(提问、附件或书签条变化可能在按住期间改动窗口,此时阈值判定会有偏差)。此前的实现用 `screenX`,或「按下时缓存的窗口原点 + `clientX`」推算球位置,窗口移动期间这些值滞后,误差来回震荡,表现为拖动抖动和跳跃。拖动公式无状态;光标到达左右两侧显示器外缘时球靠边(缝隙处除外,见 `edgeTouchesDisplay`;运行中或提问中不吸边)。吸边判定看拖动请求的球原点,而不是窗口读回值。Windows 在缩放不是 100% 时会把窗口拉回屏幕内,12px 透明边就让读回的球停在边缘内侧大约 12 DIP,超过 `DOCK_OVERLAP`(3 DIP);120% 时 96px 的球窗口还会被向上取整读成 97px,必须仍当作球而不是展开的面板。`DOCK_OVERLAP` 继续吸收剩余的 1–2 DIP 量化误差(`物理宽 / scaleFactor` 不是整数时,如 1920/1.5、2560/1.25、3840/1.75)。松手结果同时携带展开方向,运行中的面板若因松手位置改变朝向,渲染端会同步更新。设 `DSH_AGI_DOCK_DEBUG=1` 后每次松手向 stderr 输出一行 `[orb-dock]` 诊断日志,记录光标位置、窗口 bounds、各显示器 scaleFactor 与停靠结果,供无法复现的 DPI/多屏布局定位。
 
 书签条(`#agent-strip`)不改变面板在屏幕上的位置:主进程按 `AGENT_STRIP_WIDTH` 把**窗口**在远端加宽,面板近端仍贴着球的 `--chrome`,只有远端按 `--panel-left = chrome + --strip-w` 内缩。近端锚在球上、远端随窗口一起长,所以窗口加宽时面板原地不动,球也永远被面板包住;`--strip-w` 必须写在 `:root`(变量在声明处完成替换,写在 `body` 上 `--panel-left` 会永远算出 12px),面板与书签条的位置都从 `--panel-left` 推导,两者不会错位。窗口加宽与页面状态是两条通道(几何经 `orb:expand-state`,书签经 `orb:agents`),页面重载后 `did-finish-load` 会重新下发几何;此外页面在启动时、以及「有书签」与 `has-strip` 不一致时(两个方向都查,书签条隐藏时也查)调用 `orb:sync-strip` 自愈。没有这层自愈,漏一次状态就会让面板盖住书签(实测:窗口 552 时面板会从 320 变成 528,书签只剩 6px 露在左边)——但面板仍填满窗口,球不会被甩到框外,这是刻意保留的降级外观:面板宽度宁可暂时不对,也不能让球跑出框。
 
