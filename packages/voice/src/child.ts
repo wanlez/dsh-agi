@@ -5,6 +5,7 @@
  * and runs VAD.
  */
 
+import { spawn, type ChildProcess } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { createInterface } from 'node:readline'
 import { Worker } from 'node:worker_threads'
@@ -22,6 +23,40 @@ import { isRecoverableSpeakerError } from './speaker.ts'
 import { DEFAULT_TTS_VOLUME, scaledSample } from './volume.ts'
 import { captureBinary, CpalCapture, NativeCapture, type CaptureSource } from './capture.ts'
 import { type VoiceSettings } from './settings.ts'
+
+/**
+ * Lower the system output while the user talks, Windows only.
+ * `agi-duck.ps1` is a long-lived PowerShell helper: it remembers the volume it
+ * lowered and restores it on `restore`, or when its stdin closes with this process.
+ * `DSH_AGI_DUCK=0` turns the whole thing off.
+ */
+let duckProc: ChildProcess | undefined
+
+function duckCmd(line: 'duck' | 'restore' | 'warm'): void {
+  if (process.env.DSH_AGI_DUCK === '0') return
+  if (process.platform !== 'win32') return
+  try {
+    if (duckProc === undefined) {
+      const script = fileURLToPath(new URL('./agi-duck.ps1', import.meta.url))
+      if (!existsSync(script)) return
+      duckProc = spawn('powershell.exe', [
+        '-NoProfile',
+        '-ExecutionPolicy', 'Bypass',
+        '-File', script,
+      ], { stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true })
+      duckProc.on('error', () => { duckProc = undefined })
+      duckProc.on('exit', () => { duckProc = undefined })
+    }
+    duckProc.stdin?.write(`${line}\n`)
+  } catch {
+    duckProc = undefined
+  }
+}
+
+process.on('exit', () => {
+  try { duckProc?.stdin?.write('restore\n') } catch { /* the helper is already gone */ }
+})
+if (process.platform === 'win32') setTimeout(() => duckCmd('warm'), 5000)
 
 const require = createRequire(import.meta.url)
 const TARGET_RATE = 16000
@@ -246,6 +281,23 @@ function loadNative(): Native | undefined {
   }
 }
 
+/**
+ * Text worth reading aloud: drop code, links and markup, then keep the whole reply.
+ * Nothing is truncated here — the queue already streams complete sentences.
+ */
+function speakable(text: string): string {
+  let s = String(text ?? '')
+  if (!s) return ''
+  s = s.replace(/```[\s\S]*?```/g, ' ').replace(/`[^`]*`/g, ' ')
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/[#>*_~|]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!s) return ''
+  return s
+}
+
 class Engine {
   private mode: ListenMode = 'off'
   private settings: VoiceSettings | undefined
@@ -290,6 +342,12 @@ class Engine {
   private qwen: QwenSpeech | undefined
   /** Smoothed microphone level for the input meter. Commands only; never wake or playback. */
   private readonly meter = new LevelMeter()
+  /**
+   * Push-to-talk is held. VAD segments are buffered instead of decoded and the
+   * keyword spotter stays quiet, so the held phrase cannot wake the ball.
+   */
+  private pttHold = false
+  private pttSegs: Float32Array[] = []
 
   constructor(private readonly native: Native) {}
 
@@ -311,6 +369,9 @@ class Engine {
     this.mode = mode
     const wasTranscribing = transcribing(previous)
     const nowTranscribing = transcribing(mode)
+    // duck-on-command: 用户说话时才压低扬声器（interject/播报不压，免得压住它自己的声音）
+    if (mode === 'command' && previous !== 'command') duckCmd('duck')
+    if (previous === 'command' && mode !== 'command') duckCmd('restore')
     if (previous !== mode) debug(`listen ${previous}->${mode} device=${device}`)
     if (wasTranscribing && !nowTranscribing) {
       // Playback just ended under a collapsed ball, or listen turned off mid-sentence.
@@ -330,11 +391,42 @@ class Engine {
     this.syncMic()
   }
 
+  /**
+   * Push-to-talk edges from the host.
+   * While held, the VAD keeps running but its segments are buffered and the spotter
+   * stays mute; on release the buffered audio is merged into one utterance. Any
+   * leftover buffer from an earlier hold is dropped on the next press.
+   */
+  ptt(hold: boolean): void {
+    if (hold) {
+      this.pttHold = true
+      this.pttSegs = []
+      emit({ type: 'speech', open: true })
+      debug('ptt hold start')
+      return
+    }
+    this.vad?.flush()
+    const segs = this.pttSegs
+    this.pttSegs = []
+    this.pttHold = false
+    emit({ type: 'speech', open: false })
+    debug(`ptt hold stop segs=${segs.length}`)
+    if (segs.length === 0) return
+    this.enqueue(concat(...segs))
+  }
+
   speak(id: string, text: string): void {
     // The host normally serializes sentences, but a new command can arrive while an old
     // player is still draining. Make the new sentence the only audio before it starts.
     this.stopSpeak()
     const token = ++this.speakToken
+    const spoken = speakable(text)
+    if (!spoken) {
+      emit({ type: 'playback', id, phase: 'start' })
+      emit({ type: 'playback', id, phase: 'end' })
+      return
+    }
+    text = spoken
     debug(`speak id=${id} backend=${this.settings?.ttsBackend ?? 'local'} chars=${text.length}`)
     this.cancelQwen()
     if (this.settings?.ttsBackend === 'qwen') {
@@ -687,6 +779,9 @@ class Engine {
   }
 
   private feedKeywords(samples: Float32Array): void {
+    // A held push-to-talk phrase belongs to the release handler; spotting inside it
+    // would wake the ball or arm an interjection from the user's own voice.
+    if (this.pttHold === true) return
     const spotter = this.kws
     const stream = this.kwsStream
     if (!spotter || !stream) return
@@ -807,7 +902,8 @@ class Engine {
           sileroVad: {
             model: vadModel,
             threshold: 0.5,
-            minSilenceDuration: 0.5,
+            // VAD-1S: 静音 1 秒才算说完（原来 .5 秒，中文句子中间换气就被切）
+            minSilenceDuration: 1.0,
             minSpeechDuration: 0.25,
             maxSpeechDuration: 30,
             windowSize: 512,
@@ -821,7 +917,13 @@ class Engine {
           if (open) this.segmentMode = this.mode
           debug(`vad open=${open} mode=${this.mode} segment=${this.segmentMode}`)
           emit({ type: 'speech', open })
-        }, (samples) => this.enqueue(samples))
+        }, (samples) => {
+          if (this.pttHold === true) {
+            this.pttSegs.push(samples)
+            return
+          }
+          this.enqueue(samples)
+        })
       } catch (error) {
         fail(error)
       }
@@ -1137,7 +1239,7 @@ function main(): void {
 
   const lines = createInterface({ input: process.stdin })
   lines.on('line', (line) => {
-    let message: { type?: string, mode?: ListenMode, seedMs?: number, device?: boolean, id?: string, settings?: VoiceSettings, paths?: ConfigureMessage['paths'] }
+    let message: { type?: string, mode?: ListenMode, seedMs?: number, device?: boolean, hold?: boolean, id?: string, settings?: VoiceSettings, paths?: ConfigureMessage['paths'] }
     try {
       message = JSON.parse(line) as typeof message
     } catch {
@@ -1146,6 +1248,10 @@ function main(): void {
     try {
       if (message.type === 'configure') {
         engine?.configure(message as ConfigureMessage)
+        return
+      }
+      if (message.type === 'ptt') {
+        engine?.ptt(message.hold === true)
         return
       }
       if (message.type === 'listen' && (message.mode === 'off' || message.mode === 'wake' || message.mode === 'command' || message.mode === 'interject')) {

@@ -22,7 +22,7 @@
     "prebuilds"
   ],
   "scripts": {
-    "build": "tsdown && node --input-type=module -e \"import { copyFileSync } from 'node:fs'; copyFileSync('src/decode-worker.mjs', 'lib/decode-worker.mjs')\"",
+    "build": "tsdown && node --input-type=module -e \"import { copyFileSync } from 'node:fs'; copyFileSync('src/decode-worker.mjs', 'lib/decode-worker.mjs'); copyFileSync('src/agi-duck.ps1', 'lib/agi-duck.ps1')\"",
     "build:native:mac": "node scripts/build-macos-voice-capture.mjs",
     "build:native:win": "bash scripts/build-windows-voice-capture.sh"
   },
