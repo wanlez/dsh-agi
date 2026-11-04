@@ -474,11 +474,13 @@ export class UpdateChecker {
     const name = this.own.name
     const previous = this.own.version
     try {
-      // Preferred path: fetch the tarball here so the page can show a progress bar,
-      // then open a console window that performs the replace after the app quits.
+      // Preferred path on Windows: fetch the tarball here so the page can show a progress
+      // bar, then open a console window that performs the replace after the app quits
+      // (Windows locks loaded native files). macOS and Linux can replace the package in
+      // place while it runs, so they skip the window and ask for a restart instead.
       this.phase = 'downloading'
       this.progress = 0
-      if (await this.prepareUpdater(version, name)) {
+      if (process.platform === 'win32' && await this.prepareUpdater(version, name)) {
         this.phase = 'ready'
         this.progress = 100
         this.updating = false
