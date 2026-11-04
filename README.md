@@ -11,7 +11,7 @@ This is a fork of [dsh-orb](https://github.com/mini-yifan/dsh-orb-cordis) (MIT, 
 Ordinary users install the release tarball; there is no npm package yet.
 
 ```powershell
-& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add "https://github.com/wanlez/dsh-agi/releases/download/plugin-v0.5.6/dsh-agi-0.5.6.tgz"
+& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add "https://github.com/wanlez/dsh-agi/releases/download/plugin-v0.5.7/dsh-agi-0.5.7.tgz"
 ```
 
 Then add `"dsh-agi"` to `dsh.profile.bundles` in `%USERPROFILE%\.dsh\profiles\desktop\package.json` and restart DeepSeek Harness.
