@@ -1,0 +1,51 @@
+name: Release plugin
+
+on:
+  push:
+    tags:
+      - 'plugin-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#plugin-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Pack
+        run: |
+          pnpm --filter dsh-agi pack -- --version "${{ steps.version.outputs.version }}"
+          ls -la dsh-agi-*.tgz
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dsh-agi-*.tgz
+          name: dsh-agi ${{ steps.version.outputs.version }}
+          body: |
+            Install:
+
+            ```
+            dsh plugin --profile desktop add "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/dsh-agi-${{ steps.version.outputs.version }}.tgz"
+            ```
