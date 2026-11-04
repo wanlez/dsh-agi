@@ -128,7 +128,7 @@ try {
 
   await writeFile(join(pkgDir, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`)
   // npm renders these on the package page; the build tree itself never holds them.
-  for (const name of ['README.md', 'LICENSE']) {
+  for (const name of ['README.md', 'README.zh-CN.md', 'LICENSE']) {
     await cp(join(repoRoot, name), join(pkgDir, name))
   }
 
