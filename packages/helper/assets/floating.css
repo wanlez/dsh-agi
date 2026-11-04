@@ -626,6 +626,38 @@ body.expand-up #transcript {
   color: var(--pin);
 }
 
+/* Activity pill: the ball's own state while a task runs. Hidden when nothing is running. */
+#phase {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  margin: 6px 0 0;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--white);
+  font-size: 12px;
+  color: var(--pin);
+}
+
+#phase-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #8a8f98;
+}
+
+#phase[data-phase="thinking"] #phase-dot { background: #3b82f6; }
+#phase[data-phase="acting"] #phase-dot { background: #22c55e; animation: phase-pulse 1s ease-in-out infinite; }
+#phase[data-phase="stopped"] #phase-dot { background: #ef4444; }
+
+@keyframes phase-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.25); opacity: 0.75; }
+}
+
 /* One inline notice for a locked control: over the panel's top edge, where the two conversation
  * controls live, and gone on its own. Never a dialog — the click it answers was a stray one. */
 #hint {

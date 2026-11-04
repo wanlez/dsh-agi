@@ -452,6 +452,10 @@ function deliver(message: unknown): void {
     win.webContents.send('orb:turn', message)
     return
   }
+  if (record.type === 'phase') {
+    win.webContents.send('orb:phase', (record as { phase?: unknown }).phase)
+    return
+  }
   if (record.type === 'status') {
     win.webContents.send('orb:status', (record as { text?: unknown }).text)
     return

@@ -33,6 +33,9 @@ const zh = {
   fresh: '新建',
   history: '历史',
   historyEmpty: '还没有 Computer Use 对话。',
+  phaseThinking: '大肥鱼正在思考',
+  phaseActing: '大肥鱼正在操作',
+  phaseStopped: '大肥鱼不在工作',
   untitled: '未命名对话',
   placeholder: '向桌面 agent 发送消息…',
   accessReadOnly: '仅可查看',
@@ -89,6 +92,9 @@ const en = {
   fresh: 'New',
   history: 'History',
   historyEmpty: 'No Computer Use chats yet.',
+  phaseThinking: 'The ball is thinking',
+  phaseActing: 'The ball is acting',
+  phaseStopped: 'The ball is idle',
   untitled: 'Untitled',
   placeholder: 'Ask the desktop agent…',
   accessReadOnly: 'Read Only',
@@ -275,6 +281,9 @@ const composerImages = []
   const agentStrip = document.querySelector('#agent-strip')
   const status = document.querySelector('#status')
   const hint = document.querySelector('#hint')
+  const phase = document.querySelector('#phase')
+  const phaseDot = document.querySelector('#phase-dot')
+  const phaseText = document.querySelector('#phase-text')
   const prompt = document.querySelector('#prompt')
 if (prompt) prompt.addEventListener('input', () => { api.voiceArm(false) })
   const composer = document.querySelector('#composer')
@@ -2664,6 +2673,20 @@ let expandedAt = 0
 
   api.onBlock((block) => { stage(block) })
   api.onBlockDrop((key) => { stage({ type: 'block-drop', key }) })
+  /** The activity pill: hidden while idle, coloured while a turn runs or just stopped. */
+  function setPhase(value) {
+    if (phase === null) return
+    const known = value === 'thinking' || value === 'acting' || value === 'stopped'
+    if (!known) {
+      phase.hidden = true
+      return
+    }
+    phase.hidden = false
+    phase.dataset.phase = value
+    if (phaseText !== null) phaseText.textContent = value === 'thinking' ? messages.phaseThinking : value === 'acting' ? messages.phaseActing : messages.phaseStopped
+  }
+  if (phase !== null) phase.hidden = true
+  api.onPhase((value) => { setPhase(value) })
   api.onTurn((turn) => { stage({ type: 'turn', ...(turn ?? {}) }) })
   api.onSession((id) => { sessionId = typeof id === 'string' ? id : '' })
   api.onHistory((items) => {

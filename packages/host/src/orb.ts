@@ -467,6 +467,9 @@ export class OrbRuntime {
   private readonly selection: SelectionController
   /** Safe-mode watch for real keyboard and mouse input; undefined while the switch is off. */
   private inputWatch: UserInputWatch | undefined
+  /** Activity shown in the ball's phase pill; 'idle' hides it. */
+  private phase: 'idle' | 'thinking' | 'acting' | 'stopped' = 'idle'
+  private phaseTimer: ReturnType<typeof setTimeout> | undefined
   private readonly overlay = createOverlayGuard({
     hasHelper: () => this.sockets.size > 0,
     send: (message, signal) => this.waitAck(message, signal),
@@ -1287,10 +1290,12 @@ export class OrbRuntime {
       this.block(key, 'tool', name, false, 'set', {
         args: clip(toolArguments(data), 4000),
       })
+      this.setPhase('acting')
       return
     }
     if (type === 'tool/result') {
       this.onToolResult(data)
+      if (this.turnRunning) this.setPhase('thinking')
       return
     }
     if (type === 'turn/end') {
@@ -1488,10 +1493,12 @@ export class OrbRuntime {
     this.selection.setSessionRunning(true)
     this.broadcast({ type: 'turn', running: true })
     this.voice.beginTurn()
+    this.setPhase('thinking')
   }
 
   private finishTurn(): void {
     this.turnRunning = false
+    this.setPhase('stopped')
     // The screenshots belonged to this turn; the next one starts from what the user sends.
     this.pendingImages = undefined
     this.idleWarned = false
@@ -1901,6 +1908,26 @@ export class OrbRuntime {
     this.store.setSafeMode(enabled)
     this.syncSafeMode()
     await this.publishChrome()
+  }
+
+  /**
+   * Publish the activity phase the ball's pill shows. `stopped` fades back to `idle`
+   * after a short delay, so the red state is visible without lingering forever.
+   */
+  private setPhase(phase: 'idle' | 'thinking' | 'acting' | 'stopped'): void {
+    if (this.phaseTimer !== undefined) {
+      clearTimeout(this.phaseTimer)
+      this.phaseTimer = undefined
+    }
+    if (this.phase === phase) return
+    this.phase = phase
+    this.broadcast({ type: 'phase', phase })
+    if (phase === 'stopped') {
+      this.phaseTimer = setTimeout(() => {
+        this.phaseTimer = undefined
+        this.setPhase('idle')
+      }, 5000)
+    }
   }
 
   async setBallEnabled(enabled: boolean): Promise<void> {

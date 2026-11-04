@@ -101,6 +101,9 @@ contextBridge.exposeInMainWorld('dshOrb', {
   onTurn(callback) {
     ipcRenderer.on('orb:turn', (_event, turn) => callback(turn))
   },
+  onPhase(callback) {
+    ipcRenderer.on('orb:phase', (_event, phase) => callback(phase))
+  },
   onStatus(callback) {
     ipcRenderer.on('orb:status', (_event, text) => callback(text))
   },

@@ -243,6 +243,14 @@ const MODIFIER_VKS = new Set([0x10, 0x11, 0x12, 0x5B, 0x5C])
 /** Same settle the macOS HID script uses after a move, before the button goes down. */
 const POINTER_MOVE_SETTLE_MS = 80
 const BUTTON_HOLD_MS = 50
+/**
+ * Pause before an injected action so the ball's phase pill can show "acting" before the
+ * input lands. 350 ms is long enough to notice, short enough not to feel slow. 0 disables it.
+ */
+const ACTION_LEAD_MS = (() => {
+  const configured = Number(process.env.DSH_AGI_ACTION_LEAD_MS ?? 350)
+  return Number.isFinite(configured) && configured > 0 ? configured : 0
+})()
 
 /**
  * How long the user must have been idle before posted input is allowed through.
@@ -662,6 +670,7 @@ export function createWindowsDesktopBackend(ops?: WindowsDesktopOps): DesktopBac
       const abort = liveSignal(signal)
       const modifiers = (input.modifiers ?? []).map(postedKey)
       await waitForUserIdle(host, abort)
+      if (ACTION_LEAD_MS > 0) await delay(ACTION_LEAD_MS, abort)
       const windowId = input.screen.windowId
       if (modifiers.length === 0) {
         await clickAt(host, input.button, input.count, point, abort, windowId)
@@ -703,6 +712,7 @@ export function createWindowsDesktopBackend(ops?: WindowsDesktopOps): DesktopBac
       const host = await use()
       const abort = liveSignal(signal)
       await waitForUserIdle(host, abort)
+      if (ACTION_LEAD_MS > 0) await delay(ACTION_LEAD_MS, abort)
       await clickAt(host, 'left', 1, pointOf(input.position, input.screen), abort, input.screen.windowId)
       if (input.replace) await chord(host, [postedVk(0x11), postedVk(0x41)], abort)
       const previous = host.saveClipboard()
@@ -752,6 +762,7 @@ export function createWindowsDesktopBackend(ops?: WindowsDesktopOps): DesktopBac
       const host = await use()
       const point = pointOf(input.position, input.screen)
       const abort = liveSignal(signal)
+      if (ACTION_LEAD_MS > 0) await delay(ACTION_LEAD_MS, abort)
       host.movePointer(point.x, point.y)
       await delay(POINTER_MOVE_SETTLE_MS, abort)
       assertPointInput(host, point)
@@ -768,6 +779,7 @@ export function createWindowsDesktopBackend(ops?: WindowsDesktopOps): DesktopBac
       const start = pointOf(input.startPosition, input.startScreen)
       const end = pointOf(input.endPosition, input.endScreen)
       const abort = liveSignal(signal)
+      if (ACTION_LEAD_MS > 0) await delay(ACTION_LEAD_MS, abort)
       host.movePointer(start.x, start.y)
       await delay(POINTER_MOVE_SETTLE_MS, abort)
       assertPointInput(host, start)
