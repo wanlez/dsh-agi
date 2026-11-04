@@ -28,6 +28,7 @@ const HISTORY_FILE = 'agi-history.json'
 const WORKSPACE_FILE = 'agi-workspace.json'
 const VOICE_FILE = 'agi-voice.json'
 const WHATS_NEW_FILE = 'agi-whats-new.json'
+const SAFE_MODE_FILE = 'agi-safe-mode.json'
 
 /** Retention choices shown in the settings select; 0 means forever. */
 export const HISTORY_RETENTION_DAYS = [0, 1, 7, 14, 30, 60] as const
@@ -188,6 +189,7 @@ export class ProfileStore {
   private observationFrameValue: boolean
   private selectionValue: boolean
   private selectionLanguage: 'zh' | 'en'
+  private safeModeValue: boolean
   private ballValue: boolean
   private updateValue: UpdateRecord
   private historyValue: HistoryRecord
@@ -204,6 +206,7 @@ export class ProfileStore {
     const selection = readSelection(dir)
     this.selectionValue = selection.enabled
     this.selectionLanguage = selection.language
+    this.safeModeValue = readSafeMode(dir)
     this.ballValue = readBall(dir)
     this.updateValue = readUpdate(dir)
     this.historyValue = readHistory(dir)
@@ -309,6 +312,16 @@ export class ProfileStore {
       enabled,
       translateTargetLanguage: this.selectionLanguage,
     })
+  }
+
+  /** Safe mode: real user input stops the running turn. Off by default. */
+  safeMode(): boolean {
+    return this.safeModeValue
+  }
+
+  setSafeMode(enabled: boolean): void {
+    this.safeModeValue = enabled
+    writeJson(join(this.dir, SAFE_MODE_FILE), { enabled })
   }
 
   /** Missing file means the ball is on. `autoStart: false` is a separate patch switch. */
@@ -521,6 +534,11 @@ function readSelection(dir: string): { enabled: boolean; language: 'zh' | 'en' }
   // ignored so profiles that enabled it before also stay off; only the
   // language preference is still honored.
   return { enabled: false, language }
+}
+
+function readSafeMode(dir: string): boolean {
+  const enabled = record(readJson(join(dir, SAFE_MODE_FILE)))?.enabled
+  return typeof enabled === 'boolean' ? enabled : false
 }
 
 function readBall(dir: string): boolean {

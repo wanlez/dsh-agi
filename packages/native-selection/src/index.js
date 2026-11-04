@@ -12,6 +12,7 @@ const here = dirname(fileURLToPath(import.meta.url))
 
 export { MIN_DRAG_PX, draggedFarEnough, parseSelectionHelperLine } from './protocol.js'
 export { dispatchWindowsSelectionMessage } from './windows-dispatch.js'
+export { installWindowsSelectionHooks } from './windows-native.js'
 
 export function startSelectionMonitor(handlers) {
   if (process.platform === 'darwin') return startDarwin(handlers)

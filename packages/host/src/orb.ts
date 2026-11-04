@@ -16,6 +16,7 @@ import type { ModelCatalog } from './catalog.ts'
 import { cancelRuntimeDownload, isRuntimeDownloadCancelled, purgeRuntimeArtifacts, resolveElectronBinary } from './electron-runtime.ts'
 import { helperMain } from './helper-path.ts'
 import { imageDebug } from './debug-log.ts'
+import { startUserInputWatch, type UserInputWatch } from './input-watch.ts'
 import { detectImageType, imageSizeOf } from './image-bytes.ts'
 import {
   HistoryCleaner,
@@ -464,6 +465,8 @@ export class OrbRuntime {
   private readonly chromeWindows = new Map<Socket, readonly number[]>()
   private readonly tcc: { status(): TccStatus; open(right: TccRight): Promise<void> }
   private readonly selection: SelectionController
+  /** Safe-mode watch for real keyboard and mouse input; undefined while the switch is off. */
+  private inputWatch: UserInputWatch | undefined
   private readonly overlay = createOverlayGuard({
     hasHelper: () => this.sockets.size > 0,
     send: (message, signal) => this.waitAck(message, signal),
@@ -555,6 +558,7 @@ export class OrbRuntime {
       tts: dshHomePath('dsh-agi', 'voice', 'tts'),
     }), undefined, () => { this.voice.applySettings() }, () => officialAsrFrom(this.ctx.get('speechToText')))
     this.listenAssistantStream()
+    this.syncSafeMode()
   }
 
   /**
@@ -1892,6 +1896,13 @@ export class OrbRuntime {
     if (!enabled) await this.overlay.setObservationFrame(null)
   }
 
+  /** Safe mode: real user input stops the running turn (see {@link onRealUserInput}). */
+  async setSafeMode(enabled: boolean): Promise<void> {
+    this.store.setSafeMode(enabled)
+    this.syncSafeMode()
+    await this.publishChrome()
+  }
+
   async setBallEnabled(enabled: boolean): Promise<void> {
     this.store.setBallEnabled(enabled)
     if (process.platform === 'linux') return
@@ -2376,6 +2387,25 @@ export class OrbRuntime {
     this.store.setPermission(preset)
     if (this.sessionId) pinSessionId(this.ctx, this.sessionId, preset, this.store.workspaceDirectory())
     await this.publishChrome()
+  }
+
+  /** Start or stop the real-input watch that safe mode uses. */
+  syncSafeMode(): void {
+    const on = this.store.safeMode()
+    if (on && this.inputWatch === undefined) {
+      this.inputWatch = startUserInputWatch(() => { this.onRealUserInput() })
+    } else if (!on && this.inputWatch !== undefined) {
+      this.inputWatch.stop()
+      this.inputWatch = undefined
+    }
+  }
+
+  /** Safe mode: a real key or pointer event stops the running turn like the stop button. */
+  private onRealUserInput(): void {
+    if (!this.store.safeMode() || !this.turnRunning) return
+    const epoch = this.turnEpoch
+    this.run('stop', () => this.stopTurn(epoch))
+    this.status('安全模式：检测到人工输入，已停止')
   }
 
   private async stopTurn(epoch: number): Promise<void> {

@@ -1,11 +1,9 @@
 /**
  * Update check and one-click upgrade for the installed bundle.
- * The check probes the package registries — npmmirror first: it mirrors npmjs
- * and answers where GitHub stalls — and falls back to the repository's GitHub
- * Releases when no registry knows the package. The upgrade installs
- * `name@version` through the official plugin manager, asking the registry that
- * answered the check first. A bare tarball URL is not an install spec: pnpm
- * 11.7 records it without `integrity` and refuses it before downloading.
+ * The check asks the repository's GitHub Releases first, because this package is
+ * published there and not on npm. The registry probes stay in the code but only
+ * run when GitHub is unreachable. The upgrade installs the release tarball URL
+ * through the official plugin manager.
  */
 
 import { spawn } from 'node:child_process'
@@ -685,12 +683,10 @@ export function registryTarballUrl(base: string, name: string, version: string):
 }
 
 /**
- * The spec the installer receives.
- * `name@version` makes pnpm read `dist.integrity` from registry metadata.
- * pnpm 11.7 (the version the official client bundles) rejects a bare tarball
- * URL whose lockfile entry has no integrity, before it downloads the file
- * (`ERR_PNPM_MISSING_TARBALL_INTEGRITY`). `DSH_AGI_UPDATE_URL` overrides the
- * whole spec (tests, staged releases).
+ * The spec the installer receives: the GitHub release tarball for that version.
+ * The package is not published on npm, so a registry spec (`name@version`) has
+ * nothing to resolve. `DSH_AGI_UPDATE_URL` overrides the whole spec (tests,
+ * staged releases).
  */
 export function installSpec(version: string, name: string): string {
   const overridden = process.env.DSH_AGI_UPDATE_URL?.trim()
@@ -699,11 +695,11 @@ export function installSpec(version: string, name: string): string {
 }
 
 /**
- * `name@version`, ignoring the staged-update override. A rollback must restore the
- * version that was running, not whatever `DSH_AGI_UPDATE_URL` points at.
+ * The release tarball for a version, ignoring the staged-update override. A rollback
+ * must restore the version that was running, not whatever `DSH_AGI_UPDATE_URL` points at.
  */
 function exactSpec(version: string, name: string): string {
-  return `${name}@${version.trim().replace(/^v/, '')}`
+  return releaseTarballUrl(version)
 }
 
 /**

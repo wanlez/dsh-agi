@@ -17,6 +17,9 @@ const WM_RBUTTONUP = 0x0205
 const WM_MBUTTONDOWN = 0x0207
 const WM_MBUTTONUP = 0x0208
 const WM_MOUSEWHEEL = 0x020A
+const WM_MOUSEMOVE = 0x0200
+const LLMHF_INJECTED = 0x01
+const LLKHF_INJECTED = 0x10
 const MONITOR_DEFAULTTONEAREST = 2
 
 const lib = requireKoffi()
@@ -24,6 +27,13 @@ lib.struct('DSH_AGI_SEL_POINT', { x: 'int32', y: 'int32' })
 lib.struct('DSH_AGI_SEL_MSLL', {
   pt: 'DSH_AGI_SEL_POINT',
   mouseData: 'uint32',
+  flags: 'uint32',
+  time: 'uint32',
+  dwExtraInfo: 'uintptr',
+})
+lib.struct('DSH_AGI_SEL_KBDLL', {
+  vkCode: 'uint32',
+  scanCode: 'uint32',
   flags: 'uint32',
   time: 'uint32',
   dwExtraInfo: 'uintptr',
@@ -64,12 +74,23 @@ function dip(x, y) {
   return { x: x / scale, y: y / scale }
 }
 
+/** Last post per input kind: a moving mouse must not flood the parent with messages. */
+const lastUserInputAt = { key: 0, mouse: 0 }
+/** Tell the parent that a real (not injected) input happened. */
+function postUserInput(kind) {
+  const now = Date.now()
+  if (now - lastUserInputAt[kind] < 100) return
+  lastUserInputAt[kind] = now
+  parentPort.postMessage({ type: 'user-input', kind })
+}
+
 const hooks = []
 const callbacks = []
 const mouse = lib.register((code, wParam, lParam) => {
   try {
     if (code >= 0) {
       const info = lib.decode(lParam, 'DSH_AGI_SEL_MSLL')
+      if ((info.flags & LLMHF_INJECTED) === 0) postUserInput('mouse')
       const pointDip = dip(info.pt.x, info.pt.y)
       const kind = Number(wParam)
       if (kind === WM_MOUSEWHEEL) parentPort.postMessage({ type: 'wheel' })
@@ -90,6 +111,8 @@ const keyboard = lib.register((code, wParam, lParam) => {
   try {
     if (code >= 0) {
       const kind = Number(wParam)
+      const info = lib.decode(lParam, 'DSH_AGI_SEL_KBDLL')
+      if ((info.flags & LLKHF_INJECTED) === 0 && (kind === WM_KEYDOWN || kind === WM_SYSKEYDOWN)) postUserInput('key')
       if (kind === WM_KEYDOWN || kind === WM_SYSKEYDOWN) parentPort.postMessage({ type: 'key' })
     }
   } catch {

@@ -68,6 +68,7 @@ export interface OrbControl {
   setSelectionEnabled(enabled: boolean): Promise<void>
   setMillifractionEnabled(enabled: boolean): Promise<void>
   setObservationFrameEnabled(enabled: boolean): Promise<void>
+  setSafeMode(enabled: boolean): Promise<void>
   setBallEnabled(enabled: boolean): Promise<void>
   /**
    * Fetch the helper runtime again from zero: drop the attempt in flight, delete what an
@@ -474,6 +475,16 @@ async function handle(deps: RouteDeps, req: IncomingMessage, res: ServerResponse
     sendJson(res, 200, await snapshot(deps))
     return
   }
+  if (method === 'POST' && path === `${PREFIX}/safe-mode`) {
+    const enabled = booleanField(await readJson(req))
+    if (enabled === undefined) {
+      sendJson(res, 400, { error: 'invalid-safe-mode' })
+      return
+    }
+    await deps.control.setSafeMode(enabled)
+    sendJson(res, 200, await snapshot(deps))
+    return
+  }
   if (method === 'POST' && path === `${PREFIX}/observation-frame`) {
     const enabled = booleanField(await readJson(req))
     if (enabled === undefined) {
@@ -595,6 +606,7 @@ async function snapshot(deps: RouteDeps, voice: VoiceSettings = deps.store.voice
   overlay: AgentModelSelection
   background: AgentModelSelection
   selectionEnabled: boolean
+  safeMode: boolean
   millifractionEnabled: boolean
   observationFrameEnabled: boolean
   tcc: TccStatus
@@ -627,6 +639,7 @@ async function snapshot(deps: RouteDeps, voice: VoiceSettings = deps.store.voice
     overlay: models.overlay,
     background: models.background,
     selectionEnabled: deps.store.selectionEnabled(),
+    safeMode: deps.store.safeMode(),
     millifractionEnabled: deps.store.millifractionEnabled(),
     observationFrameEnabled: deps.store.observationFrameEnabled(),
     tcc: deps.tcc.status(),

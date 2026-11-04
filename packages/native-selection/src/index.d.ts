@@ -60,6 +60,21 @@ export interface WindowsSelectionProbe {
   activatePid(pid: number): void
 }
 
+/** A real (not injected) key or pointer event reported by the Windows hook worker. */
+export interface WindowsUserInputMessage {
+  type: 'user-input'
+  kind: 'key' | 'mouse'
+}
+
+/**
+ * Install the Windows low-level hooks in a worker thread.
+ * @param dispatch - receives hook messages, including `user-input` for hardware input.
+ * @returns a function that tears the worker down.
+ */
+export function installWindowsSelectionHooks(
+  dispatch: (message: WindowsSelectionMessage | WindowsUserInputMessage) => void,
+): () => void
+
 export function dispatchWindowsSelectionMessage(
   message: WindowsSelectionMessage,
   handlers: SelectionMonitorHandlers,

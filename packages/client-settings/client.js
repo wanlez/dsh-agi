@@ -55,6 +55,9 @@ window.__ModuleLoader__.load({
       frameTitle: '观察框彩带',
       frameDescription: 'Computer Use 操作某个窗口时，窗口周围显示这条彩带。关闭后不再显示。',
       frameToggle: '显示观察框彩带',
+      safeModeTitle: '安全模式',
+      safeModeDescription: '开启后，你敲键盘、移动或点击鼠标都会立刻停止大肥鱼正在执行的任务（相当于按停止）。大肥鱼自己的点击和打字不会触发。',
+      safeModeToggle: '检测到人工输入时停止',
       runtimePreparingTitle: '正在下载悬浮球运行时',
       runtimePreparing: '首次使用需要下载约 124–150 MB 的运行时，完成后悬浮球会自动出现。下载被中断或长时间不动时，点「重新下载」立即接着下。',
       whatsNew: {
@@ -312,6 +315,9 @@ window.__ModuleLoader__.load({
       frameTitle: 'Observation ribbon',
       frameDescription: 'Draws the coloured ribbon around the window Computer Use is working on. Turn it off to hide it.',
       frameToggle: 'Show the observation ribbon',
+      safeModeTitle: 'Safe mode',
+      safeModeDescription: 'While on, any key you press or any mouse move or click stops the running task (same as the stop button). Input injected by the ball itself is ignored.',
+      safeModeToggle: 'Stop on real user input',
       runtimePreparingTitle: 'Downloading the floating-ball runtime',
       runtimePreparing: 'The first launch downloads a ~124–150 MB runtime, then the ball appears on its own. If the download was interrupted or looks stuck, Download again picks it up from where it stopped.',
       whatsNew: {
@@ -939,6 +945,16 @@ window.__ModuleLoader__.load({
               (enabled) => {
                 if (enabled === snap.observationFrameEnabled) return
                 void mutate('/.dsh-agi/observation-frame', { enabled })
+              }),
+          }),
+          card({
+            icon: 'shield',
+            title: text.safeModeTitle,
+            description: text.safeModeDescription,
+            control: toggleHead(text, snap.safeMode === true, text.safeModeToggle, disabled,
+              (enabled) => {
+                if (enabled === snap.safeMode) return
+                void mutate('/.dsh-agi/safe-mode', { enabled })
               }),
           }),
           h(IdleCard, { text, snap, mutate }),
