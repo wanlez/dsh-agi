@@ -6,6 +6,13 @@ A floating-ball agent for DeepSeek Harness: voice input, persona cards, a knowle
 
 This is a fork of [dsh-orb](https://github.com/mini-yifan/dsh-orb-cordis) (MIT, by mini-yifan), renamed to `dsh-agi` and maintained independently.
 
+## Recent changes
+
+- **Activity pill**: blue "thinking", green "acting" (turns green about 0.35 s before a click or keystroke) and red "not working" for five seconds after a task ends, all inside the ball panel.
+- **Safe mode**: a switch in settings; while on, a yellow "safe mode on" chip stays beside the activity pill and any real key or pointer event stops the current task. Input injected by the ball itself is ignored. Stopping does not end the conversation.
+- **Automatic updates**: the settings page checks npm (npmmirror first) with GitHub as the fallback, shows a download progress bar, and on Windows opens a standalone updater window that finishes after DeepSeek Harness quits and starts it again.
+- **npm release**: `dsh-agi` is published on npm, so installs and updates can use `dsh plugin add dsh-agi`.
+
 ## Install
 
 Ordinary users install the release tarball; there is no npm package yet.
@@ -16,21 +23,17 @@ Ordinary users install the release tarball; there is no npm package yet.
 
 If npm is unreachable, fall back to the release tarball:
 
-```powershell
-& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add "https://github.com/wanlez/dsh-agi/releases/download/plugin-v0.5.11/dsh-agi-0.5.11.tgz"
-```
-
-In China pnpm resolves through the npmmirror mirror.
+In China pnpm resolves through the npmmirror mirror. If npm is unreachable, download the newest `.tgz` from [Releases](https://github.com/wanlez/dsh-agi/releases) and install it with `dsh plugin add "file:<path>"`.
 
 Then add `"dsh-agi"` to `dsh.profile.bundles` in `%USERPROFILE%\.dsh\profiles\desktop\package.json` and restart DeepSeek Harness.
 
-Since 0.5.6 the tarball ships the code and its runtime dependencies (koffi and friends), so an install never touches the npm registry; the Electron runtime and speech models still download on first use.
+The tarball ships the code and its runtime dependencies (koffi and friends), so an install never touches another registry; the Electron runtime and speech models still download on first use.
 
-### Install error: pnpm blocks koffi's build script (0.5.3 and older)
+### Install error: pnpm blocks koffi's build script
 
 DSH ships pnpm 11.x with `strictDepBuilds` enabled. Dependencies that declare an `install`/`postinstall` script are refused, so `dsh plugin add` exits with **code 1** when it reaches koffi. The package files are already extracted and koffi's win32-x64 prebuilt binary loads fine.
 
-**0.5.6 and newer bundle the runtime dependencies and drop `dependencies` from the manifest, so this no longer happens**; the workaround below only applies to the older tarballs.
+Current releases bundle the runtime dependencies and drop `dependencies` from the manifest, so this no longer happens; the workaround below only applies to the older tarballs.
 
 If that is the only problem, either:
 
@@ -67,7 +70,7 @@ This only controls whether the build script runs; it does not change what the pl
 
 ## Updates
 
-Settings → Floating ball → Check for updates. Since 0.5.6 the check asks **GitHub Releases** for the newest version (npm sources are dormant), and the upgrade installs the release tarball URL. Automatic checks are on by default, once a day.
+Settings → Floating ball → Check for updates. The check asks npm first (npmmirror, then npmjs) with GitHub Releases as the fallback; the upgrade prefers `dsh-agi@version` from npm and uses the release tarball when npm is unreachable. Automatic checks are on by default, once a day.
 
 ## Models
 

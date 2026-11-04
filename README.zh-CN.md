@@ -6,6 +6,13 @@ DeepSeek Harness 的悬浮球插件：语音输入、人设卡、经验库、截
 
 本项目基于 [dsh-orb](https://github.com/mini-yifan/dsh-orb-cordis)（MIT，作者 mini-yifan）修改，改名为 `dsh-agi` 并独立维护。
 
+## 最近更新
+
+- **状态提示**：悬浮球面板里显示三种状态——蓝点「大肥鱼正在思考」、绿点「大肥鱼正在操作」（点击/打字前约 0.35 秒变绿）、红点「大肥鱼不在工作」（结束后 5 秒隐藏）。
+- **安全模式**：设置里可开启，开启时面板上有黄色「安全模式已启用」常驻提示；任何真实键鼠操作都会立刻停止当前任务，大肥鱼自己注入的输入不会误触发。停止不结束会话，可以继续打字或语音。
+- **自动更新**：设置里检查更新走 npm（npmmirror 优先），GitHub 兜底；下载有进度条，Windows 上会打开一个独立的更新窗口，关闭 DSH 后自动完成安装并重新启动。
+- **npm 发布**：`dsh-agi` 已上架 npm，安装和更新可以直接用 `dsh plugin add dsh-agi`。
+
 ## 安装
 
 普通用户直接从 npm 安装：
@@ -16,21 +23,17 @@ DeepSeek Harness 的悬浮球插件：语音输入、人设卡、经验库、截
 
 npm 不可用时，可以退回 Release 的 tgz：
 
-```powershell
-& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add "https://github.com/wanlez/dsh-agi/releases/download/plugin-v0.5.11/dsh-agi-0.5.11.tgz"
-```
-
-国内网络会走 npmmirror 镜像。
+国内网络会走 npmmirror 镜像。如果 npm 不可用，到 [Releases](https://github.com/wanlez/dsh-agi/releases) 下载最新的 `.tgz`，再用 `dsh plugin add "file:<下载路径>"` 安装。
 
 然后在 `%USERPROFILE%\.dsh\profiles\desktop\package.json` 的 `dsh.profile.bundles` 里加入 `"dsh-agi"`，重启 DeepSeek Harness。
 
-从 0.5.6 起，Release 包内含代码和运行时依赖（koffi 等），安装不再访问 npm registry；Electron 运行时和语音模型仍在首次使用时下载。
+Release 包内含代码和运行时依赖（koffi 等），安装不需要访问其他 registry；Electron 运行时和语音模型仍在首次使用时下载。
 
-### 安装报错：koffi 的构建脚本被 pnpm 拦截（0.5.3 及更早的包）
+### 安装报错：koffi 的构建脚本被 pnpm 拦截
 
-DSH 自带的 pnpm（11.x）默认开启 `strictDepBuilds`，安装带有 `install`/`postinstall` 的依赖时会拒绝执行构建脚本。旧版 Release 包（0.5.3 及更早）在 manifest 里声明了 koffi，会命中这一条，`dsh plugin add` 以**退出码 1** 结束，但文件其实已经解压好，koffi 自带的 win32-x64 预编译也能正常加载。
+DSH 自带的 pnpm（11.x）默认开启 `strictDepBuilds`，安装带有 `install`/`postinstall` 的依赖时会拒绝执行构建脚本。早期 Release 包在 manifest 里声明过 koffi，会命中这一条，`dsh plugin add` 以**退出码 1** 结束，但文件其实已经解压好，koffi 自带的 win32-x64 预编译也能正常加载。
 
-**0.5.6 起已把运行时依赖打进包内并去掉 `dependencies`，不会再触发这个提示**；下面的处理只对旧包有效。
+当前 Release 已把运行时依赖打进包内并去掉 `dependencies`，不会再触发这个提示；下面的处理只对旧包有效。
 
 如果确认只是这个原因，任选一种处理：
 
@@ -67,7 +70,7 @@ DSH 自带的 pnpm（11.x）默认开启 `strictDepBuilds`，安装带有 `insta
 
 ## 更新
 
-设置 → 悬浮球 → 检查更新。0.5.6 起从 **GitHub Releases** 查询最新版本（npm 源暂未启用），安装也使用 Release 里的 tgz 地址。自动检查默认开启，每天一次。
+设置 → 悬浮球 → 检查更新。检查优先询问 npm（npmmirror → npmjs），GitHub Releases 作为兜底；安装优先使用 npm 的 `dsh-agi@版本`，npm 不可用时改用 Release 的 tgz。自动检查默认开启，每天一次。
 
 ## 模型
 
@@ -94,10 +97,10 @@ pnpm test
 Release 包用自定义打包脚本生成：它会把运行时依赖塞进包内、去掉 manifest 里的 `dependencies`，安装时不需要访问 registry，也就不会再触发 pnpm 的构建脚本拦截。
 
 ```powershell
-pnpm --filter dsh-agi pack -- --version 0.5.4
+pnpm --filter dsh-agi pack -- --version x.y.z
 ```
 
-注意：0.5.3 的包是早期用普通 `npm pack` 打的，manifest 里仍声明了依赖，所以会遇到上面的 koffi 提示；用这条命令重新打包即可消除。
+打包脚本会把运行时依赖放进包内并删掉 manifest 里的 `dependencies`，所以装的时候不会碰 registry，也不会触发 koffi 的构建脚本提示。
 
 ## 许可
 
