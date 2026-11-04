@@ -17,7 +17,7 @@ Ordinary users install the release tarball; there is no npm package yet.
 If npm is unreachable, fall back to the release tarball:
 
 ```powershell
-& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add "https://github.com/wanlez/dsh-agi/releases/download/plugin-v0.5.10/dsh-agi-0.5.10.tgz"
+& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add "https://github.com/wanlez/dsh-agi/releases/download/plugin-v0.5.11/dsh-agi-0.5.11.tgz"
 ```
 
 In China pnpm resolves through the npmmirror mirror.

@@ -17,7 +17,7 @@ DeepSeek Harness 的悬浮球插件：语音输入、人设卡、经验库、截
 npm 不可用时，可以退回 Release 的 tgz：
 
 ```powershell
-& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add "https://github.com/wanlez/dsh-agi/releases/download/plugin-v0.5.10/dsh-agi-0.5.10.tgz"
+& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add "https://github.com/wanlez/dsh-agi/releases/download/plugin-v0.5.11/dsh-agi-0.5.11.tgz"
 ```
 
 国内网络会走 npmmirror 镜像。
