@@ -35,7 +35,7 @@ jobs:
 
       - name: Pack
         run: |
-          pnpm --filter dsh-agi pack -- --version "${{ steps.version.outputs.version }}"
+          pnpm --filter dsh-agi run pack -- --version "${{ steps.version.outputs.version }}"
           ls -la dsh-agi-*.tgz
 
       - name: Create release
