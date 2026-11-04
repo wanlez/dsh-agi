@@ -105,6 +105,7 @@ window.__ModuleLoader__.load({
       updateChecking: '正在检查…',
       updateAuto: '自动检查更新',
       updateDownloading: '正在下载新版本… {percent}%',
+      updateUpToDate: '已是最新版本（{version}）',
       updateReady: '新版本已下载完成，更新窗口已打开；它会等你关闭 DeepSeek Harness 后自动安装，并在完成后重新启动它。',
       updateAutoDescription: '每天一次向 npm（npmmirror 优先，失败回退 npmjs）查询新版本，GitHub 作为兜底；不发送任何标识信息。',
       updateManual: '当前 Harness 没有提供插件管理服务，请在插件页手动更新。',
@@ -367,6 +368,7 @@ window.__ModuleLoader__.load({
       updateChecking: 'Checking…',
       updateAuto: 'Check for updates automatically',
       updateDownloading: 'Downloading the new version… {percent}%',
+      updateUpToDate: 'You are on the latest version ({version})',
       updateReady: 'The new version is downloaded and the update window is open. Quit DeepSeek Harness; the window installs it and starts DeepSeek Harness again automatically.',
       updateAutoDescription: 'Asks npm once a day (npmmirror first, then npmjs), with GitHub Releases as the fallback. Nothing identifying is sent.',
       updateManual: 'This Harness build ships no plugin manager — update from the Plugins page instead.',
@@ -1229,6 +1231,13 @@ window.__ModuleLoader__.load({
       if (update.available) {
         return h('p', { className: 'dsh-agi-set-banner', role: 'status' }, text.updateAvailable
           .replaceAll('{version}', update.latestVersion))
+      }
+      // A finished check with nothing newer is a result too: say so instead of showing an
+      // empty card where the button is the only thing that reacted.
+      if (update.checkedAt && !update.checking) {
+        return h('p', { className: 'dsh-agi-set-banner dsh-agi-set-update-current', role: 'status' },
+          h('span', { className: 'dsh-agi-set-update-dot', 'aria-hidden': 'true' }),
+          text.updateUpToDate.replaceAll('{version}', update.installedVersion || update.currentVersion))
       }
       return null
     }
@@ -2895,6 +2904,8 @@ window.__ModuleLoader__.load({
 /* Width, errors, notices */
 .dsh-agi-set-banner { color: color-mix(in srgb, currentColor 62%, transparent); }
 .dsh-agi-set-update-progress { margin-top: 10px; font-size: 12px; line-height: 1.5; }
+.dsh-agi-set-update-current { display: inline-flex; align-items: center; gap: 7px; }
+.dsh-agi-set-update-dot { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; }
 .dsh-agi-set-update-progress p { margin: 0 0 6px; color: color-mix(in srgb, currentColor 62%, transparent); }
 .dsh-agi-set-progress { height: 6px; border-radius: 999px; overflow: hidden; background: color-mix(in srgb, currentColor 14%, transparent); }
 .dsh-agi-set-progress span { display: block; height: 100%; border-radius: 999px; background: #3b82f6; transition: width 0.2s ease; }
