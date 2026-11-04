@@ -9,12 +9,35 @@ This is a fork of [dsh-orb](https://github.com/mini-yifan/dsh-orb-cordis) (MIT, 
 Ordinary users install the release tarball; there is no npm package yet.
 
 ```powershell
-& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add "https://github.com/wanlez/dsh-agi/releases/latest/download/dsh-agi-0.5.3.tgz"
+& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add "https://github.com/wanlez/dsh-agi/releases/download/plugin-v0.5.3/dsh-agi-0.5.3.tgz"
 ```
 
 Then add `"dsh-agi"` to `dsh.profile.bundles` in `%USERPROFILE%\.dsh\profiles\desktop\package.json` and restart DeepSeek Harness.
 
-The release tarball contains code only. The Electron runtime and the speech models download on first use.
+The release tarball contains the code; npm dependencies are fetched by pnpm during install (see the koffi note below), and the Electron runtime and speech models download on first use.
+
+### Install error: pnpm blocks koffi's build script
+
+DSH ships pnpm 11.x with `strictDepBuilds` enabled. Dependencies that declare an `install`/`postinstall` script are refused, so `dsh plugin add` exits with **code 1** when it reaches koffi. The package files are already extracted and koffi's win32-x64 prebuilt binary loads fine.
+
+If that is the only problem, either:
+
+1. Allow (or skip) koffi's build script in the profile's `pnpm-workspace.yaml`:
+
+   ```yaml
+   allowBuilds:
+     koffi: false
+   ```
+
+   Save it and run `dsh plugin add` again; the exit code should become 0.
+
+2. Or run the bundled installer, which writes that setting first:
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\install.ps1
+   ```
+
+This only controls whether the build script runs; it does not change what the plugin does, because koffi's prebuilt binary is shipped with the dependency.
 
 ## How to use
 

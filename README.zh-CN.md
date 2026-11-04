@@ -9,12 +9,35 @@ DeepSeek Harness 的悬浮球插件：语音输入、人设卡、经验库、截
 普通用户直接装 Release 里的安装包（目前还没有 npm 包）：
 
 ```powershell
-& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add "https://github.com/wanlez/dsh-agi/releases/latest/download/dsh-agi-0.5.3.tgz"
+& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add "https://github.com/wanlez/dsh-agi/releases/download/plugin-v0.5.3/dsh-agi-0.5.3.tgz"
 ```
 
 然后在 `%USERPROFILE%\.dsh\profiles\desktop\package.json` 的 `dsh.profile.bundles` 里加入 `"dsh-agi"`，重启 DeepSeek Harness。
 
-Release 包只有代码；Electron 运行时和语音模型在首次使用时下载。
+Release 包只含代码；npm 依赖在安装时由 pnpm 拉取（见下面的 koffi 说明）；Electron 运行时和语音模型在首次使用时下载。
+
+### 安装报错：koffi 的构建脚本被 pnpm 拦截
+
+DSH 自带的 pnpm（11.x）默认开启 `strictDepBuilds`，安装带有 `install`/`postinstall` 的依赖时会拒绝执行构建脚本。koffi 命中这一条，`dsh plugin add` 会以**退出码 1** 结束，但文件其实已经解压好，koffi 自带的 win32-x64 预编译也能正常加载。
+
+如果确认只是这个原因，任选一种处理：
+
+1. 在 profile 目录的 `pnpm-workspace.yaml` 里允许（或跳过）koffi 的构建：
+
+   ```yaml
+   allowBuilds:
+     koffi: false
+   ```
+
+   保存后重新执行 `dsh plugin add`，退出码应为 0。
+
+2. 或者直接用仓库里的安装脚本，它会先写好上面的配置再安装：
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\install.ps1
+   ```
+
+注意：这一步只影响构建脚本是否执行，不改变插件功能；koffi 的预编译二进制随依赖一起提供。
 
 ## 怎么用
 
@@ -43,6 +66,16 @@ pnpm install
 pnpm build    # 产物在 packages/bundle
 pnpm test
 ```
+
+## 发布（维护者）
+
+Release 包用自定义打包脚本生成：它会把运行时依赖塞进包内、去掉 manifest 里的 `dependencies`，安装时不需要访问 registry，也就不会再触发 pnpm 的构建脚本拦截。
+
+```powershell
+pnpm --filter dsh-agi pack -- --version 0.5.4
+```
+
+注意：0.5.3 的包是早期用普通 `npm pack` 打的，manifest 里仍声明了依赖，所以会遇到上面的 koffi 提示；用这条命令重新打包即可消除。
 
 ## 许可
 

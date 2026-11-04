@@ -1,6 +1,6 @@
 {
   "name": "dsh-agi",
-  "version": "0.2.0",
+  "version": "0.5.3",
   "type": "module",
   "description": "Installable Orb bundle. Inserts the Computer Use preset and the floating-ball host.",
   "keywords": [
@@ -12,13 +12,13 @@
     "floating-ball",
     "desktop"
   ],
-  "homepage": "https://github.com/mini-yifan/dsh-orb-cordis#readme",
+  "homepage": "https://github.com/wanlez/dsh-agi#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mini-yifan/dsh-orb-cordis.git"
+    "url": "git+https://github.com/wanlez/dsh-agi.git"
   },
   "bugs": {
-    "url": "https://github.com/mini-yifan/dsh-orb-cordis/issues"
+    "url": "https://github.com/wanlez/dsh-agi/issues"
   },
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
