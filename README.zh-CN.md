@@ -8,11 +8,19 @@ DeepSeek Harness 的悬浮球插件：语音输入、人设卡、经验库、截
 
 ## 安装
 
-普通用户直接装 Release 里的安装包（目前还没有 npm 包）：
+普通用户直接从 npm 安装：
 
 ```powershell
-& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add "https://github.com/wanlez/dsh-agi/releases/download/plugin-v0.5.7/dsh-agi-0.5.7.tgz"
+& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add dsh-agi
 ```
+
+npm 不可用时，可以退回 Release 的 tgz：
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add "https://github.com/wanlez/dsh-agi/releases/download/plugin-v0.5.8/dsh-agi-0.5.8.tgz"
+```
+
+国内网络会走 npmmirror 镜像。
 
 然后在 `%USERPROFILE%\.dsh\profiles\desktop\package.json` 的 `dsh.profile.bundles` 里加入 `"dsh-agi"`，重启 DeepSeek Harness。
 

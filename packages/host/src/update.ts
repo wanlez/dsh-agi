@@ -1,9 +1,9 @@
 /**
  * Update check and one-click upgrade for the installed bundle.
- * The check asks the repository's GitHub Releases first, because this package is
- * published there and not on npm. The registry probes stay in the code but only
- * run when GitHub is unreachable. The upgrade installs the release tarball URL
- * through the official plugin manager.
+ * The check asks the npm registries first (npmmirror, then npmjs): the package is
+ * published there, the mirrors answer fast in China, and `name@version` carries the
+ * registry's `dist.integrity`. GitHub Releases is the fallback for a version the
+ * registry has not mirrored yet; that path installs the release tarball URL.
  */
 
 import { spawn } from 'node:child_process'
@@ -363,7 +363,7 @@ export class UpdateChecker {
       // keep describing an attempt that has already been retried.
       this.store.setUpdateRecord({ lastError: '' })
       exemptReleaseAge(this.store.dir, name)
-      const spec = installSpec(version, name)
+      const spec = installSpecForSource(this.source, version, name)
       const registry = installRegistry(this.source)
       if (this.lockedImages().length > 0) {
         this.deferUntilExit(version, spec, registry, approvedBuilds ?? [])
@@ -608,11 +608,9 @@ export class UpdateChecker {
     const forced = process.env.DSH_AGI_UPDATE_LATEST?.trim()
     if (forced !== undefined && forced !== '') return forced
     this.source = undefined
-    // The GitHub release is the source of truth while this package is not on npm.
-    // The registry probe stays below, dormant, for the day it is published there.
-    const release = await curlText(`${apiBase()}/releases/latest`)
-    // A reachable GitHub answers for this project: a release version, or a real "none yet".
-    if (release !== undefined) return versionFromRelease(release) ?? null
+    // npm first: npmmirror answers in milliseconds and the tarball resolves through
+    // the registry, so the upgrade keeps `dist.integrity`. GitHub Releases is the
+    // fallback for a version the registry has not mirrored yet.
     for (const base of registryBases()) {
       const body = await curlText(`${base}/${own.name}/latest`)
       // `undefined` is a transfer failure, `''` is this source's 404: neither says anything
@@ -626,9 +624,12 @@ export class UpdateChecker {
       this.source = base
       return version
     }
-    // GitHub was unreachable and no mirror knew the package: a network failure.
-    return undefined
+    const body = await curlText(`${apiBase()}/releases/latest`)
+    // GitHub unreachable stays a network failure; its own 404 is a real "no release".
+    if (body === undefined) return undefined
+    return versionFromRelease(body) ?? null
   }
+
 }
 
 /** The API base the check asks; `DSH_AGI_UPDATE_API` re-points it (tests, mirrors). */
@@ -692,6 +693,20 @@ export function installSpec(version: string, name: string): string {
   const overridden = process.env.DSH_AGI_UPDATE_URL?.trim()
   if (overridden !== undefined && overridden !== '') return overridden
   return exactSpec(version, name)
+}
+
+/**
+ * The install spec for a check result. A registry that answered the check gives the
+ * `name@version` spec (so pnpm reads `dist.integrity`); when only GitHub answered,
+ * the release tarball URL is the only address that exists.
+ * @param source - registry base that answered, or undefined for the GitHub fallback.
+ * @param version - version the check found.
+ * @param name - package name.
+ */
+export function installSpecForSource(source: string | undefined, version: string, name: string): string {
+  const overridden = process.env.DSH_AGI_UPDATE_URL?.trim()
+  if (overridden !== undefined && overridden !== '') return overridden
+  return source === undefined ? releaseTarballUrl(version) : exactSpec(version, name)
 }
 
 /**
