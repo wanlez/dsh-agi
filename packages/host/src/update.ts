@@ -7,8 +7,8 @@
  */
 
 import { spawn } from 'node:child_process'
-import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { deferredInstallInProgress, pendingDeferredInstall, scheduleInstallAfterExit, takeDeferredOutcome, type DeferredInstall } from './deferred-install.ts'
 import { mappedImages, ownPackageRoot } from './native-images.ts'
 import type { ProfileStore } from './preferences.ts'
@@ -43,6 +43,8 @@ export const EMPTY_UPDATE_STATE: UpdateState = {
   autoCheck: false,
   checkedAt: null,
   restartRequired: false,
+  phase: 'idle',
+  progress: 0,
   deferred: false,
   installing: false,
   error: null,
@@ -62,6 +64,10 @@ export interface UpdateState {
   autoCheck: boolean
   checkedAt: number | null
   restartRequired: boolean
+  /** Download progress shown before the app quits. */
+  phase: 'idle' | 'downloading' | 'ready'
+  /** 0-100 while {@link phase} is `downloading`. */
+  progress: number
   /** The update waits for the app to quit: a loaded native file blocks replacing the package now. */
   deferred: boolean
   /** The after-exit script is installing right now; the page says to wait, not to reopen. */
@@ -187,6 +193,9 @@ export class UpdateChecker {
   private deferred: string | null = null
   /** The after-exit script is running right now (its status file says so). */
   private installing = false
+  /** Local download step shown in the settings page before the app quits. */
+  private phase: 'idle' | 'downloading' | 'ready' = 'idle'
+  private progress = 0
   private timer: ReturnType<typeof setTimeout> | undefined
   private interval: ReturnType<typeof setInterval> | undefined
   /** The registry base that answered the last check; GitHub is the fallback when none did. */
@@ -256,6 +265,8 @@ export class UpdateChecker {
       autoCheck: this.store.updateRecord().autoCheck,
       checkedAt: this.store.updateRecord().checkedAt || null,
       restartRequired: this.restartRequired,
+      phase: this.phase,
+      progress: this.progress,
       deferred: this.deferredPending(),
       installing,
       error: this.error,
@@ -330,6 +341,111 @@ export class UpdateChecker {
   }
 
   /**
+   * Download the release tarball and open a console window that replaces the package
+   * after DeepSeek Harness exits. The window is started through Explorer, so it is not a
+   * child of this process and survives the quit that the install waits for.
+   * @param version - version to install.
+   * @param name - package name.
+   * @returns true when the window is open and the settings page can hand over.
+   */
+  private async prepareUpdater(version: string, name: string): Promise<boolean> {
+    const dir = join(this.store.dir, '.dsh-agi-update')
+    const target = join(dir, `${name}-${version}.tgz`)
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch (error) {
+      console.error(`dsh-agi: could not create the update folder: ${error instanceof Error ? error.message : String(error)}`)
+      return false
+    }
+    const registry = installRegistry(this.source)
+    const urls = [
+      `${registry.replace(/\/+$/, '')}/${name}/-/${name}-${version}.tgz`,
+      releaseTarballUrl(version),
+    ]
+    let downloaded = false
+    for (const url of urls) {
+      try {
+        await this.downloadTo(url, target)
+        downloaded = true
+        break
+      } catch (error) {
+        console.error(`dsh-agi: update download failed (${url}): ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+    if (!downloaded) return false
+    const cmd = this.writeUpdaterCommand(dir, target, version)
+    if (cmd === undefined) return false
+    try {
+      spawn('explorer.exe', [cmd], { detached: true, stdio: 'ignore' }).unref()
+      return true
+    } catch (error) {
+      console.error(`dsh-agi: could not open the updater window: ${error instanceof Error ? error.message : String(error)}`)
+      return false
+    }
+  }
+
+  /** Stream one tarball to disk, reporting percent through {@link progress}. */
+  private async downloadTo(url: string, target: string): Promise<void> {
+    const response = await fetch(url)
+    if (!response.ok || response.body === null) throw new Error(`HTTP ${response.status}`)
+    const total = Number(response.headers.get('content-length') ?? 0)
+    const out = createWriteStream(target)
+    let received = 0
+    try {
+      for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
+        out.write(chunk)
+        received += chunk.byteLength
+        this.progress = total > 0
+          ? Math.min(99, Math.round((received / total) * 100))
+          : Math.min(99, this.progress + 1)
+      }
+      await new Promise<void>((resolve, reject) => {
+        out.end((error?: Error | null) => { error ? reject(error) : resolve() })
+      })
+    } catch (error) {
+      out.destroy()
+      throw error
+    }
+  }
+
+  /** Write the visible updater script: wait for the app to quit, then pnpm add the file. */
+  private writeUpdaterCommand(dir: string, tarball: string, version: string): string | undefined {
+    try {
+      const exe = process.execPath
+      const support = join(dirname(exe), 'resources', 'runtime')
+      const pnpm = [
+        join(support, 'primary-runtime', 'dependencies', 'pnpm', 'dist', 'pnpm.mjs'),
+        join(support, 'pnpm', 'bin', 'pnpm.mjs'),
+      ].find((candidate) => existsSync(candidate))
+      if (pnpm === undefined) return undefined
+      const cmdPath = join(dir, 'update.cmd')
+      const spec = `file:${tarball.replaceAll(String.fromCharCode(92), '/')}`
+      const lines = [
+        '@echo off',
+        'title dsh-agi update',
+        `cd /d "${this.store.dir}"`,
+        'echo Waiting for DeepSeek Harness to close...',
+        ':wait',
+        'tasklist /FI "IMAGENAME eq DeepSeek Harness.exe" /NH | find /I "DeepSeek Harness.exe" >nul',
+        'if not errorlevel 1 (timeout /t 2 /nobreak >nul & goto wait)',
+        `echo Installing dsh-agi ${version} from the downloaded tarball...`,
+        'set ELECTRON_RUN_AS_NODE=1',
+        `"${exe}" --expose-internals "${pnpm}" add "${spec}" --registry=https://registry.npmmirror.com`,
+        'set code=%ERRORLEVEL%',
+        'set ELECTRON_RUN_AS_NODE=',
+        'echo.',
+        'if "%code%"=="0" (echo Update finished. Open DeepSeek Harness now.) else (echo Update failed with exit code %code%. See the messages above.)',
+        'pause',
+      ]
+      writeFileSync(cmdPath, `${lines.join('\r\n')}\r\n`)
+      return cmdPath
+    } catch (error) {
+      console.error(`dsh-agi: could not write the updater script: ${error instanceof Error ? error.message : String(error)}`)
+      return undefined
+    }
+  }
+
+  /**
    * Install the version the check found through the official plugin manager.
    * The spec is `name@version` and the registry is the one that answered the
    * check, so pnpm resolves registry metadata — including `dist.integrity` —
@@ -358,6 +474,18 @@ export class UpdateChecker {
     const name = this.own.name
     const previous = this.own.version
     try {
+      // Preferred path: fetch the tarball here so the page can show a progress bar,
+      // then open a console window that performs the replace after the app quits.
+      this.phase = 'downloading'
+      this.progress = 0
+      if (await this.prepareUpdater(version, name)) {
+        this.phase = 'ready'
+        this.progress = 100
+        this.updating = false
+        return
+      }
+      this.phase = 'idle'
+
       // Drop a failure the previous attempt left. The next page is either this
       // process or the build the install is about to load, and neither should
       // keep describing an attempt that has already been retried.

@@ -104,7 +104,9 @@ window.__ModuleLoader__.load({
       updateCheck: '检查更新',
       updateChecking: '正在检查…',
       updateAuto: '自动检查更新',
-      updateAutoDescription: '每天一次向 GitHub Releases 查询新版本（npm 源暂未启用），不发送任何标识信息。',
+      updateDownloading: '正在下载新版本… {percent}%',
+      updateReady: '新版本已下载完成，更新窗口已打开：请关闭 DeepSeek Harness，等窗口提示完成后再打开。',
+      updateAutoDescription: '每天一次向 npm（npmmirror 优先，失败回退 npmjs）查询新版本，GitHub 作为兜底；不发送任何标识信息。',
       updateManual: '当前 Harness 没有提供插件管理服务，请在插件页手动更新。',
       knowledgeTitle: '经验库',
       knowledgeDescription: '把你不熟悉的系统怎么操作，写成 md 放进来。悬浮球遇到不熟的界面时会先读这些笔记再动手；关掉后它不会去读。',
@@ -364,7 +366,9 @@ window.__ModuleLoader__.load({
       updateCheck: 'Check for updates',
       updateChecking: 'Checking…',
       updateAuto: 'Check for updates automatically',
-      updateAutoDescription: 'Asks GitHub Releases once a day for the newest version (npm sources are not used yet). Nothing identifying is sent.',
+      updateDownloading: 'Downloading the new version… {percent}%',
+      updateReady: 'The new version is downloaded and the update window is open. Quit DeepSeek Harness, wait for the window to say it is done, then open it again.',
+      updateAutoDescription: 'Asks npm once a day (npmmirror first, then npmjs), with GitHub Releases as the fallback. Nothing identifying is sent.',
       updateManual: 'This Harness build ships no plugin manager — update from the Plugins page instead.',
       knowledgeTitle: 'Playbooks',
       knowledgeDescription: 'Drop markdown notes about systems you know here. The ball reads the relevant one before operating an unfamiliar screen; turn it off to stop that.',
@@ -776,6 +780,15 @@ window.__ModuleLoader__.load({
         return () => { clearInterval(timer) }
       }, [installing])
 
+      // The download step reports percent through the update state; poll faster so the
+      // bar moves instead of jumping only when the next two-second tick lands.
+      const downloading = state.snapshot?.update?.phase === 'downloading'
+      React.useEffect(() => {
+        if (!downloading) return undefined
+        const timer = setInterval(() => { void refreshUpdate() }, 800)
+        return () => { clearInterval(timer) }
+      }, [downloading])
+
       // The first launch prepares the helper runtime inside the host; poll until
       // the ball lands or the failure surfaces, so the waiting line tracks it.
       const preparing = typeof state.snapshot?.helperPhase === 'string' && state.snapshot.helperPhase !== ''
@@ -1173,6 +1186,16 @@ window.__ModuleLoader__.load({
     }
 
     function updateNotice(text, snap, update) {
+      if (update.phase === 'downloading') {
+        const percent = Math.max(0, Math.min(100, Number(update.progress) || 0))
+        return h('div', { className: 'dsh-agi-set-update-progress', role: 'status' },
+          h('p', null, text.updateDownloading.replaceAll('{percent}', String(percent))),
+          h('div', { className: 'dsh-agi-set-progress' },
+            h('span', { style: { width: `${percent}%` } })))
+      }
+      if (update.phase === 'ready') {
+        return h('p', { className: 'dsh-agi-set-banner', role: 'status' }, text.updateReady)
+      }
       if (update.updating) {
         return h('p', { className: 'dsh-agi-set-banner', role: 'status' }, text.updating.replaceAll('{version}', update.latestVersion || update.installedVersion))
       }
@@ -2871,6 +2894,10 @@ window.__ModuleLoader__.load({
 
 /* Width, errors, notices */
 .dsh-agi-set-banner { color: color-mix(in srgb, currentColor 62%, transparent); }
+.dsh-agi-set-update-progress { margin-top: 10px; font-size: 12px; line-height: 1.5; }
+.dsh-agi-set-update-progress p { margin: 0 0 6px; color: color-mix(in srgb, currentColor 62%, transparent); }
+.dsh-agi-set-progress { height: 6px; border-radius: 999px; overflow: hidden; background: color-mix(in srgb, currentColor 14%, transparent); }
+.dsh-agi-set-progress span { display: block; height: 100%; border-radius: 999px; background: #3b82f6; transition: width 0.2s ease; }
 .dsh-agi-set-card > .dsh-agi-set-banner { display: flex; align-items: center; gap: 7px; font-size: 12px; line-height: 1.5; }
 .dsh-agi-set > .dsh-agi-set-banner { display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border: 1px solid color-mix(in srgb, currentColor 10%, transparent); border-radius: 10px; background: color-mix(in srgb, currentColor 2.5%, transparent); font-size: 12.5px; }
 .dsh-agi-set > .dsh-agi-set-banner::before { content: ''; flex: none; width: 6px; height: 6px; margin-top: 6px; border-radius: 50%; background: color-mix(in srgb, currentColor 38%, transparent); }

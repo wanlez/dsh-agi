@@ -150,10 +150,9 @@ export function deferredInstallInProgress(profileDir: string): boolean {
     status = undefined
   }
   if (scriptAlive(Number(status?.pid))) return true
-  const started = Number(status?.startedAt)
-  if (Number.isFinite(started) && Date.now() - started <= DEFERRED_INSTALL_CEILING_MS) return true
-  // The script died before writing an outcome and its ceiling has passed: collect the
-  // leftover as a failure, or every later start would wait for it again.
+  // The status file is written by the script itself, so a dead pid means the script was
+  // killed before pnpm finished and no outcome will ever arrive. Collect it now instead of
+  // holding the plugin back for the ceiling: a killed updater must not hide the ball.
   try {
     rmSync(join(dir, 'status.json'), { force: true })
   } catch (error) {
