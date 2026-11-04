@@ -6,7 +6,7 @@
  * registry has not mirrored yet; that path installs the release tarball URL.
  */
 
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { deferredInstallInProgress, pendingDeferredInstall, scheduleInstallAfterExit, takeDeferredOutcome, type DeferredInstall } from './deferred-install.ts'
@@ -375,11 +375,46 @@ export class UpdateChecker {
     if (!downloaded) return false
     const cmd = this.writeUpdaterCommand(dir, target, version)
     if (cmd === undefined) return false
+    if (this.scheduleUpdaterTask(cmd, version)) return true
+    // Task Scheduler refused (policy, admin rights): Explorer still starts the script in a
+    // window whose lifetime does not follow this process.
     try {
       spawn('explorer.exe', [cmd], { detached: true, stdio: 'ignore' }).unref()
       return true
     } catch (error) {
       console.error(`dsh-agi: could not open the updater window: ${error instanceof Error ? error.message : String(error)}`)
+      return false
+    }
+  }
+
+  /**
+   * Register the updater as a one-shot scheduled task and run it. Task Scheduler owns the
+   * process, so quitting DeepSeek Harness cannot kill the install. The task passes a visible
+   * console (`start ... cmd /k`) so the user watches the log; the script deletes the task
+   * when it finishes.
+   * @param cmdPath - generated updater script.
+   * @param version - version being installed, used in the task name.
+   * @returns true when the task was created and started.
+   */
+  private scheduleUpdaterTask(cmdPath: string, version: string): boolean {
+    const taskName = `dsh-agi-update-${version}`
+    const action = `cmd.exe /c start "dsh-agi update" cmd /k "${cmdPath}"`
+    try {
+      const create = spawnSync('schtasks.exe', [
+        '/Create', '/F', '/SC', 'ONCE', '/ST', '23:59',
+        '/TN', taskName, '/TR', action,
+      ], { windowsHide: true })
+      const created = create.status === 0
+      if (!created) {
+        console.error('dsh-agi: could not create the updater scheduled task')
+        return false
+      }
+      const run = spawnSync('schtasks.exe', ['/Run', '/TN', taskName], { windowsHide: true })
+      const started = run.status === 0
+      if (!started) console.error('dsh-agi: could not start the updater scheduled task')
+      return started
+    } catch (error) {
+      console.error(`dsh-agi: scheduled updater failed: ${error instanceof Error ? error.message : String(error)}`)
       return false
     }
   }
@@ -408,7 +443,7 @@ export class UpdateChecker {
     }
   }
 
-  /** Write the visible updater script: wait for the app to quit, then pnpm add the file. */
+  /** Write the visible updater script: wait for the app to quit, install, relaunch it. */
   private writeUpdaterCommand(dir: string, tarball: string, version: string): string | undefined {
     try {
       const exe = process.execPath
@@ -420,24 +455,34 @@ export class UpdateChecker {
       if (pnpm === undefined) return undefined
       const cmdPath = join(dir, 'update.cmd')
       const spec = `file:${tarball.replaceAll(String.fromCharCode(92), '/')}`
+      const taskName = `dsh-agi-update-${version}`
       const lines = [
         '@echo off',
-        'title dsh-agi update',
+        `title dsh-agi update ${version}`,
         `cd /d "${this.store.dir}"`,
         'echo Waiting for DeepSeek Harness to close...',
         ':wait',
         'tasklist /FI "IMAGENAME eq DeepSeek Harness.exe" /NH | find /I "DeepSeek Harness.exe" >nul',
         'if not errorlevel 1 (timeout /t 2 /nobreak >nul & goto wait)',
-        `echo Installing dsh-agi ${version} from the downloaded tarball...`,
+        `echo Installing dsh-agi ${version}...`,
         'set ELECTRON_RUN_AS_NODE=1',
         `"${exe}" --expose-internals "${pnpm}" add "${spec}" --registry=https://registry.npmmirror.com`,
         'set code=%ERRORLEVEL%',
         'set ELECTRON_RUN_AS_NODE=',
+        `schtasks /Delete /TN "${taskName}" /F >nul 2>&1`,
+        'if not "%code%"=="0" goto failed',
         'echo.',
-        'if "%code%"=="0" (echo Update finished. Open DeepSeek Harness now.) else (echo Update failed with exit code %code%. See the messages above.)',
+        'echo Update finished. Starting DeepSeek Harness...',
+        'timeout /t 3 /nobreak >nul',
+        `start "" "${exe}"`,
+        'exit /b 0',
+        ':failed',
+        'echo.',
+        'echo Update failed with exit code %code%. Check the messages above.',
         'pause',
+        'exit /b 1',
       ]
-      writeFileSync(cmdPath, `${lines.join('\r\n')}\r\n`)
+      writeFileSync(cmdPath, `${lines.join(String.fromCharCode(13, 10))}${String.fromCharCode(13, 10)}`)
       return cmdPath
     } catch (error) {
       console.error(`dsh-agi: could not write the updater script: ${error instanceof Error ? error.message : String(error)}`)
