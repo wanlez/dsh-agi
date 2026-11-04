@@ -1,7 +1,7 @@
 # Install dsh-agi into a DeepSeek Harness profile.
 # Writes the koffi allowBuilds setting first, then runs the plugin add command.
 param(
-    [string]$Version = '0.5.9',
+    [string]$Version = '0.5.10',
     [string]$Profile = 'desktop',
     [switch]$DryRun
 )
