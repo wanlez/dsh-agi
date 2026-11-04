@@ -1,6 +1,6 @@
 {
   "name": "dsh-agi",
-  "version": "0.5.12",
+  "version": "0.5.13",
   "type": "module",
   "description": "Installable Orb bundle. Inserts the Computer Use preset and the floating-ball host.",
   "keywords": [
