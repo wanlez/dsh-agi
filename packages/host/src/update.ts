@@ -610,6 +610,11 @@ export class UpdateChecker {
     const forced = process.env.DSH_AGI_UPDATE_LATEST?.trim()
     if (forced !== undefined && forced !== '') return forced
     this.source = undefined
+    // The GitHub release is the source of truth while this package is not on npm.
+    // The registry probe stays below, dormant, for the day it is published there.
+    const release = await curlText(`${apiBase()}/releases/latest`)
+    // A reachable GitHub answers for this project: a release version, or a real "none yet".
+    if (release !== undefined) return versionFromRelease(release) ?? null
     for (const base of registryBases()) {
       const body = await curlText(`${base}/${own.name}/latest`)
       // `undefined` is a transfer failure, `''` is this source's 404: neither says anything
@@ -623,10 +628,8 @@ export class UpdateChecker {
       this.source = base
       return version
     }
-    const body = await curlText(`${apiBase()}/releases/latest`)
-    // GitHub unreachable stays a network failure; its own 404 is a real "no release".
-    if (body === undefined) return undefined
-    return versionFromRelease(body) ?? null
+    // GitHub was unreachable and no mirror knew the package: a network failure.
+    return undefined
   }
 }
 
