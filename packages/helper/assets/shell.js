@@ -36,6 +36,7 @@ const zh = {
   phaseThinking: '大肥鱼正在思考',
   phaseActing: '大肥鱼正在操作',
   phaseStopped: '大肥鱼不在工作',
+  safeModeOn: '安全模式已启用',
   untitled: '未命名对话',
   placeholder: '向桌面 agent 发送消息…',
   accessReadOnly: '仅可查看',
@@ -95,6 +96,7 @@ const en = {
   phaseThinking: 'The ball is thinking',
   phaseActing: 'The ball is acting',
   phaseStopped: 'The ball is idle',
+  safeModeOn: 'Safe mode on',
   untitled: 'Untitled',
   placeholder: 'Ask the desktop agent…',
   accessReadOnly: 'Read Only',
@@ -284,6 +286,8 @@ const composerImages = []
   const phase = document.querySelector('#phase')
   const phaseDot = document.querySelector('#phase-dot')
   const phaseText = document.querySelector('#phase-text')
+  const safeChip = document.querySelector('#safe-chip')
+  const safeText = document.querySelector('#safe-text')
   const prompt = document.querySelector('#prompt')
 if (prompt) prompt.addEventListener('input', () => { api.voiceArm(false) })
   const composer = document.querySelector('#composer')
@@ -2687,6 +2691,15 @@ let expandedAt = 0
   }
   if (phase !== null) phase.hidden = true
   api.onPhase((value) => { setPhase(value) })
+
+  /** The safe-mode chip is independent of the activity pill: on means it stays up. */
+  function setSafeModeChip(enabled) {
+    if (safeChip === null) return
+    safeChip.hidden = enabled !== true
+    if (safeText !== null) safeText.textContent = messages.safeModeOn
+  }
+  if (safeChip !== null) safeChip.hidden = true
+  api.onSafeMode((enabled) => { setSafeModeChip(enabled === true) })
   api.onTurn((turn) => { stage({ type: 'turn', ...(turn ?? {}) }) })
   api.onSession((id) => { sessionId = typeof id === 'string' ? id : '' })
   api.onHistory((items) => {

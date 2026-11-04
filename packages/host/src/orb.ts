@@ -943,6 +943,7 @@ export class OrbRuntime {
     }
     imageDebug(`accept state turn=${this.turnRunning} hold=${this.voice.holdState()} speech=${this.voice.speaking()} mode=${this.voice.listenMode()}`)
     this.send(socket, { type: 'turn', running: this.turnRunning })
+    this.send(socket, { type: 'safe-mode', enabled: this.store.safeMode() })
     // A closing line or a queued question prompt may still be playing from before a page
     // reload. The page starts with no hold, so say what the current speaker wants.
     this.send(socket, { type: 'voice-hold', hold: this.voice.holdState() })
@@ -1907,6 +1908,7 @@ export class OrbRuntime {
   async setSafeMode(enabled: boolean): Promise<void> {
     this.store.setSafeMode(enabled)
     this.syncSafeMode()
+    this.broadcast({ type: 'safe-mode', enabled })
     await this.publishChrome()
   }
 

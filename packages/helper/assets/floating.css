@@ -626,13 +626,22 @@ body.expand-up #transcript {
   color: var(--pin);
 }
 
+/* The status row holds the activity pill and the safe-mode chip side by side. */
+#status-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0 0;
+}
+
 /* Activity pill: the ball's own state while a task runs. Hidden when nothing is running. */
 #phase {
   display: flex;
   align-items: center;
   gap: 8px;
   width: fit-content;
-  margin: 6px 0 0;
+  margin: 0;
   padding: 6px 12px;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -656,6 +665,28 @@ body.expand-up #transcript {
 @keyframes phase-pulse {
   0%, 100% { transform: scale(1); opacity: 1; }
   50% { transform: scale(1.25); opacity: 0.75; }
+}
+
+/* Safe-mode chip: stays up the whole time the switch is on, next to the activity pill. */
+#safe-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  padding: 6px 12px;
+  border: 1px solid color-mix(in srgb, #f59e0b 35%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, #f59e0b 10%, var(--white));
+  font-size: 12px;
+  color: var(--pin);
+}
+
+#safe-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #f59e0b;
 }
 
 /* One inline notice for a locked control: over the panel's top edge, where the two conversation

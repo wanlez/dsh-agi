@@ -456,6 +456,10 @@ function deliver(message: unknown): void {
     win.webContents.send('orb:phase', (record as { phase?: unknown }).phase)
     return
   }
+  if (record.type === 'safe-mode') {
+    win.webContents.send('orb:safe-mode', (record as { enabled?: unknown }).enabled === true)
+    return
+  }
   if (record.type === 'status') {
     win.webContents.send('orb:status', (record as { text?: unknown }).text)
     return
