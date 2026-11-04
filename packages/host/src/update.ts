@@ -456,6 +456,8 @@ export class UpdateChecker {
       const cmdPath = join(dir, 'update.cmd')
       const spec = `file:${tarball.replaceAll(String.fromCharCode(92), '/')}`
       const taskName = `dsh-agi-update-${version}`
+      const restore = join(dir, 'restore-bundles.mjs')
+      writeFileSync(restore, RESTORE_BUNDLES_SCRIPT)
       const lines = [
         '@echo off',
         `title dsh-agi update ${version}`,
@@ -466,8 +468,10 @@ export class UpdateChecker {
         'if not errorlevel 1 (timeout /t 2 /nobreak >nul & goto wait)',
         `echo Installing dsh-agi ${version}...`,
         'set ELECTRON_RUN_AS_NODE=1',
+        `copy /Y "${join(this.store.dir, 'package.json')}" "${join(dir, 'package.json.before')}" >nul`,
         `"${exe}" --expose-internals "${pnpm}" add "${spec}" --registry=https://registry.npmmirror.com`,
         'set code=%ERRORLEVEL%',
+        `"${exe}" "${restore}" "${this.store.dir}" >> "${join(dir, 'update.log')}" 2>&1`,
         'set ELECTRON_RUN_AS_NODE=',
         `schtasks /Delete /TN "${taskName}" /F >nul 2>&1`,
         'if not "%code%"=="0" goto failed',
@@ -909,6 +913,29 @@ function exactSpec(version: string, name: string): string {
 export function installRegistry(source: string | undefined): string {
   return source ?? REGISTRY_BASES[0] ?? 'https://registry.npmmirror.com'
 }
+
+/**
+ * After the package manager runs, put back any bundle entry that was in the manifest before
+ * the update. A pnpm reconcile once dropped the third-party bundles from `dsh.profile.bundles`
+ * and left the profile loading only the two core bundles; the updater must never ship that.
+ */
+const RESTORE_BUNDLES_SCRIPT = `import { readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+const profile = process.argv[2]
+const read = (file) => JSON.parse(readFileSync(file, 'utf8'))
+const before = read(join(profile, '.dsh-agi-update', 'package.json.before'))
+const current = read(join(profile, 'package.json'))
+const list = (value) => (Array.isArray(value) ? value.filter((item) => typeof item === 'string') : [])
+const oldBundles = list(before?.dsh?.profile?.bundles)
+const newBundles = list(current?.dsh?.profile?.bundles)
+const merged = [...new Set([...newBundles, ...oldBundles])]
+current.dsh = current.dsh ?? {}
+current.dsh.profile = current.dsh.profile ?? {}
+current.dsh.profile.bundles = merged
+writeFileSync(join(profile, 'package.json'), JSON.stringify(current, null, 2) + String.fromCharCode(10))
+console.log('bundles: ' + merged.join(', '))
+`
 
 /**
  * Text for a failed install. A specific manager code (incompatible version,
