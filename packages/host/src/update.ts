@@ -608,27 +608,36 @@ export class UpdateChecker {
     const forced = process.env.DSH_AGI_UPDATE_LATEST?.trim()
     if (forced !== undefined && forced !== '') return forced
     this.source = undefined
-    // npm first: npmmirror answers in milliseconds and the tarball resolves through
-    // the registry, so the upgrade keeps `dist.integrity`. GitHub Releases is the
-    // fallback for a version the registry has not mirrored yet.
+    // Ask the registries and GitHub, then take the higher version. npm is primary
+    // (npmmirror answers fast and carries dist.integrity), but a new npm package
+    // sits behind a staged-review placeholder (`0.0.0-stage`) until npm approves it;
+    // that placeholder must never mask the real release on GitHub.
+    let registryVersion: string | undefined
+    let registryBase: string | undefined
     for (const base of registryBases()) {
       const body = await curlText(`${base}/${own.name}/latest`)
       // `undefined` is a transfer failure, `''` is this source's 404: neither says anything
       // about whether the package exists, so the next source decides.
       if (body === undefined || body === '') continue
       const version = versionFromRegistry(body)
-      // A 2xx without a parseable version is not an answer either. Only a version ends the
-      // scan: an unreadable mirror must never stand in for "no release published", or a
-      // broken answer would clear the network error and restart the quiet period.
+      // A 2xx without a parseable version is not an answer either.
       if (version === undefined) continue
-      this.source = base
-      return version
+      registryVersion = version
+      registryBase = base
+      break
     }
-    const body = await curlText(`${apiBase()}/releases/latest`)
-    // GitHub unreachable stays a network failure; its own 404 is a real "no release".
-    if (body === undefined) return undefined
-    return versionFromRelease(body) ?? null
+    const release = await curlText(`${apiBase()}/releases/latest`)
+    // `null` is GitHub reachable without a release; `undefined` is a transfer failure.
+    const githubVersion = release === undefined ? undefined : versionFromRelease(release) ?? null
+    if (registryVersion !== undefined
+      && (githubVersion === undefined || githubVersion === null || compareVersions(registryVersion, githubVersion) >= 0)) {
+      this.source = registryBase
+      return registryVersion
+    }
+    if (githubVersion === undefined) return registryVersion
+    return githubVersion
   }
+
 
 }
 
