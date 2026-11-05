@@ -142,6 +142,17 @@ export function apply(ctx: OrbContext, config: { autoStart?: boolean } = {}): vo
           source: { kind: 'computer-use', form: 'notice', summary: 'Persona card' },
         })
       }
+      if (sessionId !== undefined && sessionId === runtime.currentSessionId() && store.mode() === 'knowledge') {
+        extras.push({
+          role: 'user',
+          id: randomUUID(),
+          content: [{
+            type: 'text',
+            text: '【知识库模式·本轮规则】只检索经验库，针对用户的问题给出对应流程的方法论，然后用清晰、简洁、口语化的方式直接回答。不要调用 computer use 工具，不要操作键盘鼠标、点击界面或打开应用；需要细节时读取经验库里的说明和截图描述即可。',
+          }],
+          source: { kind: 'computer-use', form: 'notice', summary: 'Knowledge mode' },
+        })
+      }
       const pending = runtime.peekPendingImages(sessionId)
       if (pending !== undefined) {
         const blocks = pending.blocks

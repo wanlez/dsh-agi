@@ -227,6 +227,11 @@ ipcMain.on('orb:permission', (event, preset) => {
   if (typeof preset === 'string') write({ type: 'permission', preset })
 })
 
+ipcMain.on('orb:mode', (event, mode) => {
+  if (!fromBall(event)) return
+  if (mode === 'knowledge' || mode === 'operate') write({ type: 'mode', mode })
+})
+
 ipcMain.on('orb:stop', (event) => {
   if (!fromBall(event)) return
   write({ type: 'stop' })
@@ -458,6 +463,10 @@ function deliver(message: unknown): void {
   }
   if (record.type === 'safe-mode') {
     win.webContents.send('orb:safe-mode', (record as { enabled?: unknown }).enabled === true)
+    return
+  }
+  if (record.type === 'mode') {
+    win.webContents.send('orb:mode', (record as { mode?: unknown }).mode)
     return
   }
   if (record.type === 'status') {

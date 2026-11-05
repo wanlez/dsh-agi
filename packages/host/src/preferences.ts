@@ -15,6 +15,9 @@ import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { parseVoiceSettings, type VoiceSettings } from '@dsh-agi/voice/settings'
 import { isAvatarPresetId } from './avatar-presets.ts'
 
+/** The ball's current job: answer from the library, or also operate the desktop. */
+export type PluginMode = 'operate' | 'knowledge'
+
 const PERMISSION_FILE = 'agi-permission.json'
 const MODELS_FILE = 'agi-agent-models.json'
 const MILLIFRACTION_FILE = 'millifraction-coordinates.json'
@@ -29,6 +32,7 @@ const WORKSPACE_FILE = 'agi-workspace.json'
 const VOICE_FILE = 'agi-voice.json'
 const WHATS_NEW_FILE = 'agi-whats-new.json'
 const SAFE_MODE_FILE = 'agi-safe-mode.json'
+const MODE_FILE = 'agi-mode.json'
 
 /** Retention choices shown in the settings select; 0 means forever. */
 export const HISTORY_RETENTION_DAYS = [0, 1, 7, 14, 30, 60] as const
@@ -190,6 +194,7 @@ export class ProfileStore {
   private selectionValue: boolean
   private selectionLanguage: 'zh' | 'en'
   private safeModeValue: boolean
+  private modeValue: PluginMode
   private ballValue: boolean
   private updateValue: UpdateRecord
   private historyValue: HistoryRecord
@@ -207,6 +212,7 @@ export class ProfileStore {
     this.selectionValue = selection.enabled
     this.selectionLanguage = selection.language
     this.safeModeValue = readSafeMode(dir)
+    this.modeValue = readMode(dir)
     this.ballValue = readBall(dir)
     this.updateValue = readUpdate(dir)
     this.historyValue = readHistory(dir)
@@ -322,6 +328,16 @@ export class ProfileStore {
   setSafeMode(enabled: boolean): void {
     this.safeModeValue = enabled
     writeJson(join(this.dir, SAFE_MODE_FILE), { enabled })
+  }
+
+  /** 'knowledge' answers from the experience library only; 'operate' allows Computer Use. */
+  mode(): PluginMode {
+    return this.modeValue
+  }
+
+  setMode(mode: PluginMode): void {
+    this.modeValue = mode
+    writeJson(join(this.dir, MODE_FILE), { mode })
   }
 
   /** Missing file means the ball is on. `autoStart: false` is a separate patch switch. */
@@ -534,6 +550,11 @@ function readSelection(dir: string): { enabled: boolean; language: 'zh' | 'en' }
   // ignored so profiles that enabled it before also stay off; only the
   // language preference is still honored.
   return { enabled: false, language }
+}
+
+function readMode(dir: string): PluginMode {
+  const mode = record(readJson(join(dir, MODE_FILE)))?.mode
+  return mode === 'knowledge' ? 'knowledge' : 'operate'
 }
 
 function readSafeMode(dir: string): boolean {

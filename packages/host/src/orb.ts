@@ -40,6 +40,7 @@ import {
   isPermissionPreset,
   type AgentModelSelection,
   type PermissionPreset,
+  type PluginMode,
   type ProfileStore,
   type WorkspaceState,
 } from './preferences.ts'
@@ -944,6 +945,7 @@ export class OrbRuntime {
     imageDebug(`accept state turn=${this.turnRunning} hold=${this.voice.holdState()} speech=${this.voice.speaking()} mode=${this.voice.listenMode()}`)
     this.send(socket, { type: 'turn', running: this.turnRunning })
     this.send(socket, { type: 'safe-mode', enabled: this.store.safeMode() })
+    this.send(socket, { type: 'mode', mode: this.store.mode() })
     // A closing line or a queued question prompt may still be playing from before a page
     // reload. The page starts with no hold, so say what the current speaker wants.
     this.send(socket, { type: 'voice-hold', hold: this.voice.holdState() })
@@ -1904,6 +1906,13 @@ export class OrbRuntime {
     if (!enabled) await this.overlay.setObservationFrame(null)
   }
 
+  /** Knowledge mode answers from the experience library instead of operating the desktop. */
+  async setMode(mode: PluginMode): Promise<void> {
+    this.store.setMode(mode)
+    this.broadcast({ type: 'mode', mode })
+    await this.publishChrome()
+  }
+
   /** Safe mode: real user input stops the running turn (see {@link onRealUserInput}). */
   async setSafeMode(enabled: boolean): Promise<void> {
     this.store.setSafeMode(enabled)
@@ -2343,6 +2352,10 @@ export class OrbRuntime {
         const epoch = this.turnEpoch
         this.run('stop', () => this.stopTurn(epoch))
       }
+      return
+    }
+    if (record.type === 'mode' && (record.mode === 'knowledge' || record.mode === 'operate')) {
+      this.run('mode', () => this.setMode(record.mode as PluginMode))
       return
     }
     if (record.type === 'pinned' && typeof record.pinned === 'boolean') {

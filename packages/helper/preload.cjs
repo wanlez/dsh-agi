@@ -107,6 +107,12 @@ contextBridge.exposeInMainWorld('dshOrb', {
   onSafeMode(callback) {
     ipcRenderer.on('orb:safe-mode', (_event, enabled) => callback(enabled === true))
   },
+  onMode(callback) {
+    ipcRenderer.on('orb:mode', (_event, mode) => callback(mode))
+  },
+  setMode(mode) {
+    ipcRenderer.send('orb:mode', mode)
+  },
   onStatus(callback) {
     ipcRenderer.on('orb:status', (_event, text) => callback(text))
   },

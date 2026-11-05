@@ -58,6 +58,9 @@ window.__ModuleLoader__.load({
       safeModeTitle: '安全模式',
       safeModeDescription: '开启后，你敲键盘、移动或点击鼠标都会立刻停止大肥鱼正在执行的任务（相当于按停止）。大肥鱼自己的点击和打字不会触发。',
       safeModeToggle: '检测到人工输入时停止',
+      modeTitle: '工作模式',
+      modeDescription: '知识库模式只检索经验库、直接回答方法论，不操作电脑；带操作模式可以使用 Computer Use。和悬浮球上的开关同步。',
+      modeToggle: '知识库模式（关闭即带操作）',
       runtimePreparingTitle: '正在下载悬浮球运行时',
       runtimePreparing: '首次使用需要下载约 124–150 MB 的运行时，完成后悬浮球会自动出现。下载被中断或长时间不动时，点「重新下载」立即接着下。',
       whatsNew: {
@@ -321,6 +324,9 @@ window.__ModuleLoader__.load({
       safeModeTitle: 'Safe mode',
       safeModeDescription: 'While on, any key you press or any mouse move or click stops the running task (same as the stop button). Input injected by the ball itself is ignored.',
       safeModeToggle: 'Stop on real user input',
+      modeTitle: 'Work mode',
+      modeDescription: 'Knowledge mode only searches the experience library and answers with the method, without operating the desktop. Operate mode allows Computer Use. Synced with the switch on the ball.',
+      modeToggle: 'Knowledge mode (off = operate)',
       runtimePreparingTitle: 'Downloading the floating-ball runtime',
       runtimePreparing: 'The first launch downloads a ~124–150 MB runtime, then the ball appears on its own. If the download was interrupted or looks stuck, Download again picks it up from where it stopped.',
       whatsNew: {
@@ -960,6 +966,17 @@ window.__ModuleLoader__.load({
               (enabled) => {
                 if (enabled === snap.observationFrameEnabled) return
                 void mutate('/.dsh-agi/observation-frame', { enabled })
+              }),
+          }),
+          card({
+            icon: 'agent',
+            title: text.modeTitle,
+            description: text.modeDescription,
+            control: toggleHead(text, snap.mode === 'knowledge', text.modeToggle, disabled,
+              (enabled) => {
+                const mode = enabled ? 'knowledge' : 'operate'
+                if (mode === snap.mode) return
+                void mutate('/.dsh-agi/mode', { mode })
               }),
           }),
           card({

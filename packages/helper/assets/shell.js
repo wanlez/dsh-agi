@@ -37,6 +37,8 @@ const zh = {
   phaseActing: '大肥鱼正在操作',
   phaseStopped: '大肥鱼不在工作',
   safeModeOn: '安全模式已启用',
+  modeKnowledge: '知识库模式',
+  modeOperate: '带操作模式',
   untitled: '未命名对话',
   placeholder: '向桌面 agent 发送消息…',
   accessReadOnly: '仅可查看',
@@ -97,6 +99,8 @@ const en = {
   phaseActing: 'The ball is acting',
   phaseStopped: 'The ball is idle',
   safeModeOn: 'Safe mode on',
+  modeKnowledge: 'Knowledge mode',
+  modeOperate: 'Operate mode',
   untitled: 'Untitled',
   placeholder: 'Ask the desktop agent…',
   accessReadOnly: 'Read Only',
@@ -288,6 +292,8 @@ const composerImages = []
   const phaseText = document.querySelector('#phase-text')
   const safeChip = document.querySelector('#safe-chip')
   const safeText = document.querySelector('#safe-text')
+  const modeToggle = document.querySelector('#mode-toggle')
+  const modeLabel = document.querySelector('#mode-label')
   const prompt = document.querySelector('#prompt')
 if (prompt) prompt.addEventListener('input', () => { api.voiceArm(false) })
   const composer = document.querySelector('#composer')
@@ -2691,6 +2697,24 @@ let expandedAt = 0
   }
   if (phase !== null) phase.hidden = true
   api.onPhase((value) => { setPhase(value) })
+
+  /** Mode switch: green and right means knowledge mode, grey and left means operate mode. */
+  function setModeState(mode) {
+    if (modeToggle === null) return
+    const knowledge = mode === 'knowledge'
+    modeToggle.dataset.mode = knowledge ? 'knowledge' : 'operate'
+    modeToggle.setAttribute('aria-pressed', knowledge ? 'true' : 'false')
+    if (modeLabel !== null) modeLabel.textContent = knowledge ? messages.modeKnowledge : messages.modeOperate
+  }
+  setModeState('operate')
+  api.onMode((mode) => { setModeState(mode) })
+  if (modeToggle !== null) {
+    modeToggle.addEventListener('click', () => {
+      const next = modeToggle.dataset.mode === 'knowledge' ? 'operate' : 'knowledge'
+      setModeState(next)
+      api.setMode(next)
+    })
+  }
 
   /** The safe-mode chip is independent of the activity pill: on means it stays up. */
   function setSafeModeChip(enabled) {

@@ -667,6 +667,49 @@ body.expand-up #transcript {
   50% { transform: scale(1.25); opacity: 0.75; }
 }
 
+/* The hidden attribute must beat the flex rules below, or an empty pill stays on screen. */
+[hidden] { display: none !important; }
+
+/* Mode switch: knowledge mode answers from the library; operate mode allows the desktop. */
+#mode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--white);
+  font: inherit;
+  font-size: 12px;
+  color: var(--pin);
+  cursor: pointer;
+}
+
+#mode-track {
+  position: relative;
+  flex: none;
+  width: 30px;
+  height: 16px;
+  border-radius: 999px;
+  background: #c7c9ce;
+  transition: background 0.15s ease;
+}
+
+#mode-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s ease;
+}
+
+#mode-toggle[data-mode="knowledge"] #mode-track { background: #22c55e; }
+#mode-toggle[data-mode="knowledge"] #mode-knob { transform: translateX(14px); }
+#mode-toggle[data-mode="knowledge"] #mode-label { color: #16a34a; font-weight: 600; }
+
 /* Safe-mode chip: stays up the whole time the switch is on, next to the activity pill. */
 #safe-chip {
   display: flex;
