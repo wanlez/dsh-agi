@@ -477,6 +477,18 @@ for (let attempt = 1; attempt <= 3 && !ok; attempt += 1) {
   }
 }
 if (ok) {
+  // The app is gone: do not launch it for the user (a client started by the installer
+  // inherits its console and breaks the next update). Show a clear prompt instead.
+  try {
+    const popup = "$ws = New-Object -ComObject WScript.Shell; $ws.Popup('更新完成，现在可以启动 DeepSeek Harness 了。',30,'dsh-agi',64) | Out-Null"
+    const encoded = Buffer.from(popup, 'utf16le').toString('base64')
+    spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded],
+      { windowsHide: true, timeout: 60 * 1000 })
+  } catch (error) {
+    log('notification failed: ' + String(error))
+  }
+}
+if (ok) {
   // pnpm rewrites the profile manifest. Put back the bundle entries that were there before
   // the install, and keep an npm version instead of the temporary tarball path it records.
   try {
