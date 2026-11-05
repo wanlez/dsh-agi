@@ -752,11 +752,11 @@ export function installSpec(version: string, name: string): string {
 }
 
 /**
- * The release tarball for a version, ignoring the staged-update override. A rollback
- * must restore the version that was running, not whatever `DSH_AGI_UPDATE_URL` points at.
+ * `name@version`, ignoring the staged-update override. A rollback must restore the
+ * version that was running, not whatever `DSH_AGI_UPDATE_URL` points at.
  */
 function exactSpec(version: string, name: string): string {
-  return releaseTarballUrl(version)
+  return `${name}@${version.trim().replace(/^v/, '')}`
 }
 
 /**
