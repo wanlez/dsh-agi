@@ -23,6 +23,10 @@ export interface DeferredInstall {
   readonly parentPid: number
   /** Approvals the settings page granted; the script merges them into the profile before pnpm runs. */
   readonly approvedBuilds: readonly string[]
+  /** Package name and version, so the script can leave a stable npm spec behind. */
+  readonly name?: string
+  /** Bundle list before the install: the script merges it back into the profile afterwards. */
+  readonly bundles?: readonly string[]
 }
 
 /** A queued after-exit install, read back by a plugin instance that did not schedule it. */
@@ -470,6 +474,29 @@ for (let attempt = 1; attempt <= 3 && !ok; attempt += 1) {
   if (!ok) {
     detail = output.split('\\n').map((line) => line.trim()).find((line) => line.includes('ERR_PNPM_')) ?? output.trim().split('\\n').pop() ?? 'pnpm failed'
     await sleep(3000)
+  }
+}
+if (ok) {
+  // pnpm rewrites the profile manifest. Put back the bundle entries that were there before
+  // the install, and keep an npm version instead of the temporary tarball path it records.
+  try {
+    const file = join(job.profileDir, 'package.json')
+    const current = JSON.parse(readFileSync(file, 'utf8'))
+    const bundles = current?.dsh?.profile?.bundles
+    const list = (value) => (Array.isArray(value) ? value.filter((item) => typeof item === 'string') : [])
+    if (job.bundles !== undefined) {
+      current.dsh = current.dsh ?? {}
+      current.dsh.profile = current.dsh.profile ?? {}
+      current.dsh.profile.bundles = [...new Set([...list(bundles), ...list(job.bundles)])]
+    }
+    if (typeof job.name === 'string' && typeof job.version === 'string' && job.version !== '') {
+      current.dependencies = current.dependencies ?? {}
+      current.dependencies[job.name] = job.version.replace(/^v/, '')
+    }
+    writeFileSync(file, JSON.stringify(current, null, 2) + String.fromCharCode(10))
+    log('profile restored: bundles=' + list(current?.dsh?.profile?.bundles).length)
+  } catch (error) {
+    log('profile restore failed: ' + String(error))
   }
 }
 writeFileSync(join(dir, 'result.json'), JSON.stringify({ spec: job.spec, ok, detail: detail.slice(0, 200) }) + '\\n')

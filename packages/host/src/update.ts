@@ -43,8 +43,6 @@ export const EMPTY_UPDATE_STATE: UpdateState = {
   autoCheck: false,
   checkedAt: null,
   restartRequired: false,
-  phase: 'idle',
-  progress: 0,
   deferred: false,
   installing: false,
   error: null,
@@ -64,10 +62,6 @@ export interface UpdateState {
   autoCheck: boolean
   checkedAt: number | null
   restartRequired: boolean
-  /** Download progress shown before the app quits. */
-  phase: 'idle' | 'downloading' | 'ready'
-  /** 0-100 while {@link phase} is `downloading`. */
-  progress: number
   /** The update waits for the app to quit: a loaded native file blocks replacing the package now. */
   deferred: boolean
   /** The after-exit script is installing right now; the page says to wait, not to reopen. */
@@ -169,6 +163,19 @@ export function compareVersions(left: string, right: string): number {
   return comparePrerelease(a.pre, b.pre)
 }
 
+/** The bundle list a deferred install should put back after pnpm rewrites the manifest. */
+function profileBundles(dir: string): string[] {
+  try {
+    const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as {
+      dsh?: { profile?: { bundles?: unknown } }
+    }
+    const bundles = manifest.dsh?.profile?.bundles
+    return Array.isArray(bundles) ? bundles.filter((item): item is string => typeof item === 'string') : []
+  } catch {
+    return []
+  }
+}
+
 function isPluginManager(value: unknown): value is PluginManager {
   return typeof value === 'object' && value !== null
     && typeof (value as { installBundle?: unknown }).installBundle === 'function'
@@ -193,9 +200,6 @@ export class UpdateChecker {
   private deferred: string | null = null
   /** The after-exit script is running right now (its status file says so). */
   private installing = false
-  /** Local download step shown in the settings page before the app quits. */
-  private phase: 'idle' | 'downloading' | 'ready' = 'idle'
-  private progress = 0
   private timer: ReturnType<typeof setTimeout> | undefined
   private interval: ReturnType<typeof setInterval> | undefined
   /** The registry base that answered the last check; GitHub is the fallback when none did. */
@@ -290,8 +294,6 @@ export class UpdateChecker {
       autoCheck: this.store.updateRecord().autoCheck,
       checkedAt: this.store.updateRecord().checkedAt || null,
       restartRequired: this.restartRequired,
-      phase: this.phase,
-      progress: this.progress,
       deferred: this.deferredPending(),
       installing,
       error: this.error,
@@ -366,158 +368,6 @@ export class UpdateChecker {
   }
 
   /**
-   * Download the release tarball and open a console window that replaces the package
-   * after DeepSeek Harness exits. The window is started through Explorer, so it is not a
-   * child of this process and survives the quit that the install waits for.
-   * @param version - version to install.
-   * @param name - package name.
-   * @returns true when the window is open and the settings page can hand over.
-   */
-  private async prepareUpdater(version: string, name: string): Promise<boolean> {
-    const dir = join(this.store.dir, '.dsh-agi-update')
-    const target = join(dir, `${name}-${version}.tgz`)
-    try {
-      mkdirSync(dir, { recursive: true })
-    } catch (error) {
-      console.error(`dsh-agi: could not create the update folder: ${error instanceof Error ? error.message : String(error)}`)
-      return false
-    }
-    const registry = installRegistry(this.source)
-    const urls = [
-      `${registry.replace(/\/+$/, '')}/${name}/-/${name}-${version}.tgz`,
-      releaseTarballUrl(version),
-    ]
-    let downloaded = false
-    for (const url of urls) {
-      try {
-        await this.downloadTo(url, target)
-        downloaded = true
-        break
-      } catch (error) {
-        console.error(`dsh-agi: update download failed (${url}): ${error instanceof Error ? error.message : String(error)}`)
-      }
-    }
-    if (!downloaded) return false
-    const cmd = this.writeUpdaterCommand(dir, target, version, name)
-    if (cmd === undefined) return false
-    if (this.scheduleUpdaterTask(cmd, version)) return true
-    // Task Scheduler refused (policy, admin rights): Explorer still starts the script in a
-    // window whose lifetime does not follow this process.
-    try {
-      spawn('explorer.exe', [cmd], { detached: true, stdio: 'ignore' }).unref()
-      return true
-    } catch (error) {
-      console.error(`dsh-agi: could not open the updater window: ${error instanceof Error ? error.message : String(error)}`)
-      return false
-    }
-  }
-
-  /**
-   * Register the updater as a one-shot scheduled task and run it. Task Scheduler owns the
-   * process, so quitting DeepSeek Harness cannot kill the install. The task passes a visible
-   * console (`start ... cmd /k`) so the user watches the log; the script deletes the task
-   * when it finishes.
-   * @param cmdPath - generated updater script.
-   * @param version - version being installed, used in the task name.
-   * @returns true when the task was created and started.
-   */
-  private scheduleUpdaterTask(cmdPath: string, version: string): boolean {
-    const taskName = `dsh-agi-update-${version}`
-    const action = `cmd.exe /c "${cmdPath}"`
-    try {
-      const create = spawnSync('schtasks.exe', [
-        '/Create', '/F', '/SC', 'ONCE', '/ST', '23:59',
-        '/TN', taskName, '/TR', action,
-      ], { windowsHide: true })
-      const created = create.status === 0
-      if (!created) {
-        console.error('dsh-agi: could not create the updater scheduled task')
-        return false
-      }
-      const run = spawnSync('schtasks.exe', ['/Run', '/TN', taskName], { windowsHide: true })
-      const started = run.status === 0
-      if (!started) console.error('dsh-agi: could not start the updater scheduled task')
-      return started
-    } catch (error) {
-      console.error(`dsh-agi: scheduled updater failed: ${error instanceof Error ? error.message : String(error)}`)
-      return false
-    }
-  }
-
-  /** Stream one tarball to disk, reporting percent through {@link progress}. */
-  private async downloadTo(url: string, target: string): Promise<void> {
-    const response = await fetch(url)
-    if (!response.ok || response.body === null) throw new Error(`HTTP ${response.status}`)
-    const total = Number(response.headers.get('content-length') ?? 0)
-    const out = createWriteStream(target)
-    let received = 0
-    try {
-      for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
-        out.write(chunk)
-        received += chunk.byteLength
-        this.progress = total > 0
-          ? Math.min(99, Math.round((received / total) * 100))
-          : Math.min(99, this.progress + 1)
-      }
-      await new Promise<void>((resolve, reject) => {
-        out.end((error?: Error | null) => { error ? reject(error) : resolve() })
-      })
-    } catch (error) {
-      out.destroy()
-      throw error
-    }
-  }
-
-  /** Write the visible updater script: wait for the app to quit, install, relaunch it. */
-  private writeUpdaterCommand(dir: string, tarball: string, version: string, name: string): string | undefined {
-    try {
-      const exe = process.execPath
-      const support = join(dirname(exe), 'resources', 'runtime')
-      const pnpm = [
-        join(support, 'primary-runtime', 'dependencies', 'pnpm', 'dist', 'pnpm.mjs'),
-        join(support, 'pnpm', 'bin', 'pnpm.mjs'),
-      ].find((candidate) => existsSync(candidate))
-      if (pnpm === undefined) return undefined
-      const cmdPath = join(dir, 'update.cmd')
-      const spec = `file:${tarball.replaceAll(String.fromCharCode(92), '/')}`
-      const taskName = `dsh-agi-update-${version}`
-      const restore = join(dir, 'restore-bundles.mjs')
-      writeFileSync(restore, RESTORE_BUNDLES_SCRIPT)
-      const lines = [
-        '@echo off',
-        `title dsh-agi update ${version}`,
-        `cd /d "${this.store.dir}"`,
-        'echo Waiting for DeepSeek Harness to close...',
-        ':wait',
-        'tasklist /FI "IMAGENAME eq DeepSeek Harness.exe" /NH | find /I "DeepSeek Harness.exe" >nul',
-        'if not errorlevel 1 (timeout /t 2 /nobreak >nul & goto wait)',
-        `echo Installing dsh-agi ${version}...`,
-        'set ELECTRON_RUN_AS_NODE=1',
-        `copy /Y "${join(this.store.dir, 'package.json')}" "${join(dir, 'package.json.before')}" >nul`,
-        `"${exe}" --expose-internals "${pnpm}" add "${spec}" --registry=https://registry.npmmirror.com >> "${join(dir, 'update.log')}" 2>&1`,
-        'set code=%ERRORLEVEL%',
-        `"${exe}" "${restore}" "${this.store.dir}" "${name}" "${version}" >> "${join(dir, 'update.log')}" 2>&1`,
-        'set ELECTRON_RUN_AS_NODE=',
-        `schtasks /Delete /TN "${taskName}" /F >nul 2>&1`,
-        `echo install exit %code% >> "${join(dir, 'update.log')}"`,
-        'if not "%code%"=="0" goto failed',
-        'timeout /t 2 /nobreak >nul',
-        // Only launch when the user has not opened it already while the install ran.
-        'tasklist /FI "IMAGENAME eq DeepSeek Harness.exe" /NH | find /I "DeepSeek Harness.exe" >nul',
-        `if errorlevel 1 start "" "${exe}"`,
-        'exit /b 0',
-        ':failed',
-        'exit /b 1',
-      ]
-      writeFileSync(cmdPath, `${lines.join(String.fromCharCode(13, 10))}${String.fromCharCode(13, 10)}`)
-      return cmdPath
-    } catch (error) {
-      console.error(`dsh-agi: could not write the updater script: ${error instanceof Error ? error.message : String(error)}`)
-      return undefined
-    }
-  }
-
-  /**
    * Install the version the check found through the official plugin manager.
    * The spec is `name@version` and the registry is the one that answered the
    * check, so pnpm resolves registry metadata — including `dist.integrity` —
@@ -546,35 +396,12 @@ export class UpdateChecker {
     const name = this.own.name
     const previous = this.own.version
     try {
-      // Preferred path on Windows: fetch the tarball here so the page can show a progress
-      // bar, then open a console window that performs the replace after the app quits
-      // (Windows locks loaded native files). macOS and Linux can replace the package in
-      // place while it runs, so they skip the window and ask for a restart instead.
-      this.phase = 'downloading'
-      this.progress = 0
-      if (process.platform === 'win32') {
-        if (await this.prepareUpdater(version, name)) {
-          this.phase = 'ready'
-          this.progress = 100
-          this.updating = false
-          return
-        }
-        // The updater could not stage the package. Falling through to pnpm here only leads to
-        // another deferred job — and a failed job used to leave a status that hid the ball.
-        this.phase = 'idle'
-        this.progress = 0
-        this.error = 'download-failed'
-        this.updating = false
-        return
-      }
-      this.phase = 'idle'
-
       // Drop a failure the previous attempt left. The next page is either this
       // process or the build the install is about to load, and neither should
       // keep describing an attempt that has already been retried.
       this.store.setUpdateRecord({ lastError: '' })
       exemptReleaseAge(this.store.dir, name)
-      const spec = installSpecForSource(this.source, version, name)
+      const spec = installSpec(version, name)
       const registry = installRegistry(this.source)
       if (this.lockedImages().length > 0) {
         this.deferUntilExit(version, spec, registry, approvedBuilds ?? [])
@@ -801,7 +628,16 @@ export class UpdateChecker {
   }
 
   private deferUntilExit(version: string, spec: string, registry: string, approvedBuilds: readonly string[]): void {
-    const job: DeferredInstall = { profileDir: this.store.dir, spec, version, registry, parentPid: process.pid, approvedBuilds }
+    const job: DeferredInstall = {
+      profileDir: this.store.dir,
+      spec,
+      version,
+      registry,
+      parentPid: process.pid,
+      approvedBuilds,
+      name: this.own?.name,
+      bundles: profileBundles(this.store.dir),
+    }
     try {
       (this.deps.deferInstall ?? scheduleInstallAfterExit)(job)
     } catch (error) {
@@ -916,20 +752,6 @@ export function installSpec(version: string, name: string): string {
 }
 
 /**
- * The install spec for a check result. A registry that answered the check gives the
- * `name@version` spec (so pnpm reads `dist.integrity`); when only GitHub answered,
- * the release tarball URL is the only address that exists.
- * @param source - registry base that answered, or undefined for the GitHub fallback.
- * @param version - version the check found.
- * @param name - package name.
- */
-export function installSpecForSource(source: string | undefined, version: string, name: string): string {
-  const overridden = process.env.DSH_AGI_UPDATE_URL?.trim()
-  if (overridden !== undefined && overridden !== '') return overridden
-  return source === undefined ? releaseTarballUrl(version) : exactSpec(version, name)
-}
-
-/**
  * The release tarball for a version, ignoring the staged-update override. A rollback
  * must restore the version that was running, not whatever `DSH_AGI_UPDATE_URL` points at.
  */
@@ -945,38 +767,6 @@ function exactSpec(version: string, name: string): string {
 export function installRegistry(source: string | undefined): string {
   return source ?? REGISTRY_BASES[0] ?? 'https://registry.npmmirror.com'
 }
-
-/**
- * After the package manager runs, put back any bundle entry that was in the manifest before
- * the update. A pnpm reconcile once dropped the third-party bundles from `dsh.profile.bundles`
- * and left the profile loading only the two core bundles; the updater must never ship that.
- */
-const RESTORE_BUNDLES_SCRIPT = `import { readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
-
-const profile = process.argv[2]
-const name = process.argv[3]
-const version = process.argv[4]
-const read = (file) => JSON.parse(readFileSync(file, 'utf8'))
-const before = read(join(profile, '.dsh-agi-update', 'package.json.before'))
-const current = read(join(profile, 'package.json'))
-const list = (value) => (Array.isArray(value) ? value.filter((item) => typeof item === 'string') : [])
-const oldBundles = list(before?.dsh?.profile?.bundles)
-const newBundles = list(current?.dsh?.profile?.bundles)
-const merged = [...new Set([...newBundles, ...oldBundles])]
-current.dsh = current.dsh ?? {}
-current.dsh.profile = current.dsh.profile ?? {}
-current.dsh.profile.bundles = merged
-if (name !== undefined && version !== undefined) {
-  current.dependencies = current.dependencies ?? {}
-  // pnpm records the downloaded tarball as a file: spec under .dsh-agi-update; that folder
-  // is temporary. Keep the registry version instead, so a later install never needs the file.
-  current.dependencies[name] = version.replace(/^v/, '')
-  console.log('dependency: ' + name + '@' + current.dependencies[name])
-}
-writeFileSync(join(profile, 'package.json'), JSON.stringify(current, null, 2) + String.fromCharCode(10))
-console.log('bundles: ' + merged.join(', '))
-`
 
 /**
  * Text for a failed install. A specific manager code (incompatible version,

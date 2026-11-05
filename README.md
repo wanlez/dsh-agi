@@ -10,7 +10,7 @@ This is a fork of [dsh-orb](https://github.com/mini-yifan/dsh-orb-cordis) (MIT, 
 
 - **Activity pill**: blue "thinking", green "acting" (turns green about 0.35 s before a click or keystroke) and red "not working" for five seconds after a task ends, all inside the ball panel.
 - **Safe mode**: a switch in settings; while on, a yellow "safe mode on" chip stays beside the activity pill and any real key or pointer event stops the current task. Input injected by the ball itself is ignored. Stopping does not end the conversation.
-- **Automatic updates**: the settings page checks npm (npmmirror first) with GitHub as the fallback, shows a download progress bar; on Windows the install runs in a background task (no console window) and finishes after DeepSeek Harness quits, then starts it again.
+- **Automatic updates**: the settings page checks npm (npmmirror first) with GitHub as the fallback, quit DeepSeek Harness when prompted; the install finishes on exit and the next start loads the new version.
 - **npm release**: `dsh-agi` is published on npm, so installs and updates can use `dsh plugin add dsh-agi`.
 
 ## Install
