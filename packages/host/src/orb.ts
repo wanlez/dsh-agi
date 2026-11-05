@@ -1908,9 +1908,22 @@ export class OrbRuntime {
 
   /** Knowledge mode answers from the experience library instead of operating the desktop. */
   async setMode(mode: PluginMode): Promise<void> {
+    // The mode is a per-turn choice: a switch mid-task would leave the running turn with the
+    // prompt it started under, so the host refuses it and both entry points stay in sync.
+    if (this.turnRunning) {
+      // Resync the ball: it flips optimistically when clicked, and a refused change must not
+      // leave the label on the mode that never took effect.
+      this.broadcast({ type: 'mode', mode: this.store.mode() })
+      return
+    }
     this.store.setMode(mode)
     this.broadcast({ type: 'mode', mode })
     await this.publishChrome()
+  }
+
+  /** True while a turn runs: the settings page disables its mode switch then. */
+  modeLocked(): boolean {
+    return this.turnRunning
   }
 
   /** Safe mode: real user input stops the running turn (see {@link onRealUserInput}). */

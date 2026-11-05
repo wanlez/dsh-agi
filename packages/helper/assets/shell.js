@@ -38,7 +38,7 @@ const zh = {
   phaseStopped: '大肥鱼不在工作',
   safeModeOn: '安全模式已启用',
   modeKnowledge: '知识库模式',
-  modeOperate: '带操作模式',
+  modeOperate: '代操作模式',
   untitled: '未命名对话',
   placeholder: '向桌面 agent 发送消息…',
   accessReadOnly: '仅可查看',
@@ -487,6 +487,11 @@ let expandedAt = 0
     document.body.classList.toggle('running', running)
     stop.hidden = !stopShown()
     setWorkLocked(running)
+    // The mode switch is a per-turn choice: lock it while the ball is working.
+    if (modeToggle !== null) {
+      modeToggle.disabled = running
+      modeToggle.classList.toggle('is-locked', running)
+    }
     syncGif()
     renderVoiceMeter()
     if (next) {
@@ -2710,6 +2715,7 @@ let expandedAt = 0
   api.onMode((mode) => { setModeState(mode) })
   if (modeToggle !== null) {
     modeToggle.addEventListener('click', () => {
+      if (modeToggle.disabled) return
       const next = modeToggle.dataset.mode === 'knowledge' ? 'operate' : 'knowledge'
       setModeState(next)
       api.setMode(next)

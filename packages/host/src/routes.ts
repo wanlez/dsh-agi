@@ -70,6 +70,7 @@ export interface OrbControl {
   setObservationFrameEnabled(enabled: boolean): Promise<void>
   setSafeMode(enabled: boolean): Promise<void>
   setMode(mode: 'operate' | 'knowledge'): Promise<void>
+  modeLocked?(): boolean
   setBallEnabled(enabled: boolean): Promise<void>
   /**
    * Fetch the helper runtime again from zero: drop the attempt in flight, delete what an
@@ -620,6 +621,7 @@ async function snapshot(deps: RouteDeps, voice: VoiceSettings = deps.store.voice
   selectionEnabled: boolean
   safeMode: boolean
   mode: 'operate' | 'knowledge'
+  modeLocked: boolean
   millifractionEnabled: boolean
   observationFrameEnabled: boolean
   tcc: TccStatus
@@ -654,6 +656,7 @@ async function snapshot(deps: RouteDeps, voice: VoiceSettings = deps.store.voice
     selectionEnabled: deps.store.selectionEnabled(),
     safeMode: deps.store.safeMode(),
     mode: deps.store.mode(),
+    modeLocked: deps.control.modeLocked?.() ?? false,
     millifractionEnabled: deps.store.millifractionEnabled(),
     observationFrameEnabled: deps.store.observationFrameEnabled(),
     tcc: deps.tcc.status(),

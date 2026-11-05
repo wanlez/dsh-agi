@@ -59,8 +59,8 @@ window.__ModuleLoader__.load({
       safeModeDescription: '开启后，你敲键盘、移动或点击鼠标都会立刻停止大肥鱼正在执行的任务（相当于按停止）。大肥鱼自己的点击和打字不会触发。',
       safeModeToggle: '检测到人工输入时停止',
       modeTitle: '工作模式',
-      modeDescription: '知识库模式只检索经验库、直接回答方法论，不操作电脑；带操作模式可以使用 Computer Use。和悬浮球上的开关同步。',
-      modeToggle: '知识库模式（关闭即带操作）',
+      modeDescription: '知识库模式只检索经验库、直接回答方法论，不操作电脑；代操作模式可以使用 Computer Use。和悬浮球上的开关同步。',
+      modeToggle: '知识库模式（关闭即代操作）',
       runtimePreparingTitle: '正在下载悬浮球运行时',
       runtimePreparing: '首次使用需要下载约 124–150 MB 的运行时，完成后悬浮球会自动出现。下载被中断或长时间不动时，点「重新下载」立即接着下。',
       whatsNew: {
@@ -972,7 +972,7 @@ window.__ModuleLoader__.load({
             icon: 'agent',
             title: text.modeTitle,
             description: text.modeDescription,
-            control: toggleHead(text, snap.mode === 'knowledge', text.modeToggle, disabled,
+            control: toggleHead(text, snap.mode === 'knowledge', text.modeToggle, disabled || snap.modeLocked === true,
               (enabled) => {
                 const mode = enabled ? 'knowledge' : 'operate'
                 if (mode === snap.mode) return
