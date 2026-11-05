@@ -218,6 +218,7 @@ export class UpdateChecker {
     }
     this.installing = deferredInstallInProgress(this.store.dir)
     this.adoptDeferredOutcome()
+    this.normalizeDependency()
   }
 
   /**
@@ -248,6 +249,30 @@ export class UpdateChecker {
   private installInProgress(): boolean {
     this.installing = deferredInstallInProgress(this.store.dir)
     return this.installing
+  }
+
+  /**
+   * Repair a profile dependency that points at the temporary update folder. The updater
+   * installs `file:.../.dsh-agi-update/<tarball>`; pnpm records that path, which breaks
+   * the next install once the folder is cleaned. The running version is the stable spec.
+   */
+  private normalizeDependency(): void {
+    const own = this.own
+    if (own === undefined || own.version === '') return
+    try {
+      const file = join(this.store.dir, 'package.json')
+      const manifest = JSON.parse(readFileSync(file, 'utf8')) as { dependencies?: Record<string, string> }
+      const deps = manifest.dependencies
+      const spec = deps?.[own.name]
+      if (deps === undefined || typeof spec !== 'string') return
+      if (!spec.startsWith('file:') && !spec.includes('.dsh-agi-update')) return
+      deps[own.name] = own.version
+      writeFileSync(file, `${JSON.stringify(manifest, null, 2)}
+`)
+      console.info(`dsh-agi: dependency ${own.name} normalized to ${own.version}`)
+    } catch (error) {
+      console.error(`dsh-agi: could not normalize the dependency: ${error instanceof Error ? error.message : String(error)}`)
+    }
   }
 
   state(): UpdateState {
