@@ -109,7 +109,8 @@ window.__ModuleLoader__.load({
       updateAuto: '自动检查更新',
       updateDownloading: '正在下载新版本… {percent}%',
       updateUpToDate: '已是最新版本（{version}）',
-      updateReady: '新版本已下载完成，更新窗口已打开；它会等你关闭 DeepSeek Harness 后自动安装，并在完成后重新启动它。',
+      updateDownloadFailed: '下载更新包失败，请稍后重试（或检查代理/网络）。',
+      updateReady: '更新已开始（后台安装）：关闭 DeepSeek Harness 后会自动完成并重新启动。',
       updateAutoDescription: '每天一次向 npm（npmmirror 优先，失败回退 npmjs）查询新版本，GitHub 作为兜底；不发送任何标识信息。',
       updateManual: '当前 Harness 没有提供插件管理服务，请在插件页手动更新。',
       knowledgeTitle: '经验库',
@@ -375,7 +376,8 @@ window.__ModuleLoader__.load({
       updateAuto: 'Check for updates automatically',
       updateDownloading: 'Downloading the new version… {percent}%',
       updateUpToDate: 'You are on the latest version ({version})',
-      updateReady: 'The new version is downloaded and the update window is open. Quit DeepSeek Harness; the window installs it and starts DeepSeek Harness again automatically.',
+      updateDownloadFailed: 'Could not download the update. Try again later (check the proxy or network).',
+      updateReady: 'The update has started (background install). Quit DeepSeek Harness; it finishes and starts again automatically.',
       updateAutoDescription: 'Asks npm once a day (npmmirror first, then npmjs), with GitHub Releases as the fallback. Nothing identifying is sent.',
       updateManual: 'This Harness build ships no plugin manager — update from the Plugins page instead.',
       knowledgeTitle: 'Playbooks',
@@ -1223,9 +1225,11 @@ window.__ModuleLoader__.load({
           ? text.updateOffline
           : update.error === 'build-blocked'
             ? text.updateBuildBlocked
-            : update.error === 'already-installed'
-              ? text.updateAlreadyInstalled
-              : update.error
+            : update.error === 'download-failed'
+              ? text.updateDownloadFailed
+              : update.error === 'already-installed'
+                ? text.updateAlreadyInstalled
+                : update.error
         return h('p', { className: 'dsh-agi-set-error', role: 'alert' }, `${text.updateFailed}${detail}`)
       }
       if (update.installing) {

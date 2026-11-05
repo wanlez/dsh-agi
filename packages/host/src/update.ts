@@ -423,7 +423,7 @@ export class UpdateChecker {
    */
   private scheduleUpdaterTask(cmdPath: string, version: string): boolean {
     const taskName = `dsh-agi-update-${version}`
-    const action = `cmd.exe /c start "dsh-agi update" cmd /k "${cmdPath}"`
+    const action = `cmd.exe /c "${cmdPath}"`
     try {
       const create = spawnSync('schtasks.exe', [
         '/Create', '/F', '/SC', 'ONCE', '/ST', '23:59',
@@ -494,23 +494,19 @@ export class UpdateChecker {
         `echo Installing dsh-agi ${version}...`,
         'set ELECTRON_RUN_AS_NODE=1',
         `copy /Y "${join(this.store.dir, 'package.json')}" "${join(dir, 'package.json.before')}" >nul`,
-        `"${exe}" --expose-internals "${pnpm}" add "${spec}" --registry=https://registry.npmmirror.com`,
+        `"${exe}" --expose-internals "${pnpm}" add "${spec}" --registry=https://registry.npmmirror.com >> "${join(dir, 'update.log')}" 2>&1`,
         'set code=%ERRORLEVEL%',
         `"${exe}" "${restore}" "${this.store.dir}" "${name}" "${version}" >> "${join(dir, 'update.log')}" 2>&1`,
         'set ELECTRON_RUN_AS_NODE=',
         `schtasks /Delete /TN "${taskName}" /F >nul 2>&1`,
+        `echo install exit %code% >> "${join(dir, 'update.log')}"`,
         'if not "%code%"=="0" goto failed',
-        'echo.',
-        'echo Update finished.',
         'timeout /t 2 /nobreak >nul',
         // Only launch when the user has not opened it already while the install ran.
         'tasklist /FI "IMAGENAME eq DeepSeek Harness.exe" /NH | find /I "DeepSeek Harness.exe" >nul',
         `if errorlevel 1 start "" "${exe}"`,
         'exit /b 0',
         ':failed',
-        'echo.',
-        'echo Update failed with exit code %code%. Check the messages above.',
-        'pause',
         'exit /b 1',
       ]
       writeFileSync(cmdPath, `${lines.join(String.fromCharCode(13, 10))}${String.fromCharCode(13, 10)}`)
@@ -556,9 +552,18 @@ export class UpdateChecker {
       // place while it runs, so they skip the window and ask for a restart instead.
       this.phase = 'downloading'
       this.progress = 0
-      if (process.platform === 'win32' && await this.prepareUpdater(version, name)) {
-        this.phase = 'ready'
-        this.progress = 100
+      if (process.platform === 'win32') {
+        if (await this.prepareUpdater(version, name)) {
+          this.phase = 'ready'
+          this.progress = 100
+          this.updating = false
+          return
+        }
+        // The updater could not stage the package. Falling through to pnpm here only leads to
+        // another deferred job — and a failed job used to leave a status that hid the ball.
+        this.phase = 'idle'
+        this.progress = 0
+        this.error = 'download-failed'
         this.updating = false
         return
       }

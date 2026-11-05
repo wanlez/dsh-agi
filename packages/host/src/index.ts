@@ -90,10 +90,12 @@ export function apply(ctx: OrbContext, config: { autoStart?: boolean } = {}): vo
   const profile = profileDirectory(ctx)
   const installing = deferredInstallInProgress(profile)
   if (installing) {
-    // The after-exit script is replacing this package right now. Staging koffi, loading it,
-    // or starting the helper would fight the running pnpm, so the ball waits for the outcome.
-    console.error('dsh-agi: an update install is running; the ball waits for it to finish')
-  } else if (process.platform === 'win32' && own !== undefined) {
+    // A status file is not proof of a live install: pids get reused, scripts get killed.
+    // Load the ball anyway — an after-exit install only touches the package once this
+    // process is gone, and a stuck status must never make the ball disappear.
+    console.error('dsh-agi: an update status is present; loading the ball anyway')
+  }
+  if (process.platform === 'win32' && own !== undefined) {
     // Before anything loads koffi: a loaded addon inside the package locks it against
     // the next update on Windows (see native-images.ts).
     stageNativeImages()
