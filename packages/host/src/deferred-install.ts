@@ -480,7 +480,9 @@ if (ok) {
   // The app is gone: do not launch it for the user (a client started by the installer
   // inherits its console and breaks the next update). Show a clear prompt instead.
   try {
-    const popup = "$ws = New-Object -ComObject WScript.Shell; $ws.Popup('更新完成，现在可以启动 DeepSeek Harness 了。',30,'dsh-agi',64) | Out-Null"
+    // Timeout 0: the dialog stays until the user acknowledges it. They may have stepped
+    // away while the install ran; a message that auto-closes can be missed entirely.
+    const popup = "$ws = New-Object -ComObject WScript.Shell; $ws.Popup('更新完成，现在可以启动 DeepSeek Harness 了。',0,'dsh-agi',64) | Out-Null"
     const encoded = Buffer.from(popup, 'utf16le').toString('base64')
     spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded],
       { windowsHide: true, timeout: 60 * 1000 })
