@@ -373,7 +373,7 @@ export class UpdateChecker {
       }
     }
     if (!downloaded) return false
-    const cmd = this.writeUpdaterCommand(dir, target, version)
+    const cmd = this.writeUpdaterCommand(dir, target, version, name)
     if (cmd === undefined) return false
     if (this.scheduleUpdaterTask(cmd, version)) return true
     // Task Scheduler refused (policy, admin rights): Explorer still starts the script in a
@@ -444,7 +444,7 @@ export class UpdateChecker {
   }
 
   /** Write the visible updater script: wait for the app to quit, install, relaunch it. */
-  private writeUpdaterCommand(dir: string, tarball: string, version: string): string | undefined {
+  private writeUpdaterCommand(dir: string, tarball: string, version: string, name: string): string | undefined {
     try {
       const exe = process.execPath
       const support = join(dirname(exe), 'resources', 'runtime')
@@ -471,7 +471,7 @@ export class UpdateChecker {
         `copy /Y "${join(this.store.dir, 'package.json')}" "${join(dir, 'package.json.before')}" >nul`,
         `"${exe}" --expose-internals "${pnpm}" add "${spec}" --registry=https://registry.npmmirror.com`,
         'set code=%ERRORLEVEL%',
-        `"${exe}" "${restore}" "${this.store.dir}" >> "${join(dir, 'update.log')}" 2>&1`,
+        `"${exe}" "${restore}" "${this.store.dir}" "${name}" "${version}" >> "${join(dir, 'update.log')}" 2>&1`,
         'set ELECTRON_RUN_AS_NODE=',
         `schtasks /Delete /TN "${taskName}" /F >nul 2>&1`,
         'if not "%code%"=="0" goto failed',
@@ -925,6 +925,8 @@ const RESTORE_BUNDLES_SCRIPT = `import { readFileSync, writeFileSync } from 'nod
 import { join } from 'node:path'
 
 const profile = process.argv[2]
+const name = process.argv[3]
+const version = process.argv[4]
 const read = (file) => JSON.parse(readFileSync(file, 'utf8'))
 const before = read(join(profile, '.dsh-agi-update', 'package.json.before'))
 const current = read(join(profile, 'package.json'))
@@ -935,6 +937,13 @@ const merged = [...new Set([...newBundles, ...oldBundles])]
 current.dsh = current.dsh ?? {}
 current.dsh.profile = current.dsh.profile ?? {}
 current.dsh.profile.bundles = merged
+if (name !== undefined && version !== undefined) {
+  current.dependencies = current.dependencies ?? {}
+  // pnpm records the downloaded tarball as a file: spec under .dsh-agi-update; that folder
+  // is temporary. Keep the registry version instead, so a later install never needs the file.
+  current.dependencies[name] = version.replace(/^v/, '')
+  console.log('dependency: ' + name + '@' + current.dependencies[name])
+}
 writeFileSync(join(profile, 'package.json'), JSON.stringify(current, null, 2) + String.fromCharCode(10))
 console.log('bundles: ' + merged.join(', '))
 `
