@@ -40,6 +40,15 @@ const MEDIUM_INTEGRITY_RID = 0x2000
  * are left out; the plain-text entry is taken first.
  */
 const CLIPBOARD_SNAPSHOT_LIMIT_BYTES = 16 * 1024 * 1024
+
+/**
+ * Clipboard formats whose handle is a GDI object, not a GlobalAlloc block: CF_BITMAP,
+ * CF_METAFILEPICT, CF_PALETTE, CF_ENHMETAFILE and their CF_DSP* twins. GlobalSize is only
+ * defined for global memory; probing one of these handles corrupted the heap and killed
+ * the host with STATUS_HEAP_CORRUPTION (0xC0000374) whenever the clipboard held a bitmap.
+ * The picture still travels as CF_DIB / CF_DIBV5, so skipping them loses no pixels.
+ */
+const GDI_CLIPBOARD_FORMATS = new Set([2, 3, 9, 14, 0x0082, 0x0083, 0x008e])
 const SM_XVIRTUALSCREEN = 76
 const SM_YVIRTUALSCREEN = 77
 const SM_CXVIRTUALSCREEN = 78
@@ -975,6 +984,8 @@ export function createProductionWindowsOps(): WindowsDesktopOps {
         for (;;) {
           format = api.EnumClipboardFormats(format)
           if (format === 0) break
+          // A GDI handle here is not a heap block: GlobalSize on it is undefined behaviour.
+          if (GDI_CLIPBOARD_FORMATS.has(format)) continue
           const handle = api.GetClipboardData(format)
           if (isNull(handle)) continue
           const size = Number(api.GlobalSize(handle))
