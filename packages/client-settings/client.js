@@ -110,14 +110,6 @@ window.__ModuleLoader__.load({
       updateUpToDate: '已是最新版本（{version}）',
       updateAutoDescription: '每天一次向 npm（npmmirror 优先，失败回退 npmjs）查询新版本，GitHub 作为兜底；不发送任何标识信息。',
       updateManual: '当前 Harness 没有提供插件管理服务，请在插件页手动更新。',
-      knowledgeTitle: '经验库',
-      knowledgeDescription: '把你不熟悉的系统怎么操作，写成 md 放进来。悬浮球遇到不熟的界面时会先读这些笔记再动手；关掉后它不会去读。',
-      knowledgeFolder: '文件夹：',
-      knowledgeOn: '已开启',
-      knowledgeOff: '已关闭',
-      knowledgeOpen: '打开文件夹',
-      knowledgeChange: '更改文件夹',
-      knowledgeDefault: '默认位置：',
       personaTitle: '角色卡',
       personaDescription: '它怎么说话、怎么称呼你。留空 = 中性，不扮演任何人。',
       personaFolder: '卡片目录：',
@@ -134,10 +126,27 @@ window.__ModuleLoader__.load({
       personaNewName: '新卡片名',
       personaCreate: '新建卡片',
       personaError: '失败：',
-      knowledgeDefaultHint: '（换过目录后，选它就能迁回默认）',
-      knowledgeRefresh: '刷新',
-      knowledgeEmpty: '还没有笔记。点「打开文件夹」，在里面新建一个 .md 就行。',
-      knowledgeError: '读取失败：',
+      graphTitle: '经验库目录',
+      graphDescription: '执行用的图谱库位置。换目录时先复制并校验，再切指针，最后删旧目录；任一步失败自动回滚到原目录。',
+      graphFolder: '当前目录：',
+      graphDefault: '默认位置：',
+      graphDefaultHint: '（选它就能迁回默认）',
+      graphChange: '更改目录…',
+      graphChanging: '正在迁移（复制 → 校验 → 切指针 → 删旧目录）…',
+      graphOpen: '打开文件夹',
+      graphEditor: '打开经验库',
+      graphEditorOpening: '正在打开…',
+      graphEditorOpened: '已在本机浏览器打开（端口 {port}）',
+      graphEditorFailed: '打开经验库失败：',
+      graphEditorNoUrl: '宿主没有返回编辑器地址。',
+      graphRefresh: '刷新',
+      graphCounts: '节点 {nodes} · 边 {edges} · 索引 {paths} · 决策 {decisions}',
+      graphMigrated: '已迁到新目录：节点 {nodes} · 边 {edges} · 索引 {paths}',
+      graphMerged: '目标已有图谱，已合并：节点 {nodes} · 边 {edges} · 索引 {paths}',
+      graphLeftover: '旧目录没删掉（两份都完整），可手动删除：',
+      graphLog: '迁移日志：',
+      graphError: '迁移失败：',
+      graphNone: '（还没有迁移记录）',
       workspaceTitle: 'Agent 工作区',
       workspaceDescription: '悬浮球 Agent 的新会话会创建在这里。切换后旧目录内容保持不变，也可以随时恢复默认工作区。',
       workspaceCurrent: '当前工作区：',
@@ -374,14 +383,6 @@ window.__ModuleLoader__.load({
       updateUpToDate: 'You are on the latest version ({version})',
       updateAutoDescription: 'Asks npm once a day (npmmirror first, then npmjs), with GitHub Releases as the fallback. Nothing identifying is sent.',
       updateManual: 'This Harness build ships no plugin manager — update from the Plugins page instead.',
-      knowledgeTitle: 'Playbooks',
-      knowledgeDescription: 'Drop markdown notes about systems you know here. The ball reads the relevant one before operating an unfamiliar screen; turn it off to stop that.',
-      knowledgeFolder: 'Folder: ',
-      knowledgeOn: 'On',
-      knowledgeOff: 'Off',
-      knowledgeOpen: 'Open folder',
-      knowledgeChange: 'Change folder',
-      knowledgeDefault: 'Default location: ',
       personaTitle: 'Persona card',
       personaDescription: 'How it should talk and address you. Empty = neutral, no role-play.',
       personaFolder: 'Cards folder: ',
@@ -398,10 +399,27 @@ window.__ModuleLoader__.load({
       personaNewName: 'New card name',
       personaCreate: 'New card',
       personaError: 'Failed: ',
-      knowledgeDefaultHint: ' (pick it to move the files back)',
-      knowledgeRefresh: 'Refresh',
-      knowledgeEmpty: 'No notes yet. Open the folder and add a .md file.',
-      knowledgeError: 'Failed to read: ',
+      graphTitle: 'Experience library folder',
+      graphDescription: 'Where the executable graph library lives. Switching copies and verifies first, then switches the pointer, then deletes the old folder; any failure rolls back to the original folder.',
+      graphFolder: 'Current folder: ',
+      graphDefault: 'Default location: ',
+      graphDefaultHint: ' (pick it to move back)',
+      graphChange: 'Change folder…',
+      graphChanging: 'Migrating (copy → verify → switch pointer → delete old)…',
+      graphOpen: 'Open folder',
+      graphEditor: 'Open experience library',
+      graphEditorOpening: 'Opening…',
+      graphEditorOpened: 'Opened in your default browser (port {port})',
+      graphEditorFailed: 'Could not open the experience library: ',
+      graphEditorNoUrl: 'The host did not return an editor address.',
+      graphRefresh: 'Refresh',
+      graphCounts: 'nodes {nodes} · edges {edges} · indexes {paths} · decisions {decisions}',
+      graphMigrated: 'Moved: nodes {nodes} · edges {edges} · indexes {paths}',
+      graphMerged: 'Target already held a graph; merged: nodes {nodes} · edges {edges} · indexes {paths}',
+      graphLeftover: 'The old folder could not be deleted (both copies are complete): ',
+      graphLog: 'Migration log: ',
+      graphError: 'Migration failed: ',
+      graphNone: '(no migration yet)',
       workspaceTitle: 'Agent workspace',
       workspaceDescription: 'New floating-ball Agent conversations are created here. The old directory is left untouched, and you can restore the default workspace at any time.',
       workspaceCurrent: 'Current workspace: ',
@@ -979,7 +997,7 @@ window.__ModuleLoader__.load({
           }),
           h(IdleCard, { text, snap, mutate }),
           snap.tcc && snap.tcc.applicable ? tccCard(text, snap, disabled, mutate) : null),
-        h(KnowledgeCard, { text, snap, mutate }),
+        h(GraphLibraryCard, { text, snap, mutate }),
         h(PersonaCard, { text, snap, mutate }),
         h(WorkspaceCard, { text, snap, refreshSettings }),
         h(HistoryCard, { text, snap, mutate, refreshHistory }))
@@ -1342,39 +1360,33 @@ window.__ModuleLoader__.load({
             error ? h('p', { className: 'dsh-agi-set-muted' }, copy('personaError', '失败：') + error) : null)))
     }
 
-    function KnowledgeCard({ text, snap, mutate }) {
+    /**
+     * 经验库目录: where the executable DAG library lives. Changing it copies and verifies the
+     * library, switches the profile pointer, and only then deletes the old folder; a failure
+     * rolls everything back, so the card only ever shows a complete library.
+     */
+    function GraphLibraryCard({ text, snap, mutate }) {
       const [state, setState] = React.useState(null)
       const [busy, setBusy] = React.useState(false)
+      const [opening, setOpening] = React.useState(false)
       const [error, setError] = React.useState('')
       const [notice, setNotice] = React.useState('')
       const copy = (key, fallback) => (typeof text[key] === 'string' ? text[key] : fallback)
+      const fill = (template, counts) => String(template)
+        .replace('{nodes}', String((counts && counts.nodes) || 0))
+        .replace('{edges}', String((counts && counts.edges) || 0))
+        .replace('{paths}', String((counts && counts.paths) || 0))
+        .replace('{decisions}', String((counts && counts.decisions) || 0))
 
       async function load() {
         try {
-          setState(await request('/.dsh-agi/knowledge'))
+          setState(await request('/.dsh-agi/graph'))
           setError('')
         } catch (e) {
           setError(String((e && e.message) || e))
         }
       }
       React.useEffect(() => { void load() }, [])
-
-      async function toggle(next) {
-        if (busy) return
-        setBusy(true)
-        setError('')
-        try {
-          setState(await request('/.dsh-agi/knowledge', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ enabled: next }),
-          }))
-        } catch (e) {
-          setError(String((e && e.message) || e))
-        } finally {
-          setBusy(false)
-        }
-      }
 
       async function changeFolder() {
         if (busy) return
@@ -1389,7 +1401,7 @@ window.__ModuleLoader__.load({
           })
           const next = picked && typeof picked.path === 'string' ? picked.path : ''
           if (!next) return
-          const body = await request('/.dsh-agi/knowledge/dir', {
+          const body = await request('/.dsh-agi/graph/dir', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ dir: next }),
@@ -1397,7 +1409,13 @@ window.__ModuleLoader__.load({
           setState(body)
           const m = body && body.migration
           if (m) {
-            setNotice(String(m.moved || 0) + (m.failed && m.failed.length ? ' 个已迁移，' + m.failed.length + ' 个因重名未迁移' : ' 个文件已迁移'))
+            const template = m.mode === 'merge'
+              ? copy('graphMerged', 'Merged: nodes {nodes} · edges {edges} · indexes {paths}')
+              : copy('graphMigrated', 'Moved: nodes {nodes} · edges {edges} · indexes {paths}')
+            let line = fill(template, m.counts || {})
+            if (m.leftover) line += ' · ' + copy('graphLeftover', 'Old folder kept: ') + m.from
+            if (m.log) line += ' · ' + copy('graphLog', 'Migration log: ') + m.log
+            setNotice(line)
           }
         } catch (e) {
           setError(String((e && e.message) || e))
@@ -1408,7 +1426,7 @@ window.__ModuleLoader__.load({
 
       async function openFolder() {
         try {
-          setState(await request('/.dsh-agi/knowledge/open', {
+          setState(await request('/.dsh-agi/graph/open', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: '{}',
@@ -1419,41 +1437,71 @@ window.__ModuleLoader__.load({
         }
       }
 
-      const enabled = state ? state.enabled !== false : true
-      const files = state && Array.isArray(state.files) ? state.files : []
+      /**
+       * The editor cannot be opened with `window.open`: the desktop shell denies new
+       * windows, and its authenticated route rejects a browser without the DSH cookie.
+       * The host starts a loopback server and hands the URL to the system browser; when
+       * that hand-off fails it still returns the URL, so reopen it in place.
+       */
+      async function openEditor() {
+        if (opening || busy) return
+        setOpening(true)
+        setError('')
+        setNotice('')
+        try {
+          const result = await request('/.dsh-agi/graph/editor', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: '{}',
+          })
+          const url = result && typeof result.url === 'string' ? result.url : ''
+          if (url === '') throw new Error(copy('graphEditorNoUrl', '宿主没有返回编辑器地址。'))
+          if (result.opened === false) {
+            // No system-browser hand-off (headless host): open the loopback page here.
+            window.location.href = url
+          }
+          const port = result && (typeof result.port === 'number' || typeof result.port === 'string') ? String(result.port) : ''
+          setNotice(copy('graphEditorOpened', '已在本机浏览器打开（端口 {port}）').replace('{port}', port))
+        } catch (e) {
+          setError(copy('graphEditorFailed', '打开经验库失败：') + String((e && e.message) || e))
+        } finally {
+          setOpening(false)
+        }
+      }
+
+      const counts = state && state.counts ? state.counts : { nodes: 0, edges: 0, paths: 0, decisions: 0 }
+      const last = state && state.lastMigration ? state.lastMigration : null
       return h('section', { className: 'dsh-agi-set-card dsh-agi-set-knowledge' },
-        cardHead('folder', copy('knowledgeTitle', '经验库'), copy('knowledgeDescription', ''),
-          h(Toggle, {
-            checked: enabled,
-            disabled: busy,
-            label: copy('knowledgeTitle', '经验库'),
-            onChange: (next) => { void toggle(next) },
-          })),
+        cardHead('folder', copy('graphTitle', '经验库目录'), copy('graphDescription', '')),
         h('div', { className: 'dsh-agi-set-card-body' },
           h('div', { className: 'dsh-agi-set-panel' },
             h('div', { className: 'dsh-agi-set-workspace-top' },
               h('p', { className: 'dsh-agi-set-muted dsh-agi-set-workspace-path' },
-                copy('knowledgeFolder', 'Folder: ') + (state ? state.dir : '…')),
-              h('span', { className: 'dsh-agi-set-badge' + (enabled ? '' : ' is-custom') },
-                enabled ? copy('knowledgeOn', 'On') : copy('knowledgeOff', 'Off'))),
+                copy('graphFolder', 'Current folder: ') + (state ? state.dir : '…')),
+              h('span', { className: 'dsh-agi-set-badge' + (state && state.isDefault === false ? ' is-custom' : '') },
+                state && state.isDefault === false ? 'custom' : 'default')),
             h('div', { className: 'dsh-agi-set-workspace-controls' },
               h('button', { type: 'button', className: 'dsh-agi-set-path', disabled: busy, onClick: () => { void changeFolder() } },
-                copy('knowledgeChange', '更改文件夹')),
+                copy('graphChange', '更改目录…')),
               h('button', { type: 'button', className: 'dsh-agi-set-path', onClick: () => { void openFolder() } },
-                copy('knowledgeOpen', 'Open folder')),
+                copy('graphOpen', '打开文件夹')),
+              h('button', { type: 'button', className: 'dsh-agi-set-path', disabled: busy || opening, onClick: () => { void openEditor() } },
+                copy('graphEditor', '打开经验库')),
               h('button', { type: 'button', className: 'dsh-agi-set-path', onClick: () => { void load() } },
-                copy('knowledgeRefresh', 'Refresh'))),
+                copy('graphRefresh', '刷新'))),
+            h('p', { className: 'dsh-agi-set-muted' }, fill(copy('graphCounts', 'nodes {nodes} · edges {edges} · indexes {paths} · decisions {decisions}'), counts)),
             state && state.defaultDir
               ? h('p', { className: 'dsh-agi-set-muted' },
-                  copy('knowledgeDefault', '默认位置：') + state.defaultDir + copy('knowledgeDefaultHint', '（换过目录后，选它就能迁回默认）'))
+                  copy('graphDefault', '默认位置：') + state.defaultDir + copy('graphDefaultHint', '（选它就能迁回默认）'))
               : null,
-            files.length === 0
-              ? h('p', { className: 'dsh-agi-set-muted' }, copy('knowledgeEmpty', ''))
-              : h('div', { className: 'dsh-agi-set-muted' },
-                  files.map((file) => h('div', { key: file.name },
-                    file.dir ? file.name + '/' : file.name + ' · ' + Math.max(1, Math.round((file.bytes || 0) / 1024)) + ' KB'))),
+            last
+              ? h('p', { className: 'dsh-agi-set-muted' },
+                  copy('graphLog', '迁移日志：') + last.ts + ' · ' + last.event + (last.detail ? ' · ' + last.detail : ''))
+              : h('p', { className: 'dsh-agi-set-muted' }, copy('graphNone', '（还没有迁移记录）')),
+            busy ? h('p', { className: 'dsh-agi-set-muted' }, copy('graphChanging', '')) : null,
+            opening ? h('p', { className: 'dsh-agi-set-muted' }, copy('graphEditorOpening', '正在打开…')) : null,
             notice ? h('p', { className: 'dsh-agi-set-muted' }, notice) : null,
-            error ? h('p', { className: 'dsh-agi-set-muted' }, copy('knowledgeError', '') + error) : null)))
+            error ? h('p', { className: 'dsh-agi-set-muted' }, copy('graphError', '') + error) : null)))
     }
 
     function WorkspaceCard({ text, snap, refreshSettings }) {

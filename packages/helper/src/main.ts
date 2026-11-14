@@ -175,9 +175,18 @@ ipcMain.handle('orb:unsnap', async (event) => {
   return placement.unsnap()
 })
 
-ipcMain.on('orb:prompt', (event, text) => {
+ipcMain.on('orb:prompt', (event, payload) => {
   if (!fromBall(event)) return
-  write({ type: 'prompt', text })
+  // The page sends { text, mode } since the composer can steer a live turn; a bare
+  // string stays accepted for a page loaded from an older build.
+  if (typeof payload === 'string') {
+    write({ type: 'prompt', text: payload })
+    return
+  }
+  if (typeof payload !== 'object' || payload === null) return
+  const record = payload as { text?: unknown; mode?: unknown }
+  if (typeof record.text !== 'string' || record.text.length > 8_000) return
+  write({ type: 'prompt', text: record.text, mode: record.mode === 'steer' ? 'steer' : 'interrupt' })
 })
 
 ipcMain.on('orb:question-answer', (event, payload) => {
@@ -271,7 +280,7 @@ ipcMain.on('orb:silence', (event) => {
 ipcMain.on('orb:prompt-images', (event, payload) => {
   if (!fromBall(event)) return
   if (typeof payload !== 'object' || payload === null) return
-  const record = payload as { text?: unknown; images?: unknown }
+  const record = payload as { text?: unknown; images?: unknown; mode?: unknown }
   const text = typeof record.text === 'string' ? record.text.slice(0, 8_000) : ''
   const images = Array.isArray(record.images)
     ? record.images
@@ -286,7 +295,7 @@ ipcMain.on('orb:prompt-images', (event, payload) => {
       .filter((shot) => shot.data.length > 0 && shot.data.length < 4_000_000)
     : []
   if (images.length === 0 && text.trim() === '') return
-  write({ type: 'prompt-images', text, images })
+  write({ type: 'prompt-images', text, images, mode: record.mode === 'steer' ? 'steer' : 'interrupt' })
 })
 
 // Renderer clipboard APIs need a focused document; the ball rests unfocused,

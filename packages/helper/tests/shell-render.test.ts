@@ -194,8 +194,8 @@ describe('agent work keeps the panel on screen', () => {
     assert.match(css, /#voice-meter\.active \{\n\s+opacity: 1;/)
     assert.match(css, /#voice-meter-bar \{\n\s+display: block;\n\s+width: 100%;/)
     assert.match(css, /background: #8ec5ff;/)
-    // The composer is hidden while the agent works, but the meter inside it must stay
-    // visible: transcription is still open during the turn.
+    // Transcription is still open during a turn, so the meter must stay visible
+    // whatever visibility the surrounding composer carries.
     assert.match(css, /body\.running #voice-meter \{\n\s+visibility: visible;/)
     assert.match(code, /const listening = voiceMode === 'command' \|\| voiceMode === 'interject'/)
     assert.match(code, /const active = listening && expanded && !asking\(\)/)
@@ -227,5 +227,26 @@ describe('agent work keeps the panel on screen', () => {
     assert.match(preload, /onVoiceSpeech\(callback\)/)
     assert.match(preload, /orb:voice-speech/)
     assert.match(main, /orb:voice-speech/)
+  })
+
+  it('keeps the composer usable while a turn runs and splits steer from interrupt', () => {
+    const css = source('../assets/floating.css')
+    const preload = source('../preload.cjs')
+    const main = source('../src/main.ts')
+    // The input stays on screen for the whole turn; only the question card and the
+    // permission gate may take it away, because they own the answer.
+    assert.equal(css.includes('body.running #composer'), false)
+    assert.match(css, /body\.asking #composer,\nbody\.tcc-gating #composer,/)
+    // Plain Enter steers the live turn; the accelerator replaces it.
+    assert.match(code, /submitMode = running && !\(event\.ctrlKey \|\| event\.metaKey\) \? 'steer' : 'interrupt'/)
+    assert.match(code, /const deliver = running \? mode : 'interrupt'/)
+    assert.match(code, /api\.sendWithImages\(payload, shots, deliver\)/)
+    assert.match(code, /api\.send\(payload, deliver\)/)
+    assert.match(code, /const text = running \? messages\.placeholderRunning : messages\.placeholder/)
+    // The mode survives the helper's IPC hop, and an older page still sends a bare string.
+    assert.match(preload, /send\(text, mode\)/)
+    assert.match(preload, /mode === 'steer' \? 'steer' : 'interrupt'/)
+    assert.match(main, /record\.mode === 'steer' \? 'steer' : 'interrupt'/)
+    assert.match(main, /typeof payload === 'string'/)
   })
 })

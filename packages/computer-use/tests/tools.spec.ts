@@ -11,8 +11,10 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
 import { FOCUS_FALLBACK_FOREGROUND, type DesktopForeground, type ScreenInfo } from '../src/backend.ts'
+import type { ActionSnapshot } from '../src/action-receipt.ts'
 import { resolveComputerUseConfig } from '../src/config.ts'
 import { createFakeDesktopBackend, FAKE_WINDOW_PNG } from '../src/fake.ts'
+import type { HoverFeedback } from '../src/hover.ts'
 import { withFakeZoom } from './fixtures/fake-zoom.ts'
 import { applyComputerUse } from '../src/plugin.ts'
 import { apply, Config, inject, name } from '../src/index.ts'
@@ -120,6 +122,8 @@ async function setup(options: {
   apps?: readonly string[]
   postActionWaitMs?: number
   png?: Uint8Array
+  hover?: HoverFeedback
+  actionSnapshots?: ActionSnapshot[]
 } = {}) {
   const home = await mkdtemp(join(tmpdir(), 'dsh-cu-'))
   homes.push(home)
@@ -144,6 +148,12 @@ async function setup(options: {
     ...options.apps === undefined ? {} : { apps: options.apps },
     ...options.png === undefined ? {} : { png: options.png },
   }))
+  if (options.hover !== undefined) {
+    backend.hoverProbe = () => Promise.resolve(options.hover!)
+  }
+  if (options.actionSnapshots !== undefined) {
+    backend.inspectAction = () => Promise.resolve(options.actionSnapshots!.shift()!)
+  }
   applyComputerUse(ctx, backend, resolveComputerUseConfig({
     postActionWaitMs: options.postActionWaitMs ?? 0,
   }))
@@ -156,12 +166,73 @@ describe('plugin metadata', () => {
     expect(inject).toEqual(['tools', 'systemPrompt', 'attachments'])
     expect(Config({}).postActionWaitMs).toBe(600)
     expect(resolveComputerUseConfig({}).postActionWaitMs).toBe(600)
+    expect(resolveComputerUseConfig({})).toMatchObject({
+      displayInventoryEnabled: true,
+      modalGuardEnabled: true,
+      actionReceiptEnabled: true,
+      captureFallbackEnabled: true,
+      printWindowEnabled: true,
+      dwmFlushEnabled: true,
+      hoverFeedbackEnabled: true,
+      hoverPixelTolerance: 8,
+      hoverMinChangedRatio: 0.02,
+      modelTextMaxChars: 512,
+    })
     expect(() => resolveComputerUseConfig({ postActionWaitMs: -1 })).toThrow(/postActionWaitMs/u)
+    expect(() => resolveComputerUseConfig({ hoverMinChangedRatio: 2 })).toThrow(/between 0 and 1/u)
     expect('default' in ComputerUse).toBe(false)
   })
 })
 
 describe('computer-use tools', () => {
+  it('reports detected hover feedback in the preview without acting', async () => {
+    const hover: HoverFeedback = {
+      available: true,
+      hasFeedback: true,
+      confidence: 'likely',
+      changedPixels: 40,
+      sampledPixels: 1000,
+      changedRatio: 0.04,
+      pixelTolerance: 8,
+      cursorChanged: true,
+      cursorBefore: 'arrow',
+      cursorAfter: 'hand',
+      cursorAssist: true,
+      summary: 'Hover feedback detected: 4.00% of sampled pixels changed (threshold 2.00%); cursor arrow→hand (changed).',
+    }
+    const { ctx, backend } = await setup({ hover })
+    const session = Session.create(SessionId('cu-hover-preview'))
+    const preview = await execute(ctx, 'click', { screen_index: 0, position: [100, 200] }, 'vision-model', session)
+    expect(preview.isError).toBe(false)
+    expect(text(preview)).toContain('Hover feedback detected · clickable')
+    expect(backend.actions).toHaveLength(0)
+    expect(backend.zooms).toHaveLength(1)
+  })
+
+  it('attaches a four-check action receipt after a confirmed click', async () => {
+    const before: ActionSnapshot = {
+      windowId: 1,
+      windowRect: { x: 0, y: 0, width: 1000, height: 800 },
+      foregroundWindowId: 1,
+      focusWindowId: 1,
+      focusOnTarget: true,
+      targetEnabled: true,
+    }
+    const after: ActionSnapshot = {
+      ...before,
+      focusOnTarget: false,
+      targetEnabled: false,
+    }
+    const { ctx } = await setup({ actionSnapshots: [before, after] })
+    const session = Session.create(SessionId('cu-receipt'))
+    await execute(ctx, 'click', { screen_index: 0, position: [100, 200] }, 'vision-model', session)
+    const result = await execute(ctx, 'click', {
+      screen_index: 0, position: [100, 200], confirm: true,
+    }, 'vision-model', session)
+    expect(result.isError).toBe(false)
+    expect(text(result)).toContain('Action check: 2 issue(s)')
+  })
+
   it('records a click and returns image blocks without a filesystem path', async () => {
     const { ctx, backend } = await setup()
     const session = Session.create(SessionId('cu-click-basic'))

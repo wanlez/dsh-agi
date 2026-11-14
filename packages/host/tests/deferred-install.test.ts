@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { after, describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import {
@@ -86,16 +86,23 @@ describe('the after-exit script', () => {
     const dir = profile()
     const bin = join(root, 'bin')
     mkdirSync(bin, { recursive: true })
-    // Stands in for pnpm: records whether the status file was already in place.
-    const fake = join(bin, 'pnpm')
-    writeFileSync(fake, '#!/bin/sh\n'
-      + 'if [ -f .dsh-agi-update/status.json ]; then echo present > .dsh-agi-update/pnpm-saw-status.txt; '
+    // Stands in for pnpm: records whether the status file was already in place. Windows
+    // resolves `pnpm` through cmd, so the fake needs the .cmd extension there.
+    const fake = join(bin, process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm')
+    const probe = 'if [ -f .dsh-agi-update/status.json ]; then echo present > .dsh-agi-update/pnpm-saw-status.txt; '
       + 'else echo absent > .dsh-agi-update/pnpm-saw-status.txt; fi\n'
-      + 'exit 0\n')
+    writeFileSync(fake, process.platform === 'win32'
+      ? '@echo off\r\n'
+        + 'if exist .dsh-agi-update\\status.json (echo present> .dsh-agi-update\\pnpm-saw-status.txt) '
+        + 'else (echo absent> .dsh-agi-update\\pnpm-saw-status.txt)\r\n'
+        + 'exit /b 0\r\n'
+      : `#!/bin/sh\n${probe}exit 0\n`)
     chmodSync(fake, 0o755)
     writeFileSync(join(dir, 'pnpm-workspace.yaml'), 'packages:\n  - .\nminimumReleaseAgeExclude:\n  - dsh-agi\n')
     const previousPath = process.env.PATH
-    process.env.PATH = `${bin}:${previousPath ?? ''}`
+    process.env.PATH = `${bin}${delimiter}${previousPath ?? ''}`
+    // The success dialog is modal; the suite must not wait for a human to dismiss it.
+    process.env.DSH_AGI_UPDATE_NO_POPUP = '1'
     const job: DeferredInstall = {
       profileDir: dir,
       spec: 'dsh-agi@0.2.0',
@@ -129,6 +136,7 @@ describe('the after-exit script', () => {
     } finally {
       if (previousPath === undefined) delete process.env.PATH
       else process.env.PATH = previousPath
+      delete process.env.DSH_AGI_UPDATE_NO_POPUP
     }
   })
 })
@@ -143,11 +151,26 @@ describe('install-in-progress detection', () => {
     assert.equal(deferredInstallInProgress(dir), false)
   })
 
-  it('keeps trusting a young status whose script is gone, and collects an old one as failed', () => {
-    const dir = profile()
-    statusFile(dir, 'dsh-agi@0.2.0', deadPid(), Date.now())
-    assert.equal(deferredInstallInProgress(dir), true, 'a fresh status is trusted while the script may still fork')
+  it('collects a status whose script is gone, and keeps one whose script lives', () => {
+    const dead = profile()
+    statusFile(dead, 'dsh-agi@0.2.0', deadPid(), Date.now())
+    // A status file is written by the script itself, so a dead pid means the script was
+    // killed before pnpm finished and no outcome will ever arrive: collect it now instead
+    // of holding the plugin back for the ceiling.
+    assert.equal(deferredInstallInProgress(dead), false, 'a dead script cannot still be installing')
+    assert.deepEqual(takeDeferredOutcome(dead), {
+      spec: 'dsh-agi@0.2.0',
+      ok: false,
+      detail: 'deferred-install-stalled',
+    })
+    assert.equal(existsSync(join(deferredDir(dead), 'status.json')), false)
 
+    // A live script keeps the gate closed.
+    const live = profile()
+    statusFile(live, 'dsh-agi@0.2.0', process.pid, Date.now())
+    assert.equal(deferredInstallInProgress(live), true, 'a live script is installing')
+
+    // Past its own ceiling even a live-looking leftover is collected as failed.
     const stale = profile()
     const old = join(deferredDir(stale), 'status.json')
     statusFile(stale, 'dsh-agi@0.3.0', deadPid(), Date.now() - DEFERRED_INSTALL_CEILING_MS - 1000)

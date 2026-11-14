@@ -1,0 +1,457 @@
+import { createServer, type Server } from 'node:http'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { after, before, describe, it } from 'node:test'
+import assert from 'node:assert/strict'
+import { GRAPH_PREFIX, handleKnowledgeGraph } from '../src/knowledge-graph/routes.ts'
+import { KNOWLEDGE_GRAPH_PAGE } from '../src/knowledge-graph/page.ts'
+
+const root = mkdtempSync(join(tmpdir(), 'orb-graph-http-'))
+let server: Server
+let base = ''
+
+before(async () => {
+  server = createServer((req, res) => {
+    void handleKnowledgeGraph({ dir: join(root, 'library'), req, res })
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()))
+  const address = server.address()
+  if (typeof address === 'object' && address !== null) base = `http://127.0.0.1:${address.port}${GRAPH_PREFIX}`
+})
+
+after(async () => {
+  await new Promise<void>((resolve) => server.close(() => resolve()))
+  rmSync(root, { recursive: true, force: true })
+})
+
+interface Json { ok: boolean; error?: { code: string; message: string }; [key: string]: unknown }
+
+async function request(method: string, path: string, body?: unknown): Promise<{ status: number; json: Json; text: string; contentType: string }> {
+  const response = await fetch(base + path, {
+    method,
+    headers: body === undefined ? {} : { 'content-type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  const text = await response.text()
+  let json: Json = { ok: false }
+  try {
+    json = JSON.parse(text) as Json
+  } catch {
+    // The page is HTML; callers that need it read `text`.
+  }
+  return { status: response.status, json, text, contentType: response.headers.get('content-type') ?? '' }
+}
+
+describe('knowledge graph HTTP surface', () => {
+  it('serves the empty-first-screen editor and a parseable client script', async () => {
+    const page = await request('GET', '/')
+    assert.equal(page.status, 200)
+    assert.match(page.contentType, /text\/html/)
+    assert.match(page.text, /首屏是空图/)
+    assert.match(page.text, /复用该节点/)
+    assert.match(page.text, /以它为起点新建/)
+    assert.match(page.text, /统计看板/)
+    assert.match(page.text, /拖/)
+    // The threshold is no longer a wall: both bands and the human confirmation are rendered.
+    assert.match(page.text, /未达阈值 · 最接近/)
+    assert.match(page.text, /低于阈值的路径不允许自动执行/)
+    assert.match(page.text, /人工确认测试/)
+    assert.match(page.text, /语义地板/)
+    assert.match(page.text, /\+ 新建节点/)
+    const script = /<script>([\s\S]*)<\/script>/u.exec(page.text)?.[1]
+    assert.ok(script !== undefined)
+    assert.doesNotThrow(() => new Function(script as string))
+    assert.equal(KNOWLEDGE_GRAPH_PAGE.includes('id="graph"'), true)
+  })
+
+  it('renames 索引 to 收藏 and 变更记录 to 操作记录 everywhere the user reads it', async () => {
+    const page = await request('GET', '/')
+    const text = page.text
+    // Tabs, buttons, empty states: the old vocabulary is gone from the page source.
+    assert.match(text, /data-tab="index">收藏</)
+    assert.match(text, /data-tab="log">操作记录</)
+    assert.doesNotMatch(text, /索引/)
+    assert.doesNotMatch(text, /变更记录/)
+    assert.doesNotMatch(text, /合并|废弃/)
+    assert.doesNotMatch(text, /A 方案/)
+    assert.doesNotMatch(text, /io\.input|io\.output/)
+    assert.match(text, /检索收藏/)
+    assert.match(text, /保存当前路径为收藏/)
+    assert.match(text, /已保存的收藏/)
+    assert.match(text, /还没有收藏/)
+    assert.match(text, /被这些收藏引用/)
+    assert.match(text, /没有收藏引用它/)
+    assert.match(text, /收藏路径/)
+    assert.match(text, /复制节点（内容复制，连线需自己重建）/)
+  })
+
+  it('renders two search columns, a return view and the unsaved guard', async () => {
+    const page = await request('GET', '/')
+    assert.equal(page.status, 200)
+    const text = page.text
+
+    // One horizontal action bar, then a semantic column and a keyword column at ~1:1.
+    assert.match(text, /搜索结果 · 共 /)
+    assert.match(text, /语义匹配/)
+    assert.match(text, /语义 TOP3/)
+    assert.match(text, /关键词匹配/)
+    assert.match(text, /按字符匹配（不是正则）/)
+    assert.match(text, /无命中/)
+    assert.match(text, /\.resultColumns \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/)
+    assert.match(text, /@media \(max-width: 900px\) \{\s*\.resultColumns \{ grid-template-columns: minmax\(0, 1fr\); \}/)
+
+    // 定位 records the view it came from; the button restores the candidates and selection.
+    assert.match(text, /id="returnBtn"[^>]*data-action="return-view"/)
+    assert.match(text, /← 返回上一个视图/)
+    assert.match(text, /selectedId/)
+    assert.match(text, /function pushViewSnapshot/)
+    assert.match(text, /function returnView/)
+
+    // The unsaved guard offers save / discard / cancel and focuses 保存.
+    assert.match(text, /有未保存的修改/)
+    assert.match(text, /data-action="guard-save"/)
+    assert.match(text, /data-action="guard-discard"/)
+    assert.match(text, /data-action="guard-cancel"/)
+    assert.match(text, /save\.focus\(\)/)
+    assert.match(text, /beforeunload/)
+    assert.match(text, /未保存/)
+
+    // Plain language replaces the family-tree terms in every visible label.
+    assert.match(text, /当前节点（实色）/)
+    assert.match(text, /前置步骤（直接前置）/)
+    assert.match(text, /后续步骤（直接后续）/)
+    assert.match(text, /并列步骤（同一前置下的其他步骤）/)
+    assert.match(text, /前置步骤 · 直接前置/)
+    assert.match(text, /后续步骤 · 直接后续/)
+    assert.match(text, /并列步骤 · 同一前置/)
+    // No family-tree wording survives in the visible copy. The words are assembled from
+    // code points so a plain-text grep of the repo does not find the old terms here.
+    const family = ['\u7236', '\u5b50', '\u5144']
+    const banned = family.map((prefix) => `${prefix}节点`).concat(['\u524d\u9a71', '\u540e\u7ee7', '\u7236 ·', '\u5b50 ·', '\u5144 ·'])
+    assert.deepEqual(banned.filter((term) => text.includes(term)), [], 'visible copy still uses family-tree terms')
+
+    // The saved favorite button says 测试 and carries the management-console warning.
+    assert.match(text, /data-action="run-path" data-id="' \+ esc\(path\.id\) \+ '">测试</)
+    assert.match(text, /这里是知识库管理台，不是操作台；测试会真实操作电脑，请谨慎。/)
+    assert.match(text, /人工确认测试/)
+
+    // The old change log is now a Chinese operation log; ids are resolved server-side.
+    assert.match(text, /操作记录/)
+    assert.match(text, /记录谁在什么时候新建 \/ 修改 \/ 复制 \/ 删除节点或连线/)
+    assert.match(text, /function loadLog/)
+    assert.match(text, /参考候选：/)
+    assert.match(text, /entry\.sentence/)
+    assert.doesNotMatch(text, /entry\.node_id/)
+  })
+
+  it('opens the relation builder from the + handle and the toolbar, and sizes the drawer to ~1/3', async () => {
+    const page = await request('GET', '/')
+    const text = page.text
+    // Both entry points exist and share one dialog.
+    assert.match(text, /data-action="open-relation">＋ 建立关系</)
+    assert.match(text, /function openRelation/)
+    assert.match(text, /function relationSearch/)
+    assert.match(text, /function relationSubmit/)
+    assert.match(text, /data-action="rel-search"/)
+    assert.match(text, /setAttribute\("data-action", "rel-submit"\)/)
+    assert.match(text, /作为该节点的后续（起点 → 终点）/)
+    assert.match(text, /作为该节点的前置（终点 → 起点）/)
+    assert.match(text, /点击：搜索目标节点建边/)
+    // The click travels through the same pointerup path as a drag; only a real move drags.
+    assert.match(text, /if \(!moved\) \{/)
+    assert.match(text, /setTimeout\(function \(\) \{ openRelation\(from, "after"\); \}, 0\)/)
+    assert.match(text, /\/api\/edges\/validate/)
+
+    // Drawer: a third of the viewport on desktop, overlay on narrow screens, resizable.
+    assert.match(text, /#detail\.drawer \{ width: var\(--drawer-width, 33vw\); \}/)
+    assert.match(text, /width: var\(--drawer-width, 33vw\)/)
+    assert.match(text, /@media \(max-width: 1100px\)/)
+    assert.match(text, /id="detail" class="drawer"/)
+    assert.match(text, /function bindDrawerResize/)
+    assert.match(text, /id="detailResize"/)
+  })
+
+  it('reports an empty library without sending the graph', async () => {
+    const state = await request('GET', '/api/state')
+    assert.equal(state.status, 200)
+    assert.equal(state.json.llm, false)
+    assert.equal((state.json.settings as { searchThreshold: number }).searchThreshold, 0.75)
+    assert.equal((state.json.settings as { semanticFloor: number }).semanticFloor, 0.3)
+    assert.equal((state.json.counts as { nodes: number }).nodes, 0)
+  })
+
+  it('creates nodes, searches, and explains a rejected cycle', async () => {
+    const a = await request('POST', '/api/nodes', { title: '登录门户', description: '打开企业门户并登录' })
+    assert.equal(a.status, 200)
+    const b = await request('POST', '/api/nodes', { title: '打开薪酬系统', description: '在门户里打开薪酬辅助系统' })
+    const aid = (a.json.node as { id: string }).id
+    const bid = (b.json.node as { id: string }).id
+
+    const search = await request('GET', `/api/search?q=${encodeURIComponent('登录门户')}&threshold=0`)
+    assert.equal(search.status, 200)
+    assert.equal((search.json.candidates as { node: { id: string } }[])[0]?.node.id, aid)
+
+    const self = await request('POST', '/api/edges/validate', { from: aid, to: aid })
+    assert.equal(self.status, 409)
+    assert.equal(self.json.error?.code, 'self-loop')
+
+    assert.equal((await request('POST', '/api/edges', { from: aid, to: bid })).status, 200)
+    const duplicate = await request('POST', '/api/edges', { from: aid, to: bid })
+    assert.equal(duplicate.status, 409)
+    assert.equal(duplicate.json.error?.code, 'duplicate')
+
+    const cycle = await request('POST', '/api/edges', { from: bid, to: aid })
+    assert.equal(cycle.status, 409)
+    assert.equal(cycle.json.error?.code, 'cycle')
+    assert.match(cycle.json.error?.message ?? '', /会形成环/)
+  })
+
+  it('accepts no io field on create or update and never writes one back', async () => {
+    const created = await request('POST', '/api/nodes', {
+      title: '无 io 节点',
+      description: '请求体里的 io 应该被忽略',
+      io: { input: '旧输入', output: '旧输出' },
+    })
+    assert.equal(created.status, 200)
+    const node = created.json.node as Record<string, unknown>
+    assert.equal('io' in node, false, 'create must not produce io')
+
+    const patched = await request('PATCH', `/api/nodes/${String(node.id)}`, {
+      description: '改过说明',
+      io: { input: '新输入' },
+    })
+    assert.equal(patched.status, 200)
+    assert.equal('io' in (patched.json.node as Record<string, unknown>), false, 'update must not produce io')
+
+    const detail = await request('GET', `/api/nodes/${String(node.id)}`)
+    assert.equal('io' in (detail.json.node as Record<string, unknown>), false)
+  })
+
+  it('takes the merge and deprecate routes out of service', async () => {
+    const stats = await request('GET', '/api/stats')
+    const rows = (stats.json.stats as { nodes: { id: string }[] }).nodes
+    const first = rows[0]?.id as string
+    const second = rows[1]?.id as string
+    assert.equal((await request('POST', '/api/merge/preview', { source_id: first, target_id: second })).status, 404)
+    assert.equal((await request('POST', '/api/merge', { source_id: first, target_id: second })).status, 404)
+    assert.equal((await request('POST', `/api/nodes/${first}/deprecate`, {})).status, 404)
+  })
+
+  it('soft deletes over HTTP and restores the node from the deleted filter', async () => {
+    const created = await request('POST', '/api/nodes', { title: '临时节点', description: '用完就删' })
+    const id = (created.json.node as { id: string }).id
+    const deleted = await request('POST', `/api/nodes/${id}/delete`, {})
+    assert.equal(deleted.status, 200)
+    assert.equal((deleted.json.node as { status: string }).status, 'deleted')
+
+    const list = await request('GET', '/api/nodes?status=deleted')
+    assert.equal(list.status, 200)
+    assert.ok((list.json.nodes as { id: string; title: string }[]).some((row) => row.id === id && row.title === '临时节点'))
+    const search = await request('GET', `/api/search?q=${encodeURIComponent('临时节点')}&threshold=0`)
+    assert.equal((search.json.candidates as { node: { id: string } }[]).some((row) => row.node.id === id), false)
+
+    const restored = await request('POST', `/api/nodes/${id}/restore`, {})
+    assert.equal((restored.json.node as { status: string }).status, 'active')
+    const after = await request('GET', '/api/nodes?status=deleted')
+    assert.equal((after.json.nodes as { id: string }[]).some((row) => row.id === id), false)
+  })
+
+  it('answers the operation log in Chinese with no raw ids', async () => {
+    const log = await request('GET', '/api/log?limit=50')
+    assert.equal(log.status, 200)
+    const payload = JSON.stringify(log.json)
+    for (const prefix of ['node-', 'path-', 'decision-']) {
+      assert.equal(payload.includes(prefix), false, `the operation log leaks a ${prefix} id`)
+    }
+    const entries = log.json.entries as {
+      sentence: string
+      action_label: string
+      node_title: string
+      operator: string
+      candidates: { title: string; similarity: number | null }[]
+    }[]
+    assert.ok(entries.length > 0)
+    assert.ok(entries.some((entry) => entry.sentence === '新建节点『登录门户』'))
+    assert.ok(entries.every((entry) => !/node-|path-|decision-/u.test(entry.sentence)))
+    assert.ok(entries.some((entry) => entry.operator === '本机用户'))
+    assert.ok(entries.some((entry) => entry.action_label === '新建节点'))
+  })
+
+  it('keeps below-threshold semantics visible while the keyword channel still answers', async () => {
+    const created = await request('POST', '/api/nodes', { title: '进入天翼云电脑', description: '登录天翼云电脑并进入远端桌面' })
+    assert.equal(created.status, 200)
+    const id = (created.json.node as { id: string }).id
+
+    // A high threshold no longer empties the semantic channel: the cloud node is above the
+    // floor, so it stays as "未达阈值 · 最接近" while its keyword hit keeps its own block.
+    const low = await request('GET', `/api/search?q=${encodeURIComponent('云电脑')}&threshold=0.99`)
+    assert.equal(low.status, 200)
+    assert.equal(low.json.threshold, 0.99)
+    assert.equal(low.json.semantic_floor, 0.3)
+    const lowCandidates = low.json.candidates as {
+      node: { id: string }
+      similarity: number
+      meets_threshold: boolean
+    }[]
+    assert.ok(lowCandidates.length >= 1 && lowCandidates.length <= 3)
+    assert.ok(lowCandidates.every((candidate) => candidate.meets_threshold === false))
+    assert.ok(lowCandidates.every((candidate) => candidate.similarity >= 0.3))
+    assert.equal(lowCandidates.some((candidate) => candidate.node.id === id), true)
+    assert.equal(low.json.empty, false)
+
+    const keyword = low.json.keyword as {
+      node: { id: string }
+      score: number
+      field: string
+      fragment: string
+      scores: { keyword?: number }
+    }[]
+    const hit = keyword.find((candidate) => candidate.node.id === id)
+    assert.ok(hit)
+    assert.equal(hit.field, 'title')
+    assert.equal(hit.score, 1)
+    assert.equal(hit.fragment, '云电脑')
+    assert.equal(hit.scores.keyword, 1)
+    // The same node may sit in the below-threshold group and in the keyword block, because
+    // only confirmed candidates are deduplicated.
+    assert.equal((lowCandidates.find((candidate) => candidate.node.id === id) as { scores: { keyword?: number } }).scores.keyword, 1)
+
+    // keywordTop / keywordFloor are per-request overrides; 0.99 drops the description hits.
+    const limited = await request(
+      'GET',
+      `/api/search?q=${encodeURIComponent('云电脑')}&threshold=0.99&keywordTop=1&keywordFloor=0.99`,
+    )
+    const limitedKeyword = limited.json.keyword as { node: { id: string } }[]
+    assert.equal(limitedKeyword.length, 1)
+    assert.equal(limitedKeyword[0]?.node.id, id)
+
+    // A meeting threshold marks the node as confirmed and deduplicates the keyword block.
+    const both = await request('GET', `/api/search?q=${encodeURIComponent('进入天翼云电脑')}&threshold=0`)
+    const candidate = (both.json.candidates as {
+      node: { id: string }
+      similarity: number
+      meets_threshold: boolean
+      scores: { semantic?: number; keyword?: number }
+    }[]).find((entry) => entry.node.id === id)
+    assert.ok(candidate)
+    assert.equal(candidate.meets_threshold, true)
+    assert.equal(candidate.scores.semantic, candidate.similarity)
+    assert.equal(candidate.scores.keyword, 1)
+    assert.equal((both.json.keyword as { node: { id: string } }[]).some((entry) => entry.node.id === id), false)
+  })
+
+  it('saves an index, matches it, starts a run, and enforces the blocker over HTTP', async () => {
+    const nodes = await request('GET', '/api/stats')
+    const rows = (nodes.json.stats as { nodes: { id: string; title: string }[] }).nodes
+    const a = rows.find((row) => row.title === '登录门户')?.id as string
+    const b = rows.find((row) => row.title === '打开薪酬系统')?.id as string
+    const c = await request('POST', '/api/nodes', { title: '填写福利积分', description: '填表并确认发送' })
+    const cid = (c.json.node as { id: string }).id
+    assert.equal((await request('POST', '/api/edges', { from: b, to: cid })).status, 200)
+
+    const path = await request('POST', '/api/paths', {
+      name: '发福利',
+      summary: '登录企业门户，打开薪酬辅助系统，填写福利积分并发送',
+      node_sequence: [a, b, cid],
+    })
+    assert.equal(path.status, 200)
+    const pathId = (path.json.path as { id: string }).id
+
+    const match = await request('GET', `/api/index/match?q=${encodeURIComponent('登录企业门户打开薪酬辅助系统发福利')}&threshold=0.1`)
+    assert.equal(match.status, 200)
+    assert.equal(match.json.empty, false)
+    assert.equal((match.json.candidates as { path: { id: string } }[])[0]?.path.id, pathId)
+
+    const run = await request('POST', `/api/paths/${pathId}/run`, {})
+    assert.equal(run.status, 200)
+    const runId = (run.json.view as { id: string }).id
+    let view = (await request('POST', `/api/runs/${runId}/judge`, { node_id: a, verdict: 'met', reason: '门户已登录' })).json.view as {
+      current_node_id: string
+      blocked: boolean
+      blockers: { node_id: string; message: string }[]
+    }
+    assert.equal(view.current_node_id, b)
+    view = (await request('POST', `/api/runs/${runId}/judge`, { node_id: b, verdict: 'unmet', reason: '图标点不开' })).json.view as typeof view
+    assert.equal(view.blocked, true)
+    assert.match(view.blockers.find((blocker) => blocker.node_id === cid)?.message ?? '', /需要「打开薪酬系统」的产出/)
+    const blocked = await request('POST', `/api/runs/${runId}/judge`, { node_id: cid, verdict: 'met', reason: '越过' })
+    assert.equal(blocked.status, 409)
+    assert.equal(blocked.json.error?.code, 'run-blocked')
+  })
+
+  it('matches an index through the keyword channel too', async () => {
+    const both = await request('GET', `/api/index/match?q=${encodeURIComponent('发福利')}&threshold=0.3`)
+    assert.equal(both.status, 200)
+    assert.equal(typeof both.json.keyword_threshold, 'number')
+    const candidates = both.json.candidates as {
+      path: { id: string; name: string }
+      scores: { semantic?: number; keyword?: number }
+    }[]
+    const keyword = both.json.keyword as {
+      path: { id: string; name: string }
+      score: number
+      field: string
+      fragment: string
+    }[]
+    const candidate = candidates.find((entry) => entry.path.name === '发福利')
+    assert.ok(candidate)
+    // The same index is listed once, in the semantic block, with the keyword score beside it.
+    assert.equal(candidate.scores.keyword, 1)
+    assert.equal(keyword.some((entry) => entry.path.id === candidate.path.id), false)
+    assert.equal(new Set(keyword.map((entry) => entry.path.id)).size, keyword.length)
+  })
+
+  it('stores and serves a screenshot with the caption', async () => {
+    const stats = await request('GET', '/api/stats')
+    const nodeId = ((stats.json.stats as { nodes: { id: string }[] }).nodes[0]).id
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nQAAAABJRU5ErkJggg=='
+    const uploaded = await request('POST', `/api/nodes/${nodeId}/screenshots`, { caption: '登录成功的首页', data: png })
+    assert.equal(uploaded.status, 200)
+    const detail = await request('GET', `/api/nodes/${nodeId}`)
+    const shots = detail.json.screenshots as { caption: string; url: string }[]
+    assert.equal(shots[0]?.caption, '登录成功的首页')
+    assert.equal(shots[0]?.url.startsWith('api/screenshots/'), true)
+    const image = await fetch(`${base}/${shots[0]?.url}`)
+    assert.equal(image.status, 200)
+    assert.match(image.headers.get('content-type') ?? '', /image\/png/)
+    assert.equal((await image.arrayBuffer()).byteLength, Buffer.from(png, 'base64').length)
+  })
+
+  it('rejects a path that is not executable', async () => {
+    const stats = await request('GET', '/api/stats')
+    const first = (stats.json.stats as { nodes: { id: string }[] }).nodes[0].id
+    const isolated = await request('POST', '/api/nodes', { title: '孤立节点', description: '没有任何边' })
+    const isolatedId = (isolated.json.node as { id: string }).id
+    const bad = await request('POST', '/api/paths', {
+      name: '坏收藏',
+      summary: '故意缺一条边',
+      node_sequence: [first, isolatedId],
+    })
+    assert.equal(bad.status, 409)
+    assert.equal(bad.json.error?.code, 'path-invalid')
+  })
+
+  it('builds an edge from a search hit for a node the canvas never shows', async () => {
+    // The relation dialog and the toolbar both pick a target from /api/search and then
+    // post the two ids; an isolated node is never part of the anchor's 1-hop view.
+    const created = await request('POST', '/api/nodes', { title: '画布外节点', description: '只通过搜索才找得到' })
+    const target = (created.json.node as { id: string }).id
+    const search = await request('GET', `/api/search?q=${encodeURIComponent('画布外节点')}&threshold=0`)
+    const hit = (search.json.candidates as { node: { id: string } }[]).find((entry) => entry.node.id === target)
+    assert.ok(hit, 'the dialog results must contain the node')
+
+    const stats = await request('GET', '/api/stats')
+    const start = ((stats.json.stats as { nodes: { id: string }[] }).nodes
+      .find((row) => row.id !== target))?.id as string
+    const check = await request('POST', '/api/edges/validate', { from: start, to: target })
+    assert.equal(check.status, 200)
+    const createdEdge = await request('POST', '/api/edges', { from: start, to: target })
+    assert.equal(createdEdge.status, 200)
+    assert.equal((createdEdge.json.edge as { from: string; to: string }).to, target)
+
+    const duplicate = await request('POST', '/api/edges/validate', { from: start, to: target })
+    assert.equal(duplicate.status, 409)
+    assert.equal(duplicate.json.error?.code, 'duplicate')
+  })
+})

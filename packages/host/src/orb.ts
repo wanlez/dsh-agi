@@ -30,6 +30,7 @@ import { moveToOsTrash, osTrashAvailable } from './os-trash.ts'
 import { personaForPrompt } from './persona.ts'
 import { refreshModelFallback } from './model-defaults.ts'
 import { openMainWindow } from './open-main.ts'
+import { readOrbPrompt, type OrbPromptMode } from './orb-prompt.ts'
 import { isDesktopHost, isTccRight, TccMonitor, type TccRight, type TccStatus } from './tcc.ts'
 import { openVoiceChild, VoiceController } from './voice.ts'
 import { officialAsrFrom, VoiceDownloads } from './voice-download.ts'
@@ -889,7 +890,8 @@ export class OrbRuntime {
           continue
         }
         const record = asRecord(message)
-        if (isPrompt(message)) void this.onPrompt(message.text)
+        const prompt = readOrbPrompt(message)
+        if (prompt !== undefined) void this.onPrompt(prompt.text, prompt.mode)
         else if (isQuestionAnswer(message)) this.onQuestionAnswer(message.id, message.answers)
         else if (isQuestionCancel(message)) this.onQuestionCancel(message.id)
         // Push-to-talk and the voice-input gesture belong to the live controller, not to the
@@ -961,14 +963,53 @@ export class OrbRuntime {
     this.pollAgents(true)
   }
 
-  private async onPrompt(text: string): Promise<void> {
+  /**
+   * A typed send from the ball. While a turn runs, the plain gesture steers that
+   * turn and the accelerator replaces it; an idle ball starts a new turn either way.
+   * @param text - the composer's text.
+   * @param mode - delivery mode the page resolved from its submit gesture.
+   */
+  private async onPrompt(text: string, mode: OrbPromptMode = 'interrupt'): Promise<void> {
     const trimmed = text.trim()
     if (!trimmed) return
-    // A typed send (or the page's command-mode voice prompt) is the newest intent. It
-    // preempts a running turn, or a previous voice command still waiting for its turn/end.
     const key = `user:${randomUUID()}`
     this.block(key, 'user', trimmed, false, 'set')
+    if (mode === 'steer' && this.turnRunning) {
+      await this.steer(trimmed, key)
+      return
+    }
+    // The newest intent preempts a running turn, or a previous voice command still
+    // waiting for its turn/end.
     await this.preempt(trimmed, key)
+  }
+
+  /**
+   * Hand one typed message to the live turn without cancelling it. The loop injects
+   * the text before its next model request; a turn that closed in the meantime makes
+   * the message the next turn's first input.
+   * @param trimmed - the text the user typed.
+   * @param key - the local echo to drop when the prompt is refused.
+   */
+  private async steer(trimmed: string, key: string): Promise<void> {
+    try {
+      this.foreground.restore()
+      const sessionId = await this.ensureSession()
+      if (!this.timer) this.syncWatermark()
+      this.watch()
+      await this.ctx.sessionController.prompt({
+        requestId: randomUUID(),
+        sessionId,
+        mode: 'steer',
+        content: [{ type: 'text', text: trimmed }],
+        clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      }, new AbortController().signal)
+      this.drain()
+    } catch (error) {
+      this.dropBlock(key)
+      const message = error instanceof Error ? error.message : String(error)
+      console.error(`dsh-agi: steer failed: ${message}`)
+      this.status(message)
+    }
   }
 
   /**
@@ -2186,7 +2227,7 @@ export class OrbRuntime {
       return
     }
     if (this.turnRunning) {
-      this.status('这一轮还在跑，等它结束再发图片')
+      this.status('图片要等这一轮结束；文字可以先插话')
       return
     }
     const content: PromptBlock[] = [{
@@ -2865,12 +2906,6 @@ export class OrbRuntime {
 function helperDataDirectory(profileDir: string): string {
   const id = createHash('sha256').update(profileDir).digest('hex').slice(0, 16)
   return dshHomePath('dsh-agi', 'helper-data', id)
-}
-
-function isPrompt(message: unknown): message is { type: 'prompt'; text: string } {
-  if (typeof message !== 'object' || message === null) return false
-  const record = message as { type?: unknown; text?: unknown }
-  return record.type === 'prompt' && typeof record.text === 'string' && record.text.length <= 8000
 }
 
 /**

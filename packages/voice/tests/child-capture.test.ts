@@ -161,7 +161,9 @@ describe('voice capture source', () => {
     }
   })
 
-  it('keeps one spoken phrase across command and interject', { skip: !asrReady, timeout: 90_000 }, async () => {
+  // `say` is the macOS speech synthesiser that produces the phrase; other platforms cannot
+  // run this end-to-end capture test, so only its unit-level parts are exercised there.
+  it('keeps one spoken phrase across command and interject', { skip: !asrReady || process.platform !== 'darwin', timeout: 90_000 }, async () => {
     const dir = mkdtempSync(join(tmpdir(), 'orb-capture-speech-'))
     const aiff = join(dir, 'line.aiff')
     const pcm = join(dir, 'line.f32')

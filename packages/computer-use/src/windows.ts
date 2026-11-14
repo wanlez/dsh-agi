@@ -9,19 +9,23 @@
 import { readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { deflateSync, crc32 } from 'node:zlib'
+import type { ActionSnapshot, ModalState } from './action-receipt.ts'
 import type {
+  ActionInspectionInput,
   CapturedScreen,
   ClickInput,
   CopyImageToClipboardInput,
   DesktopBackend,
   DesktopForeground,
   DragInput,
+  HoverProbeInput,
   HotkeyInput,
   LongPressInput,
   OpenAppInput,
   OpenAppResult,
   OpenInBrowserInput,
   OpenInFinderInput,
+  PointerActionOutcome,
   ScreenInfo,
   ScrollInput,
   TypeInput,
@@ -31,6 +35,9 @@ import type {
 import { FOCUS_FALLBACK_FOREGROUND, UNFOCUSED_WINDOW_NOTE } from './backend.ts'
 import { activeCaptureExcludeWindowIds } from './capture-exclude.ts'
 import { mapNormalizedToGlobal } from './coordinates.ts'
+import { mapWindowPointToPhysical, type DisplayInventory } from './display-inventory.ts'
+import type { HoverFeedback } from './hover.ts'
+import { safeJsonStringify, sanitizeModelText } from './text-sanitize.ts'
 import { delay } from './wait.ts'
 import {
   selectWindowsObservation,
@@ -44,6 +51,49 @@ export interface WindowsRect {
   readonly y: number
   readonly width: number
   readonly height: number
+}
+
+/** Hardening switches shared by the Windows backend and its native capture layer. */
+export interface WindowsDesktopOptions {
+  readonly displayInventoryEnabled?: boolean
+  readonly modalGuardEnabled?: boolean
+  readonly captureFallbackEnabled?: boolean
+  readonly printWindowEnabled?: boolean
+  readonly dwmFlushEnabled?: boolean
+  readonly hoverFeedbackEnabled?: boolean
+  readonly hoverPixelTolerance?: number
+  readonly hoverMinChangedRatio?: number
+  readonly hoverMinChangedPixels?: number
+  readonly hoverSettleMs?: number
+}
+
+/** Fully resolved Windows hardening options. */
+export interface ResolvedWindowsDesktopOptions {
+  readonly displayInventoryEnabled: boolean
+  readonly modalGuardEnabled: boolean
+  readonly captureFallbackEnabled: boolean
+  readonly printWindowEnabled: boolean
+  readonly dwmFlushEnabled: boolean
+  readonly hoverFeedbackEnabled: boolean
+  readonly hoverPixelTolerance: number
+  readonly hoverMinChangedRatio: number
+  readonly hoverMinChangedPixels: number
+  readonly hoverSettleMs: number
+}
+
+function resolveWindowsOptions(options: WindowsDesktopOptions = {}): ResolvedWindowsDesktopOptions {
+  return {
+    displayInventoryEnabled: options.displayInventoryEnabled ?? true,
+    modalGuardEnabled: options.modalGuardEnabled ?? true,
+    captureFallbackEnabled: options.captureFallbackEnabled ?? true,
+    printWindowEnabled: options.printWindowEnabled ?? true,
+    dwmFlushEnabled: options.dwmFlushEnabled ?? true,
+    hoverFeedbackEnabled: options.hoverFeedbackEnabled ?? true,
+    hoverPixelTolerance: Math.max(0, options.hoverPixelTolerance ?? 8),
+    hoverMinChangedRatio: Math.max(0, Math.min(1, options.hoverMinChangedRatio ?? 0.02)),
+    hoverMinChangedPixels: Math.max(1, Math.round(options.hoverMinChangedPixels ?? 16)),
+    hoverSettleMs: Math.max(0, options.hoverSettleMs ?? 80),
+  }
 }
 
 /** One clipboard format and a copy of its global-memory bytes. */
@@ -90,8 +140,25 @@ export interface WindowsDesktopOps {
    * Capture one screen rectangle as PNG.
    * @param bounds - rectangle in physical screen pixels.
    * @param mark - optional pointer point drawn as a crosshair (zoom crops).
+   * @param windowId - owner HWND, enabling the PrintWindow rescue path.
    */
-  capturePng(bounds: WindowsRect, mark?: { readonly x: number; readonly y: number }): Uint8Array
+  capturePng(
+    bounds: WindowsRect,
+    mark?: { readonly x: number; readonly y: number },
+    windowId?: number,
+  ): Uint8Array
+  /** Enumerate every display in physical and logical coordinates. */
+  displayInventory?(): DisplayInventory
+  /** Report a modal dialog that disables the foreground window. */
+  detectModal?(): ModalState | undefined
+  /** Sample the target environment once, for the action receipt. */
+  inspectAction?(windowId?: number, point?: { readonly x: number; readonly y: number }): ActionSnapshot
+  /** Compare a local rectangle before and after hovering the target. */
+  hoverProbe?(
+    rect: WindowsRect,
+    point: { readonly x: number; readonly y: number },
+    settleMs?: number,
+  ): HoverFeedback
   /**
    * True when the window `hwnd` is elevated above this process (UIPI), so posted input
    * would be dropped. `0` and windows that are no longer on screen are never blocked;
@@ -437,9 +504,41 @@ function liveSignal(signal: AbortSignal | undefined): AbortSignal {
   return signal ?? new AbortController().signal
 }
 
-function pointOf(position: readonly [number, number], screen: ScreenInfo): { x: number; y: number } {
+/**
+ * Map a normalized window position through the window rectangle, its display, and the
+ * physical-pixel space. When the inventory is unavailable (a fake or an old backend),
+ * the previous physical-bounds mapping is retained; Windows production always supplies it.
+ * @param ops - Win32 operations.
+ * @param position - `[x, y]` in the 0–1000 space.
+ * @param screen - observed window surface in physical pixels.
+ * @returns physical screen point.
+ */
+function pointOf(
+  ops: WindowsDesktopOps,
+  position: readonly [number, number],
+  screen: ScreenInfo,
+): { x: number; y: number } {
+  try {
+    const inventory = ops.displayInventory?.()
+    if (inventory !== undefined) {
+      const mapped = mapWindowPointToPhysical(position, screen.bounds, inventory, 'physical')
+      return { x: Math.round(mapped.x), y: Math.round(mapped.y) }
+    }
+  } catch {
+    // Diagnostics must never block an action; the physical bounds are already authoritative.
+  }
   const mapped = mapNormalizedToGlobal(position, screen)
   return { x: Math.round(mapped.x), y: Math.round(mapped.y) }
+}
+
+/** Log a blocked click without dumping an unbounded window title into the host log. */
+function logModalBlock(modal: ModalState): void {
+  const safe = safeJsonStringify({
+    title: sanitizeModelText(modal.title, { maxChars: 120 }),
+    reason: modal.reason,
+    windowId: modal.windowId,
+  })
+  console.error(`computer-use: click blocked by modal ${safe}`)
 }
 
 /**
@@ -496,6 +595,15 @@ function restoreObservedFocus(
   )
 }
 
+/** Read the modal guard without letting a probe failure block input. */
+function modalWarning(ops: WindowsDesktopOps): ModalState | undefined {
+  try {
+    return ops.detectModal?.()
+  } catch {
+    return undefined
+  }
+}
+
 async function clickAt(
   ops: WindowsDesktopOps,
   button: 'left' | 'right',
@@ -503,10 +611,16 @@ async function clickAt(
   point: { x: number; y: number },
   signal: AbortSignal,
   windowId: number | undefined,
-): Promise<void> {
+): Promise<PointerActionOutcome> {
   const postClick = ops.postClick
   if (windowId !== undefined && postClick !== undefined && postClickAllowed(ops, windowId)) {
+    let performedAny = false
     for (let index = 0; index < count; index += 1) {
+      const modal = modalWarning(ops)
+      if (modal !== undefined) {
+        logModalBlock(modal)
+        return { performed: performedAny, modal }
+      }
       postClick(windowId, point.x, point.y, button, true)
       // The release always runs, so an abort between press and release cannot leave the
       // target thinking the button is still held.
@@ -515,14 +629,22 @@ async function clickAt(
       } finally {
         postClick(windowId, point.x, point.y, button, false)
       }
+      performedAny = true
       if (index + 1 < count) await delay(DOUBLE_CLICK_GAP_MS, signal)
     }
-    return
+    return { performed: true }
   }
   ops.movePointer(point.x, point.y)
   await delay(POINTER_MOVE_SETTLE_MS, signal)
   assertPointInput(ops, point)
+  let performedAny = false
   for (let index = 0; index < count; index += 1) {
+    // Re-check after the pointer settles: a dialog may appear while the pointer is moving.
+    const modal = modalWarning(ops)
+    if (modal !== undefined) {
+      logModalBlock(modal)
+      return { performed: performedAny, modal }
+    }
     ops.mouseButton(button, true)
     // A press always gets its release: the hold delay rejects on abort, and a button left
     // down would turn the next click into a drag.
@@ -531,8 +653,10 @@ async function clickAt(
     } finally {
       ops.mouseButton(button, false)
     }
+    performedAny = true
     if (index + 1 < count) await delay(DOUBLE_CLICK_GAP_MS, signal)
   }
+  return { performed: true }
 }
 
 async function chord(
@@ -599,19 +723,29 @@ function screenFromObservation(selected: WindowsObservationSelection): ScreenInf
 }
 
 let productionOps: WindowsDesktopOps | undefined
+let productionKey = ''
 
-async function production(): Promise<WindowsDesktopOps> {
-  productionOps ??= (await import('./windows-native.ts')).createProductionWindowsOps()
+async function production(options: ResolvedWindowsDesktopOptions): Promise<WindowsDesktopOps> {
+  const key = JSON.stringify(options)
+  if (productionOps === undefined || productionKey !== key) {
+    productionOps = (await import('./windows-native.ts')).createProductionWindowsOps(options)
+    productionKey = key
+  }
   return productionOps
 }
 
 /**
  * Construct the Windows backend.
  * @param ops - injected host operations. Omit to use Win32 on the first call.
+ * @param options - hardening switches and probe tunables. Defaults keep every feature on.
  * @returns capture and HID input against the host desktop.
  */
-export function createWindowsDesktopBackend(ops?: WindowsDesktopOps): DesktopBackend {
-  const use = async (): Promise<WindowsDesktopOps> => ops ?? await production()
+export function createWindowsDesktopBackend(
+  ops?: WindowsDesktopOps,
+  options: WindowsDesktopOptions = {},
+): DesktopBackend {
+  const resolved = resolveWindowsOptions(options)
+  const use = async (): Promise<WindowsDesktopOps> => ops ?? await production(resolved)
 
   return {
     withGuiTurn: run => run(),
@@ -626,12 +760,41 @@ export function createWindowsDesktopBackend(ops?: WindowsDesktopOps): DesktopBac
     async capture(screen, signal): Promise<CapturedScreen> {
       signal?.throwIfAborted()
       try {
-        const data = (await use()).capturePng(screen.bounds)
+        const data = (await use()).capturePng(screen.bounds, undefined, screen.windowId)
         return { data, mediaType: 'image/png' }
       } catch (error: unknown) {
         if (error instanceof Error && error.message.startsWith('computer-use:')) throw error
         throw new Error(`computer-use: screen capture failed: ${error instanceof Error ? error.message : String(error)}`)
       }
+    },
+
+    async displayInventory(signal) {
+      signal?.throwIfAborted()
+      const host = await use()
+      if (host.displayInventory === undefined) {
+        throw new Error('computer-use: this Windows backend cannot enumerate displays')
+      }
+      return host.displayInventory()
+    },
+
+    async inspectAction(input: ActionInspectionInput, signal) {
+      signal?.throwIfAborted()
+      const host = await use()
+      if (host.inspectAction === undefined) {
+        throw new Error('computer-use: this Windows backend cannot inspect action state')
+      }
+      const point = input.point
+      const snapshot = host.inspectAction(input.screen.windowId, point)
+      return snapshot
+    },
+
+    async hoverProbe(input: HoverProbeInput, signal) {
+      signal?.throwIfAborted()
+      const host = await use()
+      if (host.hoverProbe === undefined || !resolved.hoverFeedbackEnabled) {
+        throw new Error('computer-use: this Windows backend cannot probe hover feedback')
+      }
+      return host.hoverProbe(input.rect, input.point)
     },
 
     async inspectForeground(signal) {
@@ -666,19 +829,18 @@ export function createWindowsDesktopBackend(ops?: WindowsDesktopOps): DesktopBac
 
     async click(input: ClickInput, signal) {
       const host = await use()
-      const point = pointOf(input.position, input.screen)
+      const point = pointOf(host, input.position, input.screen)
       const abort = liveSignal(signal)
       const modifiers = (input.modifiers ?? []).map(postedKey)
       await waitForUserIdle(host, abort)
       if (ACTION_LEAD_MS > 0) await delay(ACTION_LEAD_MS, abort)
       const windowId = input.screen.windowId
       if (modifiers.length === 0) {
-        await clickAt(host, input.button, input.count, point, abort, windowId)
-        return
+        return clickAt(host, input.button, input.count, point, abort, windowId)
       }
       // Shift-clicks, Ctrl-clicks, and Cmd-chords hold their modifiers for this click only;
       // a refused point or an abort still releases them.
-      await withHeldKeys(host, modifiers, abort, () => clickAt(host, input.button, input.count, point, abort, windowId))
+      return withHeldKeys(host, modifiers, abort, () => clickAt(host, input.button, input.count, point, abort, windowId))
     },
 
     /**
@@ -691,7 +853,7 @@ export function createWindowsDesktopBackend(ops?: WindowsDesktopOps): DesktopBac
     async zoom(input: ZoomInput): Promise<ZoomResult> {
       const host = await use()
       const screen = input.screen
-      const point = pointOf(input.position, screen)
+      const point = pointOf(host, input.position, screen)
       const clamp = input.clamp ?? screen.bounds
       const side = Math.max(24, Math.round(input.side ?? screen.bounds.height / 6))
       const half = Math.floor(side / 2)
@@ -712,8 +874,14 @@ export function createWindowsDesktopBackend(ops?: WindowsDesktopOps): DesktopBac
       const host = await use()
       const abort = liveSignal(signal)
       await waitForUserIdle(host, abort)
+      const modal = modalWarning(host)
+      if (modal !== undefined) {
+        logModalBlock(modal)
+        return { performed: false, modal }
+      }
       if (ACTION_LEAD_MS > 0) await delay(ACTION_LEAD_MS, abort)
-      await clickAt(host, 'left', 1, pointOf(input.position, input.screen), abort, input.screen.windowId)
+      const click = await clickAt(host, 'left', 1, pointOf(host, input.position, input.screen), abort, input.screen.windowId)
+      if (!click.performed) return click
       if (input.replace) await chord(host, [postedVk(0x11), postedVk(0x41)], abort)
       const previous = host.saveClipboard()
       try {
@@ -730,19 +898,26 @@ export function createWindowsDesktopBackend(ops?: WindowsDesktopOps): DesktopBac
         // copied must survive the paste.
         host.restoreClipboard(previous)
       }
+      return { performed: true }
     },
 
     async scroll(input: ScrollInput, signal) {
       const host = await use()
-      const point = pointOf(input.position, input.screen)
+      const point = pointOf(host, input.position, input.screen)
       assertPointInput(host, point)
       const abort = liveSignal(signal)
       await waitForUserIdle(host, abort)
+      const modal = modalWarning(host)
+      if (modal !== undefined) {
+        logModalBlock(modal)
+        return { performed: false, modal }
+      }
       const step = (input.direction === 'up' ? 1 : -1) * SCROLL_NOTCH
       for (let index = 0; index < input.scrollLevel; index += 1) {
         host.scrollWheel(point.x, point.y, step)
         await delay(SCROLL_STEP_MS, abort)
       }
+      return { performed: true }
     },
 
     async hotkey(input: HotkeyInput, signal) {
@@ -760,8 +935,13 @@ export function createWindowsDesktopBackend(ops?: WindowsDesktopOps): DesktopBac
 
     async longPress(input: LongPressInput, signal) {
       const host = await use()
-      const point = pointOf(input.position, input.screen)
+      const point = pointOf(host, input.position, input.screen)
       const abort = liveSignal(signal)
+      const modal = modalWarning(host)
+      if (modal !== undefined) {
+        logModalBlock(modal)
+        return { performed: false, modal }
+      }
       if (ACTION_LEAD_MS > 0) await delay(ACTION_LEAD_MS, abort)
       host.movePointer(point.x, point.y)
       await delay(POINTER_MOVE_SETTLE_MS, abort)
@@ -772,13 +952,19 @@ export function createWindowsDesktopBackend(ops?: WindowsDesktopOps): DesktopBac
       } finally {
         host.mouseButton('left', false)
       }
+      return { performed: true }
     },
 
     async drag(input: DragInput, signal) {
       const host = await use()
-      const start = pointOf(input.startPosition, input.startScreen)
-      const end = pointOf(input.endPosition, input.endScreen)
+      const start = pointOf(host, input.startPosition, input.startScreen)
+      const end = pointOf(host, input.endPosition, input.endScreen)
       const abort = liveSignal(signal)
+      const modal = modalWarning(host)
+      if (modal !== undefined) {
+        logModalBlock(modal)
+        return { performed: false, modal }
+      }
       if (ACTION_LEAD_MS > 0) await delay(ACTION_LEAD_MS, abort)
       host.movePointer(start.x, start.y)
       await delay(POINTER_MOVE_SETTLE_MS, abort)
@@ -798,6 +984,7 @@ export function createWindowsDesktopBackend(ops?: WindowsDesktopOps): DesktopBac
       } finally {
         host.mouseButton('left', false)
       }
+      return { performed: true }
     },
 
     async openInBrowser(input: OpenInBrowserInput, signal) {

@@ -6,8 +6,9 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { createPlatformBackend } from './backend.ts'
-import type { OverlayExcludedRegionCapture } from './macos.ts'
 import { Config, resolveComputerUseConfig } from './config.ts'
+import { installComputerUseDiagnostics } from './diagnostics.ts'
+import type { OverlayExcludedRegionCapture } from './macos.ts'
 import { wrapDesktopBackend } from './overlay-guard.ts'
 import { applyComputerUse, PLUGIN_NAME } from './plugin.ts'
 
@@ -19,6 +20,7 @@ import type {} from '@deepseek-ai/dsh-tools'
 
 export { createPlatformBackend } from './backend.ts'
 export type {
+  ActionInspectionInput,
   CapturedScreen,
   ClickButton,
   ClickInput,
@@ -26,16 +28,22 @@ export type {
   DesktopBackend,
   DesktopForeground,
   DragInput,
+  HoverProbeInput,
   HotkeyInput,
   LongPressInput,
   OpenAppInput,
   OpenAppResult,
   OpenInBrowserInput,
   OpenInFinderInput,
+  PointerActionOutcome,
   ScreenInfo,
   ScrollInput,
   TypeInput,
 } from './backend.ts'
+export type { ActionReceipt, ModalState } from './action-receipt.ts'
+export { COMPUTER_USE_DIAGNOSTICS, computerUseDiagnostics, installComputerUseDiagnostics } from './diagnostics.ts'
+export type { ComputerUseDiagnostics } from './diagnostics.ts'
+export type { DisplayInfo, DisplayInventory } from './display-inventory.ts'
 export { FOCUS_FALLBACK_FOREGROUND, FOCUS_NOTE, UNFOCUSED_WINDOW_NOTE } from './backend.ts'
 export { Config, resolveComputerUseConfig } from './config.ts'
 export type { ResolvedComputerUseConfig } from './config.ts'
@@ -78,6 +86,15 @@ function desktopBackend(ctx: Context, inner: ReturnType<typeof createPlatformBac
     withGuiTurn: (run, signal) => resolve().withGuiTurn(run, signal),
     listScreens: signal => resolve().listScreens(signal),
     capture: (screen, signal) => resolve().capture(screen, signal),
+    ...inner.displayInventory === undefined ? {} : {
+      displayInventory: (signal?: AbortSignal) => resolve().displayInventory!(signal),
+    },
+    ...inner.inspectAction === undefined ? {} : {
+      inspectAction: (input, signal) => resolve().inspectAction!(input, signal),
+    },
+    ...inner.hoverProbe === undefined ? {} : {
+      hoverProbe: (input, signal) => resolve().hoverProbe!(input, signal),
+    },
     inspectForeground: signal => resolve().inspectForeground(signal),
     listApps: signal => resolve().listApps(signal),
     openApp: (input, signal) => resolve().openApp(input, signal),
@@ -108,6 +125,7 @@ function desktopBackend(ctx: Context, inner: ReturnType<typeof createPlatformBac
  * @param config - optional tunables; omitted fields use schema defaults.
  */
 export function apply(ctx: Context, config: Config = {}): void {
+  const resolved = resolveComputerUseConfig(config)
   const excludedRegionCapture: OverlayExcludedRegionCapture = (input) => {
     const capture = ctx.get('computerUseOverlayGuard')?.captureExcludedRegion
     if (capture === undefined) {
@@ -116,6 +134,19 @@ export function apply(ctx: Context, config: Config = {}): void {
     const { signal, ...region } = input
     return capture(region, signal)
   }
-  const backend = createPlatformBackend(process.platform, excludedRegionCapture)
-  applyComputerUse(ctx, desktopBackend(ctx, backend), resolveComputerUseConfig(config))
+  const backend = createPlatformBackend(process.platform, excludedRegionCapture, {
+    displayInventoryEnabled: resolved.displayInventoryEnabled,
+    modalGuardEnabled: resolved.modalGuardEnabled,
+    captureFallbackEnabled: resolved.captureFallbackEnabled,
+    printWindowEnabled: resolved.printWindowEnabled,
+    dwmFlushEnabled: resolved.dwmFlushEnabled,
+    hoverFeedbackEnabled: resolved.hoverFeedbackEnabled,
+    hoverPixelTolerance: resolved.hoverPixelTolerance,
+    hoverMinChangedRatio: resolved.hoverMinChangedRatio,
+    hoverMinChangedPixels: resolved.hoverMinChangedPixels,
+    hoverSettleMs: resolved.hoverSettleMs,
+  })
+  const wrapped = desktopBackend(ctx, backend)
+  applyComputerUse(ctx, wrapped, resolved)
+  installComputerUseDiagnostics(ctx, wrapped)
 }

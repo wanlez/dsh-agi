@@ -41,6 +41,7 @@ const zh = {
   modeOperate: '代操作模式',
   untitled: '未命名对话',
   placeholder: '向桌面 agent 发送消息…',
+  placeholderRunning: '运行中：Enter 插话，Ctrl+Enter 打断',
   accessReadOnly: '仅可查看',
   accessWrite: '工作区内修改',
   accessFull: '完全权限',
@@ -103,6 +104,7 @@ const en = {
   modeOperate: 'Operate mode',
   untitled: 'Untitled',
   placeholder: 'Ask the desktop agent…',
+  placeholderRunning: 'Running: Enter steers, Ctrl+Enter interrupts',
   accessReadOnly: 'Read Only',
   accessWrite: 'Workspace Write',
   accessFull: 'Full access',
@@ -355,6 +357,18 @@ let expandedAt = 0
   // Last message per block key: the locale refresh re-renders from it.
   const blockData = new Map()
   let lastTccStatus
+  /** Delivery mode the next submit uses: plain Enter steers a live turn, the accelerator interrupts it. */
+  let submitMode = 'interrupt'
+
+  /**
+   * The placeholder follows the turn state: while the agent works the composer
+   * advertises the two delivery gestures instead of the idle prompt.
+   */
+  function syncPromptPlaceholder() {
+    const text = running ? messages.placeholderRunning : messages.placeholder
+    document.querySelector('#input-label').textContent = text
+    prompt.dataset.placeholder = text
+  }
 
   /**
    * Re-apply every static label. Called at startup and on locale changes;
@@ -372,8 +386,7 @@ let expandedAt = 0
     const historyToggle = document.querySelector('#history')
     historyToggle.setAttribute('aria-label', messages.history)
     historyToggle.title = messages.history
-    document.querySelector('#input-label').textContent = messages.placeholder
-    prompt.dataset.placeholder = messages.placeholder
+    syncPromptPlaceholder()
     questionCancel.textContent = messages.cancel
     questionSkip.textContent = messages.skip
     questionPrev.setAttribute('aria-label', messages.prev)
@@ -487,6 +500,7 @@ let expandedAt = 0
     document.body.classList.toggle('running', running)
     stop.hidden = !stopShown()
     setWorkLocked(running)
+    syncPromptPlaceholder()
     // The mode switch is a per-turn choice: lock it while the ball is working.
     if (modeToggle !== null) {
       modeToggle.disabled = running
@@ -2494,9 +2508,17 @@ let expandedAt = 0
 
   composer.addEventListener('submit', (event) => {
     event.preventDefault()
-    void submitComposer()
+    const mode = submitMode
+    submitMode = 'interrupt'
+    void submitComposer(mode)
   })
-  async function submitComposer() {
+  /**
+   * Send the composer once. While the agent works the delivery mode decides what
+   * the host does with the line: `steer` injects it before the next model step,
+   * `interrupt` cancels the live turn and starts a new one with this text.
+   * @param mode - delivery mode resolved from the submit gesture.
+   */
+  async function submitComposer(mode = 'interrupt') {
     const text = promptText(prompt).trim()
     if (text === '' && composerImages.length === 0) return
     if (text.length > PROMPT_LIMIT) {
@@ -2515,8 +2537,9 @@ let expandedAt = 0
     setAttachedSelection('')
     setHistoryOpen(false)
     setPermissionOpen(false)
-    if (shots.length > 0) api.sendWithImages(payload, shots)
-    else api.send(payload)
+    const deliver = running ? mode : 'interrupt'
+    if (shots.length > 0) api.sendWithImages(payload, shots, deliver)
+    else api.send(payload, deliver)
   }
   prompt.addEventListener('paste', (event) => {
     const items = event.clipboardData && event.clipboardData.items
@@ -2560,6 +2583,9 @@ let expandedAt = 0
     if (typeof api.reportActivity === 'function') api.reportActivity()
     if (event.key !== 'Enter' || event.shiftKey || isComposing(event)) return
     event.preventDefault()
+    // Plain Enter while the agent works steers that turn; the accelerator is the
+    // deliberate interrupt. An idle composer sends the same new turn either way.
+    submitMode = running && !(event.ctrlKey || event.metaKey) ? 'steer' : 'interrupt'
     if (typeof composer.requestSubmit === 'function') composer.requestSubmit()
     else composer.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
   })

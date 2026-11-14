@@ -363,7 +363,7 @@ describe('update sources', () => {
   it('prefers a registry that answers and installs that version from it, over real HTTP', async () => {
     const registry = await mockServer({ '/dsh-agi/latest': [200, '{"name":"dsh-agi","version":"0.3.0"}'] })
     try {
-      await withEnv({ DSH_AGI_UPDATE_REGISTRIES: registry.base }, async () => {
+      await withEnv({ DSH_AGI_UPDATE_REGISTRIES: registry.base, DSH_AGI_UPDATE_API: registry.base }, async () => {
         const profile = store()
         const announced: string[] = []
         const fake = manager()
@@ -388,7 +388,7 @@ describe('update sources', () => {
   it('moves down the registry chain when one is unreachable', async () => {
     const registry = await mockServer({ '/dsh-agi/latest': [200, '{"name":"dsh-agi","version":"0.4.0"}'] })
     try {
-      await withEnv({ DSH_AGI_UPDATE_REGISTRIES: `${DEAD_SOURCE},${registry.base}` }, async () => {
+      await withEnv({ DSH_AGI_UPDATE_REGISTRIES: `${DEAD_SOURCE},${registry.base}`, DSH_AGI_UPDATE_API: registry.base }, async () => {
         const profile = store()
         const announced: string[] = []
         const fake = manager()
@@ -947,6 +947,9 @@ describe('update checker', () => {
       registry: 'https://registry.npmmirror.com',
       parentPid: process.pid,
       approvedBuilds: ['koffi'],
+      // The after-exit script restores the profile manifest from these two fields.
+      name: 'dsh-agi',
+      bundles: [],
     }])
     const state = update.state()
     assert.equal(state.error, null)

@@ -23,8 +23,8 @@ contextBridge.exposeInMainWorld('dshOrb', {
   syncStrip() {
     return ipcRenderer.invoke('orb:sync-strip')
   },
-  send(text) {
-    ipcRenderer.send('orb:prompt', text)
+  send(text, mode) {
+    ipcRenderer.send('orb:prompt', { text: String(text ?? ''), mode: mode === 'steer' ? 'steer' : 'interrupt' })
   },
   voiceHold(hold) {
     ipcRenderer.send('orb:voice-hold', hold === true)
@@ -35,8 +35,12 @@ contextBridge.exposeInMainWorld('dshOrb', {
   silence() {
     ipcRenderer.send('orb:silence')
   },
-  sendWithImages(text, images) {
-    ipcRenderer.send('orb:prompt-images', { text: String(text ?? ''), images: Array.isArray(images) ? images : [] })
+  sendWithImages(text, images, mode) {
+    ipcRenderer.send('orb:prompt-images', {
+      text: String(text ?? ''),
+      images: Array.isArray(images) ? images : [],
+      mode: mode === 'steer' ? 'steer' : 'interrupt',
+    })
   },
   onVoiceArmed(callback) {
     ipcRenderer.on('orb:voice-armed', (_event, on) => callback(on === true))

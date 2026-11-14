@@ -127,7 +127,7 @@ function loadSection(hooks = {}) {
   let file = { size: 10, async arrayBuffer() { return new Uint8Array([1, 2, 3]).buffer } }
   const sandbox = {
     AbortController,
-    window: { confirm: () => confirm },
+    window: { confirm: () => confirm, location: { href: '' } },
     document: {
       documentElement: { lang: '' },
       getElementById: (id) => styles.find((node) => node.id === id) ?? null,
@@ -169,6 +169,18 @@ function loadSection(hooks = {}) {
       if (path === '/.dsh-agi/models') return json(catalog)
       if (path === '/.dsh-agi/update') return json(snapshot.update)
       if (path === '/.dsh-agi/history') return json(snapshot.history)
+      if (path === '/.dsh-agi/graph') {
+        return json({
+          dir: '/Users/test/.dsh/dsh-agi/knowledge-graph',
+          defaultDir: '/Users/test/.dsh/dsh-agi/knowledge-graph',
+          isDefault: true,
+          counts: { nodes: 3, edges: 2, paths: 1, decisions: 0, screenshots: 4 },
+          lastMigration: null,
+        })
+      }
+      if (options.method === 'POST' && path === '/.dsh-agi/graph/editor') {
+        return json({ ok: true, url: 'http://127.0.0.1:47831/.dsh-agi/knowledge-graph/', port: 47831, opened: true, reused: false })
+      }
       if (options.method === 'POST' && path === '/.dsh-agi/history/preview') {
         const days = JSON.parse(options.body).days
         const sessions = [{ id: 'session-a', title: '会话 A', updatedAt: 1 }, { id: 'session-b', title: '会话 B', updatedAt: 2 }].slice(0, previewRoots)
@@ -280,6 +292,7 @@ function loadSection(hooks = {}) {
     spec: registered.spec,
     snapshot,
     styles,
+    window: sandbox.window,
     /** A hot reload applies the plugin again over the same document. */
     reapply() { plugin.apply(ctx) },
     render,
@@ -346,6 +359,13 @@ function find(node, predicate, found = []) {
 /** The card a title belongs to, from its section class. */
 function cardOf(view, className) {
   return find(view, (node) => node.props?.className === `dsh-agi-set-card ${className}`)[0]
+}
+
+/** Every text node under one node, concatenated. */
+function said(node) {
+  if (typeof node === 'string') return node
+  if (!node || typeof node !== 'object') return ''
+  return (node.children ?? []).map(said).join('')
 }
 
 /**
@@ -914,7 +934,7 @@ describe('settings section', () => {
     assert.equal(find(view, (node) => node.children?.includes('当前 Harness 或系统回收站不支持清理会话。')).length, 1)
   })
 
-  it('shows the version card with the update controls locked in the local build', async () => {
+  it('shows the version card and its update controls', async () => {
     const page = loadSection()
     let view = page.render()
     await page.flush()
@@ -924,19 +944,19 @@ describe('settings section', () => {
     assert.match(texts(), /当前版本 0\.1\.0。/)
     assert.equal(find(view, (node) => node.type === 'button' && text(node) === '更新').length, 0, 'no update is offered before one is known')
 
-    // The local build locks the automatic check off: the switch is disabled and sends nothing.
+    // The shipped build performs real update checks: both controls stay usable.
     const auto = find(view, (node) => node.props?.['aria-label'] === '自动检查更新')[0]
     assert.ok(auto, 'the automatic check is shown')
-    assert.equal(auto.props.disabled, true, 'the local build locks the automatic check')
+    assert.equal(auto.props.disabled, undefined, 'the automatic check is available')
     const before = page.calls.length
     auto.props.onClick()
     await settle()
-    assert.equal(page.calls.length, before, 'a locked switch sends no request')
+    assert.equal(page.calls.length > before, true, 'the switch sends its request')
 
     const check = find(view, (node) => node.type === 'button' && text(node) === '检查更新')[0]
     assert.ok(check, 'a manual check is always available')
-    assert.equal(check.props.disabled, true, 'the local build disables the manual check')
-    assert.equal(check.props.title, '本地修改版：更新已临时禁用')
+    assert.equal(check.props.disabled, false, 'the manual check is available')
+    assert.equal(check.props.title, undefined)
 
     // A newer version still renders its banner; the install control stays disabled.
     page.setUpdate({ latestVersion: '0.2.0', available: true })
@@ -947,9 +967,11 @@ describe('settings section', () => {
     assert.match(texts(), /新版本 0\.2\.0 可用。/)
     const install = find(view, (node) => node.type === 'button' && text(node) === '更新')[0]
     assert.ok(install)
-    assert.equal(install.props.disabled, true, 'the local build disables install')
-    assert.equal(install.props.title, '本地修改版：更新已临时禁用')
+    assert.equal(install.props.disabled, false, 'the install control is available')
     assert.equal(page.calls.some((call) => call.path === '/.dsh-agi/update/install'), false)
+    install.props.onClick()
+    await settle()
+    assert.equal(page.calls.some((call) => call.path === '/.dsh-agi/update/install'), true, 'the install control sends its request')
 
     // The host's in-progress banner still renders while the control stays locked.
     page.setUpdate({ updating: true })
@@ -1134,7 +1156,141 @@ describe('settings section', () => {
       .map((node) => find(node, (child) => child.type === 'h3')[0]?.children?.[0])
     assert.deepEqual(titles.slice(0, 5), ['启用悬浮球', '悬浮球头像', '悬浮球 Agent', '后台 Agent', '语音'])
     assert.equal(titles[5], '千分比坐标', 'coordinate and frame cards stay below the voice panel')
-    assert.equal(titles[7], '空闲后取消固定', 'idle unpin lives outside the voice card')
+    assert.equal(titles[6], '观察框彩带', 'the frame card follows the coordinate card')
+    assert.equal(titles[7], '工作模式', 'the mode card keeps its place below the ball cards')
+    assert.equal(titles[9], '空闲后取消固定', 'idle unpin lives outside the voice card')
+  })
+
+  it('shows one experience library card: the graph library folder', async () => {
+    const page = loadSection()
+    page.render()
+    // The section appears once the settings snapshot arrives; the card then asks the host
+    // for its folder, so each pass needs its own flush.
+    await page.flush()
+    page.render()
+    await page.flush()
+    await settle()
+    const view = page.render()
+    // The markdown archive card is gone; the graph library card is the only one left, and
+    // it must not come back as an empty container holding nothing.
+    const cards = find(view, (node) => node.props?.className === 'dsh-agi-set-card dsh-agi-set-knowledge')
+    assert.equal(cards.length, 1, 'only the graph library card remains')
+    const said = (node) => {
+      if (typeof node === 'string') return node
+      if (!node || typeof node !== 'object') return ''
+      return (node.children ?? []).map(said).join('')
+    }
+    assert.match(said(cards[0]), /经验库目录/)
+    assert.match(said(cards[0]), /节点 3 · 边 2 · 索引 1 · 决策 0/, 'the card reports the graph counts')
+    assert.equal(find(cards[0], (node) => node.props?.['aria-label'] === '经验图谱').length, 0, 'no archive on/off switch')
+    assert.doesNotMatch(said(view), /经验图谱/, 'the old card title is gone')
+    assert.doesNotMatch(said(view), /还没有笔记/, 'the archive file list is gone')
+  })
+
+  it('opens the experience library through the host and reports the loopback port', async () => {
+    const page = loadSection()
+    page.render()
+    await page.flush()
+    page.render()
+    await page.flush()
+    await settle()
+    let view = page.render()
+    const button = find(view, (node) => node.type === 'button' && node.children?.includes('打开经验库'))[0]
+    assert.ok(button)
+    button.props.onClick()
+    await settle()
+
+    const call = page.calls.find((entry) => entry.path === '/.dsh-agi/graph/editor')
+    assert.ok(call, 'the button calls the host route instead of window.open')
+    assert.equal(call.options.method, 'POST')
+    view = page.render()
+    assert.match(said(cardOf(view, 'dsh-agi-set-knowledge')), /已在本机浏览器打开（端口 47831）/)
+  })
+
+  it('keeps the open button busy while the host starts the editor', async () => {
+    const held = Promise.withResolvers()
+    const page = loadSection({
+      answer: (path, options) => {
+        if (options.method !== 'POST' || path !== '/.dsh-agi/graph/editor') return undefined
+        return {
+          ok: true,
+          status: 200,
+          async text() {
+            await held.promise
+            return JSON.stringify({ ok: true, url: 'http://127.0.0.1:47831/.dsh-agi/knowledge-graph/', port: 47831, opened: true })
+          },
+        }
+      },
+    })
+    page.render()
+    await page.flush()
+    page.render()
+    await page.flush()
+    await settle()
+    let view = page.render()
+    find(view, (node) => node.type === 'button' && node.children?.includes('打开经验库'))[0].props.onClick()
+    await settle()
+
+    view = page.render()
+    const button = find(view, (node) => node.type === 'button' && node.children?.includes('打开经验库'))[0]
+    assert.equal(button.props.disabled, true, 'a second click cannot start another server')
+    assert.match(said(cardOf(view, 'dsh-agi-set-knowledge')), /正在打开…/)
+    assert.equal(page.calls.filter((entry) => entry.path === '/.dsh-agi/graph/editor').length, 1)
+
+    held.resolve()
+    await settle()
+    view = page.render()
+    assert.equal(find(view, (node) => node.type === 'button' && node.children?.includes('打开经验库'))[0].props.disabled, false)
+  })
+
+  it('shows a failed editor start in the card instead of failing silently', async () => {
+    const page = loadSection({
+      answer: (path, options) => {
+        if (options.method !== 'POST' || path !== '/.dsh-agi/graph/editor') return undefined
+        return {
+          ok: false,
+          status: 500,
+          async text() { return JSON.stringify({ error: '监听端口失败：EACCES' }) },
+        }
+      },
+    })
+    page.render()
+    await page.flush()
+    page.render()
+    await page.flush()
+    await settle()
+    find(page.render(), (node) => node.type === 'button' && node.children?.includes('打开经验库'))[0].props.onClick()
+    await settle()
+    const card = said(cardOf(page.render(), 'dsh-agi-set-knowledge'))
+    assert.match(card, /打开经验库失败：监听端口失败：EACCES/)
+  })
+
+  it('falls back to location.href when the host cannot reach a system browser', async () => {
+    const page = loadSection({
+      answer: (path, options) => {
+        if (options.method !== 'POST' || path !== '/.dsh-agi/graph/editor') return undefined
+        return {
+          ok: true,
+          status: 200,
+          async text() {
+            return JSON.stringify({
+              ok: true,
+              url: 'http://127.0.0.1:47831/.dsh-agi/knowledge-graph/',
+              port: 47831,
+              opened: false,
+            })
+          },
+        }
+      },
+    })
+    page.render()
+    await page.flush()
+    page.render()
+    await page.flush()
+    await settle()
+    find(page.render(), (node) => node.type === 'button' && node.children?.includes('打开经验库'))[0].props.onClick()
+    await settle()
+    assert.equal(page.window.location.href, 'http://127.0.0.1:47831/.dsh-agi/knowledge-graph/')
   })
 
   it('starts with voice collapsed and expands it from the master switch', async () => {

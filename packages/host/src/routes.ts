@@ -11,7 +11,11 @@ import { AVATAR_PRESETS, avatarPresetPath, isAvatarPresetId } from './avatar-pre
 import { normalizeCatalog, type ModelCatalog } from './catalog.ts'
 import { imageDebug } from './debug-log.ts'
 import { EMPTY_HISTORY_STATE, type HistoryPreview, type HistoryState } from './history.ts'
-import { knowledgeState, openKnowledgeFolder, setKnowledgeDir, setKnowledgeEnabled } from './knowledge.ts'
+import { graphCompletionFrom, type GraphAttachmentStore } from './knowledge-graph/llm.ts'
+import { graphLibraryState, openGraphFolder, setGraphLibraryDir } from './knowledge-graph/library.ts'
+import { openGraphEditorUrl, startGraphEditorServer } from './knowledge-graph/editor-server.ts'
+import { handleKnowledgeGraph, isKnowledgeGraphPath, publishGraphPointer } from './knowledge-graph/routes.ts'
+import { knowledgeGraphDirFor } from './knowledge-graph/store.ts'
 import {
   ensurePersonaCard,
   openPersonaFolder,
@@ -42,6 +46,27 @@ import { visibleWhatsNew, WHATS_NEW_VERSION, type WhatsNewNotice } from './whats
 const PREFIX = '/.dsh-agi'
 const HELPER_HEADER = 'x-dsh-agi-helper'
 
+/**
+ * Process-global diagnostics published by the preset's Computer Use tool layer.
+ *
+ * A preset plugin cannot `ctx.provide` a Cordis service: the Host sees only Host realms, and the
+ * preset registry rejects such a composition ("Preset services require isolate realms"). The
+ * service therefore travels on a `Symbol.for` key, exactly as `computer-use/src/screen-owner.ts`
+ * shares state across the two builds.
+ */
+const COMPUTER_USE_DIAGNOSTICS_KEY = Symbol.for('dsh-agi.computer-use.diagnostics')
+
+/** Only the members the diagnostics route reads. */
+interface ComputerUseDiagnosticsLike {
+  displayInventory?: () => Promise<unknown>
+}
+
+/** The preset's published diagnostics, or `undefined` when Computer Use is not mounted. */
+function computerUseDiagnosticsGlobal(): ComputerUseDiagnosticsLike | undefined {
+  const holder = globalThis as Record<symbol, ComputerUseDiagnosticsLike | undefined>
+  return holder[COMPUTER_USE_DIAGNOSTICS_KEY]
+}
+
 interface RouteContext {
   readonly webServer: {
     register(route: {
@@ -57,6 +82,13 @@ interface RouteContext {
   readonly sessionController: {
     modelCatalog(): unknown
   }
+  /** Present on the live Host; the graph editor degrades when it is absent. */
+  readonly get?: (name: string) => unknown
+  readonly agentDefaultModel?: {
+    currentSelection(): { provider: string; model: string; reasoningEffort?: string }
+  }
+  /** The official image store; the graph judge sends node screenshots through it. */
+  readonly attachments?: GraphAttachmentStore
 }
 
 /** Side effects that have to reach the live ball. */
@@ -121,6 +153,8 @@ interface RouteDeps {
   readonly store: ProfileStore
   readonly tcc: TccMonitor
   readonly control: OrbControl
+  /** Test hook: replaces the system-browser hand-off for the graph editor. */
+  readonly openEditorUrl?: (url: string) => boolean | void | Promise<boolean | void>
 }
 
 /** Mount `/.dsh-agi` and return the disposer. */
@@ -196,6 +230,23 @@ async function handle(deps: RouteDeps, req: IncomingMessage, res: ServerResponse
     sendJson(res, 200, await personaState(deps.store.dir))
     return
   }
+  // Read-only multi-monitor inventory for troubleshooting click offsets. The Computer Use
+  // plugin publishes the service; a profile without it gets a 404 instead of a fake empty list.
+  if (method === 'GET' && path === `${PREFIX}/computer-use/display-inventory`) {
+    const diagnostics = (deps.ctx.get?.('computerUseDiagnostics') as ComputerUseDiagnosticsLike | undefined)
+      ?? computerUseDiagnosticsGlobal()
+    if (diagnostics?.displayInventory === undefined) {
+      sendJson(res, 404, { error: 'computer-use-diagnostics-unavailable' })
+      return
+    }
+    const inventory = await diagnostics.displayInventory()
+    if (inventory === undefined) {
+      sendJson(res, 404, { error: 'display-inventory-unavailable' })
+      return
+    }
+    sendJson(res, 200, inventory)
+    return
+  }
   if (method === 'POST' && path === `${PREFIX}/persona`) {
     const body = asRecord(await readJson(req)) ?? {}
     imageDebug(`persona post ${JSON.stringify(body).slice(0, 200)}`)
@@ -236,33 +287,71 @@ async function handle(deps: RouteDeps, req: IncomingMessage, res: ServerResponse
     sendJson(res, 200, await personaState(deps.store.dir))
     return
   }
-  if (method === 'GET' && path === `${PREFIX}/knowledge`) {
-    sendJson(res, 200, await knowledgeState(deps.store.dir))
+  // The graph library folder: where the executable library actually lives. A switch
+  // copies and verifies first, switches the profile pointer, then deletes the old copy.
+  if (method === 'GET' && path === `${PREFIX}/graph`) {
+    sendJson(res, 200, await graphLibraryState(deps.store.dir))
     return
   }
-  if (method === 'POST' && path === `${PREFIX}/knowledge`) {
-    const enabled = booleanField(await readJson(req))
-    if (enabled === undefined) {
-      sendJson(res, 400, { error: 'invalid-enabled' })
-      return
-    }
-    await setKnowledgeEnabled(deps.store.dir, enabled)
-    sendJson(res, 200, await knowledgeState(deps.store.dir))
-    return
-  }
-  if (method === 'POST' && path === `${PREFIX}/knowledge/dir`) {
+  if (method === 'POST' && path === `${PREFIX}/graph/dir`) {
     const body = asRecord(await readJson(req))
     try {
-      const migration = await setKnowledgeDir(deps.store.dir, body?.dir)
-      sendJson(res, 200, { ...(await knowledgeState(deps.store.dir)), migration })
+      const migration = await setGraphLibraryDir(deps.store.dir, body?.dir, {
+        operator: 'settings-page',
+        publish: publishGraphPointer,
+      })
+      sendJson(res, 200, { ...(await graphLibraryState(deps.store.dir)), migration })
     } catch (error) {
       sendJson(res, errorStatus(error) ?? 500, { error: errorMessage(error) })
     }
     return
   }
-  if (method === 'POST' && path === `${PREFIX}/knowledge/open`) {
-    openKnowledgeFolder(deps.store.dir)
-    sendJson(res, 200, await knowledgeState(deps.store.dir))
+  if (method === 'POST' && path === `${PREFIX}/graph/open`) {
+    openGraphFolder(deps.store.dir)
+    sendJson(res, 200, await graphLibraryState(deps.store.dir))
+    return
+  }
+  // The editor page lives on its own loopback port: the desktop shell denies `window.open`,
+  // and the authenticated route cannot be opened in a system browser. The loopback server
+  // resolves the library on every request, so a folder switch reaches an already open tab.
+  if (method === 'POST' && path === `${PREFIX}/graph/editor`) {
+    try {
+      const editor = await startGraphEditorServer({ baseDir: deps.store.dir })
+      let opened = false
+      try {
+        opened = (await (deps.openEditorUrl ?? openGraphEditorUrl)(editor.url)) !== false
+      } catch (error) {
+        // The URL is still the answer; the page falls back to `location.href`.
+        console.error(`dsh-agi: graph editor browser hand-off failed: ${errorMessage(error)}`)
+      }
+      sendJson(res, 200, {
+        ok: true,
+        url: editor.url,
+        port: editor.port,
+        opened,
+        reused: editor.reused,
+      })
+    } catch (error) {
+      sendJson(res, 500, { error: errorMessage(error) })
+    }
+    return
+  }
+  // The experience graph editor is a plain page plus JSON API. It stays above the
+  // platform gate, like the folder settings, and reuses the profile's model route.
+  if (isKnowledgeGraphPath(path)) {
+    const completion = typeof deps.ctx.get === 'function'
+      ? graphCompletionFrom({
+        get: (name) => deps.ctx.get?.(name),
+        ...deps.ctx.agentDefaultModel === undefined ? {} : { agentDefaultModel: deps.ctx.agentDefaultModel },
+        ...deps.ctx.attachments === undefined ? {} : { attachments: deps.ctx.attachments },
+      }, () => {
+        const models = deps.store.models()
+        return { provider: models.background.provider, model: models.background.model, ...models.background.reasoningEffort === undefined ? {} : { reasoningEffort: models.background.reasoningEffort } }
+      })
+      : undefined
+    const graphDir = knowledgeGraphDirFor(deps.store.dir)
+    publishGraphPointer(graphDir)
+    await handleKnowledgeGraph({ dir: graphDir, req, res, completion })
     return
   }
   if (method === 'GET' && path === `${PREFIX}/settings`) {

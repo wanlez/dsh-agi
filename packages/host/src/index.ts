@@ -5,12 +5,14 @@
 
 import { randomUUID } from 'node:crypto'
 import { cpSync, existsSync, readdirSync, renameSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { TccMonitor } from './tcc.ts'
 import { imageDebug } from './debug-log.ts'
 import { profileDirectory, ProfileStore } from './preferences.ts'
 import { registerOrbRoutes } from './routes.ts'
+import { publishGraphPointer } from './knowledge-graph/routes.ts'
+import { KnowledgeGraphStore, knowledgeGraphDirFor } from './knowledge-graph/store.ts'
 import { installOrbServices, watchOrbPermissions } from './services.ts'
 import { watchAppearance } from './appearance.ts'
 import { OrbRuntime, type OrbContext, type PreStepMessage } from './orb.ts'
@@ -107,6 +109,16 @@ export function apply(ctx: OrbContext, config: { autoStart?: boolean } = {}): vo
   // refreshes from the live catalog and the main window's default — the route the
   // official sign-in points at the account once the profile has no API key.
   const store = new ProfileStore(profile)
+  // Make the graph discoverable before the first editor visit: the standing prompt
+  // reads this pointer, and an empty library still needs its manifest and index.
+  {
+    const graphDir = knowledgeGraphDirFor(store.dir)
+    // A test or embedded Host may use a temporary profile; never point the real
+    // agent at a directory that disappears with the test.
+    const profilesRoot = resolve(dshHomePath(), 'profiles').toLowerCase()
+    if (resolve(profile).toLowerCase().startsWith(profilesRoot)) publishGraphPointer(graphDir)
+    void new KnowledgeGraphStore(graphDir).init().catch(() => undefined)
+  }
   // pnpm appends a `name@version` rule for every young release it installs and reads
   // only the first rule per package name, so a profile that installed this plugin
   // through the market or `dsh plugin install` holds an exemption that shadows the
@@ -150,7 +162,7 @@ export function apply(ctx: OrbContext, config: { autoStart?: boolean } = {}): vo
           id: randomUUID(),
           content: [{
             type: 'text',
-            text: '【知识库模式·本轮规则】只检索经验库，针对用户的问题给出对应流程的方法论，然后用清晰、简洁、口语化的方式直接回答。不要调用 computer use 工具，不要操作键盘鼠标、点击界面或打开应用；需要细节时读取经验库里的说明和截图描述即可。',
+            text: '【知识库模式·本轮规则】只检索经验图谱，不做桌面操作。先读 `$env:DSH_HOME\\dsh-agi\\ACTIVE_GRAPH` 指向的库，再读其中的 `index.json`，用收藏名和摘要匹配用户的问题；没有匹配就直说缺少什么信息。需要细节时读 `paths\\<id>.json` 和对应的 `nodes\\<id>.json`（含说明和截图 caption）。然后用清晰、简洁、口语化的方式直接回答方法论。不要调用 computer use 工具，不要操作键盘鼠标、点击界面或打开应用；用户要执行流程时，提示他切到代操作模式。',
           }],
           source: { kind: 'computer-use', form: 'notice', summary: 'Knowledge mode' },
         })

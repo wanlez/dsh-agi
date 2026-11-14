@@ -20,6 +20,12 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, ToolExecution } from '@deepseek-ai/dsh-tools'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { CapturedScreen, ClickButton, DesktopBackend, DesktopForeground, ScreenInfo, ZoomResult } from './backend.ts'
+import {
+  buildActionReceipt,
+  type ActionReceipt,
+  type ActionSnapshot,
+  type ModalState,
+} from './action-receipt.ts'
 import type { ResolvedComputerUseConfig } from './config.ts'
 import {
   coordinateModeOf,
@@ -35,11 +41,17 @@ import {
 } from './coordinate-mode.ts'
 import {
   assertAllowedHotkey,
+  mapNormalizedToGlobal,
   modelPositionToHid,
   requireClickModifiers,
   requireNormalizedPosition,
   requirePixelPosition,
 } from './coordinates.ts'
+import type { DisplayInventory } from './display-inventory.ts'
+import {
+  hoverFeedbackText,
+  type HoverFeedback,
+} from './hover.ts'
 import {
   requireBrowserUrl,
   requireLongPressDuration,
@@ -61,6 +73,7 @@ import { withScreenLock } from './gui-lock.ts'
 import { BALL_PRESET, presetOf, screenOwnerId } from './screen-owner.ts'
 import { isDesktopSelectionTurn } from './selection-turn.ts'
 import { EXTENSION, pairScreenshotFiles, writeScreenshots } from './screenshot.ts'
+import { sanitizeModelText, type ObservationStatus } from './text-sanitize.ts'
 import { delay } from './wait.ts'
 import { LONG_WAIT_SECONDS, WAIT_SECONDS, requireLongWaitSeconds } from './wait-args.ts'
 
@@ -147,6 +160,141 @@ const COORDINATE_FIELDS = {
   attachedHeight: { type: 'integer' },
 } as const
 
+const OBSERVATION_STATUS_FIELD = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    foreground: { type: 'string', required: true, enum: ['provided', 'unsampled', 'empty'] },
+    windowTitle: { type: 'string', required: true, enum: ['provided', 'unsampled', 'empty'] },
+    capture: { type: 'string', required: true, enum: ['provided', 'unsampled', 'empty'] },
+    displayInventory: { type: 'string', required: true, enum: ['provided', 'unsampled', 'empty'] },
+  },
+} as const
+
+const DISPLAY_RECT_FIELD = {
+  type: 'object',
+  additionalProperties: false,
+  required: true,
+  properties: {
+    x: { type: 'number', required: true },
+    y: { type: 'number', required: true },
+    width: { type: 'number', required: true },
+    height: { type: 'number', required: true },
+  },
+} as const
+
+const DISPLAY_INFO_FIELD = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    index: { type: 'integer', required: true },
+    name: { type: 'string', required: true },
+    handle: { type: 'string', required: true },
+    primary: { type: 'boolean', required: true },
+    physicalRect: DISPLAY_RECT_FIELD,
+    workArea: DISPLAY_RECT_FIELD,
+    logicalRect: DISPLAY_RECT_FIELD,
+    dpiX: { type: 'number', required: true },
+    dpiY: { type: 'number', required: true },
+    scale: { type: 'number', required: true },
+    rotation: { type: 'number', required: true },
+  },
+} as const
+
+const DISPLAY_INVENTORY_FIELD = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    sampledAt: { type: 'string', required: true },
+    dpiAwareness: {
+      type: 'string',
+      required: true,
+      enum: ['per-monitor-v2', 'per-monitor', 'system', 'unaware', 'unknown'],
+    },
+    virtualDesktop: DISPLAY_RECT_FIELD,
+    displays: { type: 'array', required: true, items: DISPLAY_INFO_FIELD },
+  },
+} as const
+
+const OBSERVATION_META_FIELDS = {
+  status: OBSERVATION_STATUS_FIELD,
+  displayInventory: DISPLAY_INVENTORY_FIELD,
+} as const
+
+const MODAL_FIELD = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    present: { type: 'boolean', required: true },
+    windowId: { type: 'integer', required: true },
+    title: { type: 'string', required: true },
+    className: { type: 'string', required: true },
+    parentWindowId: { type: 'integer', required: true },
+    reason: { type: 'string', required: true },
+    suggestedActions: { type: 'array', required: true, items: { type: 'string' } },
+  },
+} as const
+
+const ACTION_ISSUE_FIELD = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    code: {
+      type: 'string',
+      required: true,
+      enum: ['focus-lost', 'foreground-changed', 'target-disabled', 'rect-moved', 'modal-present', 'snapshot-unavailable'],
+    },
+    severity: { type: 'string', required: true, enum: ['info', 'warn'] },
+    message: { type: 'string', required: true },
+  },
+} as const
+
+const ACTION_CHECKS_FIELD = {
+  type: 'object',
+  additionalProperties: false,
+  required: true,
+  properties: {
+    focusRetained: { type: 'boolean' },
+    foregroundUnchanged: { type: 'boolean' },
+    targetEnabled: { type: 'boolean' },
+    windowRectStable: { type: 'boolean' },
+  },
+} as const
+
+const HOVER_FIELD = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    available: { type: 'boolean', required: true },
+    hasFeedback: { type: 'boolean', required: true },
+    confidence: { type: 'string', required: true, enum: ['likely', 'none', 'uncertain'] },
+    changedPixels: { type: 'integer', required: true },
+    sampledPixels: { type: 'integer', required: true },
+    changedRatio: { type: 'number', required: true },
+    pixelTolerance: { type: 'number', required: true },
+    cursorChanged: { type: 'boolean', required: true },
+    cursorBefore: { type: 'string' },
+    cursorAfter: { type: 'string' },
+    cursorAssist: { type: 'boolean', required: true },
+    summary: { type: 'string', required: true },
+    unavailableReason: { type: 'string' },
+  },
+} as const
+
+const ACTION_RECEIPT_FIELD = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    action: { type: 'string', required: true },
+    performed: { type: 'boolean', required: true },
+    checkedAt: { type: 'string', required: true },
+    checks: ACTION_CHECKS_FIELD,
+    issues: { type: 'array', required: true, items: ACTION_ISSUE_FIELD },
+    modal: MODAL_FIELD,
+    hover: HOVER_FIELD,
+  },
+} as const
+
 function genericExecute(title: string, rawInput: unknown): GenericCallView {
   return { card: 'generic', title, kind: 'execute', rawInput }
 }
@@ -156,8 +304,18 @@ function resultBlocks(
   screens: readonly ObservedScreen[],
   foreground: DesktopForeground,
   outcome: CoordinateOutcome,
+  meta?: {
+    readonly status?: ObservationStatus
+    readonly displayInventory?: DisplayInventory
+  },
 ): ContentBlock[] {
-  return [{ type: 'text', text: intro }, ...observationContent(screens, foreground, outcome.coordinateMode)]
+  return [
+    { type: 'text', text: sanitizeModelText(intro, { maxChars: 1024 }) },
+    ...observationContent(screens, foreground, outcome.coordinateMode, {
+      ...meta?.status === undefined ? {} : { status: meta.status },
+      ...meta?.displayInventory === undefined ? {} : { displayInventory: meta.displayInventory },
+    }),
+  ]
 }
 
 function sessionOf(exec: ToolExecution): Session | undefined {
@@ -181,16 +339,28 @@ function hidPosition(exec: ToolExecution, position: readonly number[]): [number,
   return modelPositionToHid(position, mode, mode === 'pixel' ? lastAttachedRaster(session) : undefined)
 }
 
+/** Active plugin configuration; only one Computer Use plugin instance is mounted per host. */
+let runtimeConfig: ResolvedComputerUseConfig | undefined
+
 function observedFields(
   session: Session | undefined,
-  observation: { screens: ObservedScreen[]; foreground: DesktopForeground },
+  observation: {
+    screens: ObservedScreen[]
+    foreground: DesktopForeground
+    status?: ObservationStatus
+    displayInventory?: DisplayInventory
+  },
 ): {
   screens: ObservedScreen[]
   foreground: DesktopForeground
+  status?: ObservationStatus
+  displayInventory?: DisplayInventory
 } & CoordinateOutcome {
   return {
     screens: observation.screens,
     foreground: observation.foreground,
+    ...observation.status === undefined ? {} : { status: observation.status },
+    ...observation.displayInventory === undefined ? {} : { displayInventory: observation.displayInventory },
     ...coordinateOutcome(session, observation.screens),
   }
 }
@@ -204,18 +374,25 @@ async function recapture(
   screens: ObservedScreen[]
   foreground: DesktopForeground
   captures: CapturedScreen[]
+  status?: ObservationStatus
+  displayInventory?: DisplayInventory
 }> {
   const session = sessionOf(exec)
   const mode = coordinateModeOf(session)
+  const config = runtimeConfig
   const observation = await observeDesktop(ctx, backend, exec.signal, {
     settleMs,
     coordinateMode: mode,
+    displayInventoryEnabled: config?.displayInventoryEnabled ?? true,
+    ...config === undefined ? {} : { maxChars: config.modelTextMaxChars },
   })
   rememberObservation(session, observation.screens)
   return {
     screens: [...observation.screens],
     foreground: compactForeground(observation.foreground),
     captures: [...observation.captures],
+    ...observation.displayInventory === undefined ? {} : { displayInventory: observation.displayInventory },
+    ...observation.status === undefined ? {} : { status: observation.status },
   }
 }
 
@@ -235,12 +412,66 @@ function guiTurn<T>(
   return withScreenLock(exec.agent?.id, () => backend.withGuiTurn(run, exec.signal))
 }
 
+/**
+ * Sample one action target before or after input. Probe failure is a diagnostic gap; it
+ * must not turn a completed action into a tool error.
+ */
+async function inspectActionTarget(
+  backend: DesktopBackend,
+  screen: ScreenInfo,
+  point: { readonly x: number; readonly y: number } | undefined,
+  signal: AbortSignal,
+): Promise<ActionSnapshot | undefined> {
+  if (runtimeConfig?.actionReceiptEnabled === false || backend.inspectAction === undefined) return undefined
+  try {
+    return await backend.inspectAction({
+      screen,
+      ...point === undefined ? {} : { point },
+    }, signal)
+  } catch {
+    return undefined
+  }
+}
+
+/** Build a receipt with the configured rectangle tolerance. */
+function receiptFor(
+  action: string,
+  performed: boolean,
+  before: ActionSnapshot | undefined,
+  after: ActionSnapshot | undefined,
+  outcome: { readonly modal?: ModalState } | void,
+  hover?: HoverFeedback,
+): ActionReceipt {
+  return buildActionReceipt({
+    action,
+    performed,
+    ...before === undefined ? {} : { before },
+    ...after === undefined ? {} : { after },
+    ...outcome?.modal === undefined ? {} : { modal: outcome.modal },
+    ...hover === undefined ? {} : { hover },
+    rectTolerancePx: runtimeConfig?.actionRectTolerancePx ?? 2,
+  })
+}
+
+/** True when a backend outcome posted input or omitted the outcome (older backends). */
+function actionPerformed(outcome: { readonly performed: boolean } | void): boolean {
+  return outcome === undefined || outcome.performed
+}
+
 function screenshotIntro(paths: readonly string[], outcome: CoordinateOutcome): string {
   const first = paths[0]
   const saved = first === undefined
     ? 'Screenshot captured (no file kept; pass save_dir to keep one copy)'
     : `Saved screenshot to ${first}`
   return `${saved} and copied it to the clipboard. The image is ready to paste. ${coordinatesRemain(outcome)}`
+}
+
+/** One-line receipt summary that names the failed checks, not just their count. */
+function receiptSummary(action: { readonly issues?: readonly { readonly code?: string }[] } | undefined): string {
+  if (action === undefined) return ''
+  const issues = action.issues ?? []
+  if (issues.length === 0) return ' Action check: all four checks passed.'
+  return ` Action check: ${String(issues.length)} issue(s): ${issues.map(issue => issue.code ?? 'unknown').join(', ')}.`
 }
 
 function clickResultText(value: {
@@ -251,12 +482,24 @@ function clickResultText(value: {
   readonly confirmed?: boolean
   readonly zoomLevel?: number
   readonly modifiers?: readonly string[]
+  readonly modal?: {
+    readonly title?: string
+    readonly className?: string
+    readonly reason?: string
+    readonly suggestedActions?: readonly string[]
+  }
+  readonly action?: { readonly performed?: boolean; readonly issues?: readonly { readonly code?: string }[] }
+  readonly hover?: HoverFeedback
 } & CoordinateOutcome): string {
   const mods = value.modifiers === undefined
     ? ''
     : `, modifiers ${value.modifiers.join(', ')}`
   if (value.confirmed === false) return previewText(value, 'click')
-  return `Clicked screen ${String(value.screenIndex)} at [${value.position.join(', ')}] (${value.button}, count ${String(value.count)}${mods}). ${coordinatesRemain(value)}`
+  if (value.action?.performed === false && value.modal !== undefined) {
+    return `Click blocked by modal "${value.modal.title || value.modal.className || 'untitled dialog'}" (${value.modal.reason ?? 'modal'}); no input was posted. Suggested actions: ${(value.modal.suggestedActions ?? []).join(', ') || 'press-esc, focus-modal, ask-user'}.`
+  }
+  const receipt = receiptSummary(value.action)
+  return `Clicked screen ${String(value.screenIndex)} at [${value.position.join(', ')}] (${value.button}, count ${String(value.count)}${mods}).${receipt} ${coordinatesRemain(value)}`
 }
 
 /** Per-session two-stage aiming state: last zoom crop and the point it centered on. */
@@ -395,7 +638,13 @@ async function beginPointerAction(
 /** Outcome of one two-stage aiming step. */
 type PointerPreview =
   | { confirmed: true; target: { x: number; y: number }; windowScreen: ScreenInfo }
-  | { confirmed: false; screens: ObservedScreen[]; foreground: DesktopForeground; level: number }
+  | {
+    confirmed: false
+    screens: ObservedScreen[]
+    foreground: DesktopForeground
+    level: number
+    hover?: HoverFeedback
+  }
 
 /**
  * Two-stage aiming for click-like actions: screen 0 aims on the window, screen 1 aims
@@ -437,6 +686,27 @@ async function previewPointerAction(
   if (capture === undefined) throw new Error('computer-use: this platform cannot zoom; preview is unavailable')
   const windowHeight = resolved.windowScreen.bounds.height
   const side = Math.max(24, Math.round(windowHeight / (6 * 2 ** (resolved.level - 1))))
+  const clamp = resolved.windowScreen.bounds
+  const physicalPoint = mapNormalizedToGlobal(pointPosition, resolved.reference)
+  const half = Math.floor(side / 2)
+  const probeRect = {
+    x: Math.max(clamp.x, Math.min(Math.round(physicalPoint.x) - half, clamp.x + clamp.width - side)),
+    y: Math.max(clamp.y, Math.min(Math.round(physicalPoint.y) - half, clamp.y + clamp.height - side)),
+    width: Math.min(side, clamp.width),
+    height: Math.min(side, clamp.height),
+  }
+  let hover: HoverFeedback | undefined
+  if (runtimeConfig?.hoverFeedbackEnabled !== false && backend.hoverProbe !== undefined) {
+    try {
+      hover = await backend.hoverProbe({
+        rect: probeRect,
+        point: { x: Math.round(physicalPoint.x), y: Math.round(physicalPoint.y) },
+      }, exec.signal)
+    } catch {
+      // A failed probe is a diagnostic gap, not a reason to block the preview.
+      hover = undefined
+    }
+  }
   const zoom = await capture({
     screen: resolved.reference,
     position: pointPosition,
@@ -486,6 +756,7 @@ async function previewPointerAction(
     screens: previewScreens,
     foreground: preview.foreground,
     level: resolved.level,
+    ...hover === undefined ? {} : { hover },
   }
 }
 
@@ -495,18 +766,25 @@ async function previewPointerAction(
  * @param what - action the model asked for, named in the refusal.
  * @returns the model-facing explanation of the preview and how to confirm.
  */
-function previewText(value: { readonly zoomLevel?: number | undefined }, what: string): string {
+function previewText(value: {
+  readonly zoomLevel?: number | undefined
+  readonly hover?: HoverFeedback | undefined
+}, what: string): string {
   const base = `Preview only — no ${what} was performed. Screen 1 is a zoom around the pointer; its crosshair marks the exact point you are about to act on.`
-  if (value.zoomLevel === undefined || value.zoomLevel <= 0) return base
+  const hover = hoverFeedbackText(value.hover)
+  if (value.zoomLevel === undefined || value.zoomLevel <= 0) return `${base}${hover}`
   if (value.zoomLevel >= 2) {
-    return `${base} This is the closest zoom (level 2, window height / 12): confirm to act there, or nudge the position by a few units if the crosshair is off.`
+    return `${base}${hover} This is the closest zoom (level 2, window height / 12): confirm to act there, or nudge the position by a few units if the crosshair is off.`
   }
-  return `${base} To aim more precisely, call the same tool with screen_index=1 and a position measured on that crop; that previews the close zoom (window height / 12). When the crosshair sits on the target, confirm=true.`
+  return `${base}${hover} To aim more precisely, call the same tool with screen_index=1 and a position measured on that crop; that previews the close zoom (window height / 12). When the crosshair sits on the target, confirm=true.`
 }
 
 /** One pointer tool step: either a finished preview result or the confirmed pixel point. */
 type PointerGate<P extends object> =
-  | { done: true; result: P & { confirmed: false; zoomLevel: number } & ReturnType<typeof observedFields> }
+  | {
+    done: true
+    result: P & { confirmed: false; zoomLevel: number; hover?: HoverFeedback } & ReturnType<typeof observedFields>
+  }
   | { done: false; point: { x: number; y: number }; windowScreen: ScreenInfo }
 
 /**
@@ -544,6 +822,7 @@ async function runPointerAction<P extends object>(
         ...preview,
         confirmed: false,
         zoomLevel: gate.level,
+        ...gate.hover === undefined ? {} : { hover: gate.hover },
         ...observedFields(sessionOf(exec), { screens: gate.screens, foreground: gate.foreground }),
       },
     }
@@ -562,6 +841,7 @@ export function applyComputerUse(
   backend: DesktopBackend,
   config: ResolvedComputerUseConfig,
 ): void {
+  runtimeConfig = config
   installCoordinateMode(ctx)
   ctx.systemPrompt.section({
     name: 'tool:computer-use',
@@ -649,15 +929,20 @@ export function applyComputerUse(
           confirmed: { type: 'boolean', required: true },
           zoomLevel: { type: 'number' },
           modifiers: { type: 'array', items: { type: 'string' } },
+          hover: HOVER_FIELD,
+          action: ACTION_RECEIPT_FIELD,
+          modal: MODAL_FIELD,
           ...COORDINATE_FIELDS,
           screens: SCREENS_FIELD,
           foreground: FOREGROUND_FIELD,
+          ...OBSERVATION_META_FIELDS,
         },
       },
       render: (_args, value) => resultBlocks(
         clickResultText(value),
         value.screens,
         value.foreground,
+        value,
         value,
       ),
     },
@@ -688,13 +973,19 @@ export function applyComputerUse(
           ...modifiers === undefined ? {} : { modifiers },
         })
         if (gate.done) return gate.result
-        await backend.click({
-          screen: pointScreenAt(gate.point, gate.windowScreen.windowId, 1),
+        const screen = pointScreenAt(gate.point, gate.windowScreen.windowId, 1)
+        const before = await inspectActionTarget(backend, gate.windowScreen, gate.point, exec.signal)
+        const outcome = await backend.click({
+          screen,
           position: [0, 0],
           button,
           count,
           ...modifiers === undefined ? {} : { modifiers },
         }, exec.signal)
+        const after = await inspectActionTarget(backend, gate.windowScreen, gate.point, exec.signal)
+        const receipt = runtimeConfig?.actionReceiptEnabled === false
+          ? undefined
+          : receiptFor('click', actionPerformed(outcome), before, after, outcome)
         const observation = await recapture(ctx, backend, exec, config.postActionWaitMs)
         return {
           screenIndex: args.screen_index,
@@ -703,6 +994,8 @@ export function applyComputerUse(
           count,
           confirmed: true,
           ...modifiers === undefined ? {} : { modifiers },
+          ...outcome?.modal === undefined ? {} : { modal: outcome.modal },
+          ...receipt === undefined ? {} : { action: receipt },
           ...observedFields(sessionOf(exec), observation),
         }
       })
@@ -756,17 +1049,24 @@ export function applyComputerUse(
           submit: { type: 'boolean', required: true },
           confirmed: { type: 'boolean', required: true },
           zoomLevel: { type: 'number' },
+          hover: HOVER_FIELD,
+          action: ACTION_RECEIPT_FIELD,
+          modal: MODAL_FIELD,
           ...COORDINATE_FIELDS,
           screens: SCREENS_FIELD,
           foreground: FOREGROUND_FIELD,
+          ...OBSERVATION_META_FIELDS,
         },
       },
       render: (_args, value) => resultBlocks(
         value.confirmed === false
           ? previewText(value, 'text entry')
-          : `Typed on screen ${String(value.screenIndex)} at [${value.position.join(', ')}] (replace=${String(value.replace)}, submit=${String(value.submit)}). ${coordinatesRemain(value)}`,
+          : value.action?.performed === false && value.modal !== undefined
+            ? `Typing blocked by modal "${value.modal.title || value.modal.className}"; no input was posted.`
+            : `Typed on screen ${String(value.screenIndex)} at [${value.position.join(', ')}] (replace=${String(value.replace)}, submit=${String(value.submit)}).${receiptSummary(value.action)} ${coordinatesRemain(value)}`,
         value.screens,
         value.foreground,
+        value,
         value,
       ),
     },
@@ -792,13 +1092,19 @@ export function applyComputerUse(
           submit,
         })
         if (gate.done) return gate.result
-        await backend.typeText({
-          screen: pointScreenAt(gate.point, gate.windowScreen.windowId, 1),
+        const screen = pointScreenAt(gate.point, gate.windowScreen.windowId, 1)
+        const before = await inspectActionTarget(backend, gate.windowScreen, gate.point, exec.signal)
+        const outcome = await backend.typeText({
+          screen,
           position: [0, 0],
           text: args.text,
           replace,
           submit,
         }, exec.signal)
+        const after = await inspectActionTarget(backend, gate.windowScreen, gate.point, exec.signal)
+        const receipt = runtimeConfig?.actionReceiptEnabled === false
+          ? undefined
+          : receiptFor('input_text', actionPerformed(outcome), before, after, outcome)
         const observation = await recapture(ctx, backend, exec, config.postActionWaitMs)
         return {
           screenIndex: args.screen_index,
@@ -807,6 +1113,8 @@ export function applyComputerUse(
           replace,
           submit,
           confirmed: true,
+          ...outcome?.modal === undefined ? {} : { modal: outcome.modal },
+          ...receipt === undefined ? {} : { action: receipt },
           ...observedFields(sessionOf(exec), observation),
         }
       })
@@ -846,15 +1154,19 @@ export function applyComputerUse(
           position: { type: 'array', required: true, items: { type: 'number' } },
           direction: { type: 'string', required: true, enum: ['up', 'down'] },
           scrollLevel: { type: 'integer', required: true },
+          action: ACTION_RECEIPT_FIELD,
+          modal: MODAL_FIELD,
           ...COORDINATE_FIELDS,
           screens: SCREENS_FIELD,
           foreground: FOREGROUND_FIELD,
+          ...OBSERVATION_META_FIELDS,
         },
       },
       render: (_args, value) => resultBlocks(
-        `Scrolled ${value.direction} on screen ${String(value.screenIndex)} at [${value.position.join(', ')}] (level ${String(value.scrollLevel)}). ${coordinatesRemain(value)}`,
+        `Scrolled ${value.direction} on screen ${String(value.screenIndex)} at [${value.position.join(', ')}] (level ${String(value.scrollLevel)}).${receiptSummary(value.action)} ${coordinatesRemain(value)}`,
         value.screens,
         value.foreground,
+        value,
         value,
       ),
     },
@@ -873,18 +1185,33 @@ export function applyComputerUse(
       return guiTurn(backend, exec, async () => {
         const screens = await backend.listScreens(exec.signal)
         const screen = requireScreen(screens, args.screen_index)
-        await backend.scroll({
+        const positionHid = hidPosition(exec, position)
+        const physical = mapNormalizedToGlobal(positionHid, screen)
+        const before = await inspectActionTarget(backend, screen, {
+          x: Math.round(physical.x),
+          y: Math.round(physical.y),
+        }, exec.signal)
+        const outcome = await backend.scroll({
           screen,
-          position: hidPosition(exec, position),
+          position: positionHid,
           direction: args.direction,
           scrollLevel: args.scroll_level,
         }, exec.signal)
+        const after = await inspectActionTarget(backend, screen, {
+          x: Math.round(physical.x),
+          y: Math.round(physical.y),
+        }, exec.signal)
+        const receipt = runtimeConfig?.actionReceiptEnabled === false
+          ? undefined
+          : receiptFor('scroll', actionPerformed(outcome), before, after, outcome)
         const observation = await recapture(ctx, backend, exec, config.postActionWaitMs)
         return {
           screenIndex: args.screen_index,
           position,
           direction: args.direction,
           scrollLevel: args.scroll_level,
+          ...outcome?.modal === undefined ? {} : { modal: outcome.modal },
+          ...receipt === undefined ? {} : { action: receipt },
           ...observedFields(sessionOf(exec), observation),
         }
       })
@@ -910,15 +1237,18 @@ export function applyComputerUse(
         additionalProperties: false,
         properties: {
           keys: { type: 'array', required: true, items: { type: 'string' } },
+          action: ACTION_RECEIPT_FIELD,
           ...COORDINATE_FIELDS,
           screens: SCREENS_FIELD,
           foreground: FOREGROUND_FIELD,
+          ...OBSERVATION_META_FIELDS,
         },
       },
       render: (_args, value) => resultBlocks(
-        `Pressed hotkey [${value.keys.join(', ')}]. ${coordinatesRemain(value)}`,
+        `Pressed hotkey [${value.keys.join(', ')}].${receiptSummary(value.action)} ${coordinatesRemain(value)}`,
         value.screens,
         value.foreground,
+        value,
         value,
       ),
     },
@@ -932,13 +1262,31 @@ export function applyComputerUse(
         // The keys go to the window this session last observed, not to whatever capture ran
         // most recently (which may belong to another session).
         const observed = lastObservedWindow(sessionOf(exec))
+        const screens = await backend.listScreens(exec.signal).catch(() => [])
+        const observedScreen = screens[0]
+        const receiptScreen: ScreenInfo | undefined = observed?.windowId === undefined
+          ? observedScreen
+          : {
+            ...observedScreen ?? { index: 0, bounds: { x: 0, y: 0, width: 1, height: 1 }, scale: 1 },
+            windowId: observed.windowId,
+          }
+        const before = receiptScreen === undefined
+          ? undefined
+          : await inspectActionTarget(backend, receiptScreen, undefined, exec.signal)
         await backend.hotkey({
           keys: args.keys,
           ...observed === undefined ? {} : observed,
         }, exec.signal)
+        const after = receiptScreen === undefined
+          ? undefined
+          : await inspectActionTarget(backend, receiptScreen, undefined, exec.signal)
+        const receipt = runtimeConfig?.actionReceiptEnabled === false
+          ? undefined
+          : receiptFor('hotkey', true, before, after, undefined)
         const observation = await recapture(ctx, backend, exec, config.postActionWaitMs)
         return {
           keys: args.keys,
+          ...receipt === undefined ? {} : { action: receipt },
           ...observedFields(sessionOf(exec), observation),
         }
       })
@@ -961,12 +1309,14 @@ export function applyComputerUse(
           ...COORDINATE_FIELDS,
           screens: SCREENS_FIELD,
           foreground: FOREGROUND_FIELD,
+          ...OBSERVATION_META_FIELDS,
         },
       },
       render: (_args, value) => resultBlocks(
         `Waited ${String(value.waitSeconds)}s. ${coordinatesRemain(value)}`,
         value.screens,
         value.foreground,
+        value,
         value,
       ),
     },
@@ -1007,12 +1357,14 @@ export function applyComputerUse(
           ...COORDINATE_FIELDS,
           screens: SCREENS_FIELD,
           foreground: FOREGROUND_FIELD,
+          ...OBSERVATION_META_FIELDS,
         },
       },
       render: (_args, value) => resultBlocks(
         `Waited ${String(value.waitSeconds)}s. ${coordinatesRemain(value)}`,
         value.screens,
         value.foreground,
+        value,
         value,
       ),
     },
@@ -1054,12 +1406,14 @@ export function applyComputerUse(
           ...COORDINATE_FIELDS,
           screens: SCREENS_FIELD,
           foreground: FOREGROUND_FIELD,
+          ...OBSERVATION_META_FIELDS,
         },
       },
       render: (_args, value) => resultBlocks(
         screenshotIntro(value.paths, value),
         value.screens,
         value.foreground,
+        value,
         value,
       ),
     },
@@ -1071,12 +1425,14 @@ export function applyComputerUse(
       const observation = await observeDesktop(ctx, backend, exec.signal, {
         coordinateMode: coordinateModeOf(session),
         persistCapture: captured => isUsableObservationRaster(captured.data),
+        displayInventoryEnabled: config.displayInventoryEnabled,
+        maxChars: config.modelTextMaxChars,
       })
       const foreground = compactForeground(observation.foreground)
       if (observation.screens.length === 0) {
         if (observation.captures.length > 0) {
           throw new Error(
-            `computer-use: screenshot capture was unusable. Retry screenshot, wait, or open_app.\n${formatForegroundEnvelope(foreground)}`,
+            `computer-use: screenshot capture was unusable. Retry screenshot, wait, or open_app.\n${formatForegroundEnvelope(foreground, config.modelTextMaxChars)}`,
           )
         }
         throw new Error('computer-use: screenshot produced no files')
@@ -1107,7 +1463,12 @@ export function applyComputerUse(
       return {
         paths: [...paths],
         clipboard: true,
-        ...observedFields(session, { screens: [...observation.screens], foreground }),
+        ...observedFields(session, {
+          screens: [...observation.screens],
+          foreground,
+          status: observation.status,
+          ...observation.displayInventory === undefined ? {} : { displayInventory: observation.displayInventory },
+        }),
       }
     },
   }))
@@ -1150,17 +1511,22 @@ export function applyComputerUse(
           durationSeconds: { type: 'number', required: true },
           confirmed: { type: 'boolean', required: true },
           zoomLevel: { type: 'number' },
+          hover: HOVER_FIELD,
+          action: ACTION_RECEIPT_FIELD,
+          modal: MODAL_FIELD,
           ...COORDINATE_FIELDS,
           screens: SCREENS_FIELD,
           foreground: FOREGROUND_FIELD,
+          ...OBSERVATION_META_FIELDS,
         },
       },
       render: (_args, value) => resultBlocks(
         value.confirmed === false
           ? previewText(value, 'long press')
-          : `Long-pressed screen ${String(value.screenIndex)} at [${value.position.join(', ')}] for ${String(value.durationSeconds)}s. ${coordinatesRemain(value)}`,
+          : `Long-pressed screen ${String(value.screenIndex)} at [${value.position.join(', ')}] for ${String(value.durationSeconds)}s.${receiptSummary(value.action)} ${coordinatesRemain(value)}`,
         value.screens,
         value.foreground,
+        value,
         value,
       ),
     },
@@ -1187,17 +1553,25 @@ export function applyComputerUse(
           durationSeconds,
         })
         if (gate.done) return gate.result
-        await backend.longPress({
-          screen: pointScreenAt(gate.point, gate.windowScreen.windowId, 1),
+        const screen = pointScreenAt(gate.point, gate.windowScreen.windowId, 1)
+        const before = await inspectActionTarget(backend, gate.windowScreen, gate.point, exec.signal)
+        const outcome = await backend.longPress({
+          screen,
           position: [0, 0],
           durationSeconds,
         }, exec.signal)
+        const after = await inspectActionTarget(backend, gate.windowScreen, gate.point, exec.signal)
+        const receipt = runtimeConfig?.actionReceiptEnabled === false
+          ? undefined
+          : receiptFor('long_press', actionPerformed(outcome), before, after, outcome)
         const observation = await recapture(ctx, backend, exec, config.postActionWaitMs)
         return {
           screenIndex: args.screen_index,
           position,
           durationSeconds,
           confirmed: true,
+          ...outcome?.modal === undefined ? {} : { modal: outcome.modal },
+          ...receipt === undefined ? {} : { action: receipt },
           ...observedFields(sessionOf(exec), observation),
         }
       })
@@ -1253,18 +1627,23 @@ export function applyComputerUse(
           endPosition: { type: 'array', required: true, items: { type: 'number' } },
           confirmed: { type: 'boolean', required: true },
           zoomLevel: { type: 'number' },
+          hover: HOVER_FIELD,
+          action: ACTION_RECEIPT_FIELD,
+          modal: MODAL_FIELD,
           ...COORDINATE_FIELDS,
           screens: SCREENS_FIELD,
           foreground: FOREGROUND_FIELD,
+          ...OBSERVATION_META_FIELDS,
         },
       },
       render: (_args, value) => resultBlocks(
         value.confirmed === false
-          ? previewText({ zoomLevel: value.zoomLevel }, 'drag')
+          ? previewText({ zoomLevel: value.zoomLevel, hover: value.hover }, 'drag')
           : `Dragged from screen ${String(value.startScreenIndex)} [${value.startPosition.join(', ')}] `
-            + `to screen ${String(value.endScreenIndex)} [${value.endPosition.join(', ')}]. ${coordinatesRemain(value)}`,
+            + `to screen ${String(value.endScreenIndex)} [${value.endPosition.join(', ')}].${receiptSummary(value.action)} ${coordinatesRemain(value)}`,
         value.screens,
         value.foreground,
+        value,
         value,
       ),
     },
@@ -1293,12 +1672,18 @@ export function applyComputerUse(
         if (gate.done) return gate.result
         const screens = await backend.listScreens(exec.signal)
         const endScreen = requireScreen(screens, args.end_screen_index)
-        await backend.drag({
-          startScreen: pointScreenAt(gate.point, gate.windowScreen.windowId, 1),
+        const startScreen = pointScreenAt(gate.point, gate.windowScreen.windowId, 1)
+        const before = await inspectActionTarget(backend, gate.windowScreen, gate.point, exec.signal)
+        const outcome = await backend.drag({
+          startScreen,
           startPosition: [0, 0],
           endScreen,
           endPosition: hidPosition(exec, endPosition),
         }, exec.signal)
+        const after = await inspectActionTarget(backend, gate.windowScreen, gate.point, exec.signal)
+        const receipt = runtimeConfig?.actionReceiptEnabled === false
+          ? undefined
+          : receiptFor('drag', actionPerformed(outcome), before, after, outcome)
         const observation = await recapture(ctx, backend, exec, config.postActionWaitMs)
         return {
           startScreenIndex: args.start_screen_index,
@@ -1306,6 +1691,8 @@ export function applyComputerUse(
           endScreenIndex: args.end_screen_index,
           endPosition,
           confirmed: true,
+          ...outcome?.modal === undefined ? {} : { modal: outcome.modal },
+          ...receipt === undefined ? {} : { action: receipt },
           ...observedFields(sessionOf(exec), observation),
         }
       })
@@ -1333,6 +1720,7 @@ export function applyComputerUse(
           ...COORDINATE_FIELDS,
           screens: SCREENS_FIELD,
           foreground: FOREGROUND_FIELD,
+          ...OBSERVATION_META_FIELDS,
         },
       },
       render: (_args, value) => resultBlocks(
@@ -1341,6 +1729,7 @@ export function applyComputerUse(
           : `Opened ${value.url} in the default browser. ${coordinatesRemain(value)}`,
         value.screens,
         value.foreground,
+        value,
         value,
       ),
     },
@@ -1389,6 +1778,7 @@ export function applyComputerUse(
           ...COORDINATE_FIELDS,
           screens: SCREENS_FIELD,
           foreground: FOREGROUND_FIELD,
+          ...OBSERVATION_META_FIELDS,
         },
       },
       render: (_args, value) => resultBlocks(
@@ -1397,6 +1787,7 @@ export function applyComputerUse(
           : `Opened ${value.path}. ${coordinatesRemain(value)}`,
         value.screens,
         value.foreground,
+        value,
         value,
       ),
     },
@@ -1440,6 +1831,7 @@ export function applyComputerUse(
           ...COORDINATE_FIELDS,
           screens: SCREENS_FIELD,
           foreground: FOREGROUND_FIELD,
+          ...OBSERVATION_META_FIELDS,
         },
       },
       render: (_args, value) => resultBlocks(
@@ -1448,6 +1840,7 @@ export function applyComputerUse(
           : `Running apps: ${value.apps.join(', ')}. ${coordinatesRemain(value)}`,
         value.screens,
         value.foreground,
+        value,
         value,
       ),
     },
@@ -1488,6 +1881,7 @@ export function applyComputerUse(
           ...COORDINATE_FIELDS,
           screens: SCREENS_FIELD,
           foreground: FOREGROUND_FIELD,
+          ...OBSERVATION_META_FIELDS,
         },
       },
       render: (_args, value) => resultBlocks(
@@ -1496,6 +1890,7 @@ export function applyComputerUse(
           : `Could not open ${value.name}: ${value.error ?? 'unknown error'}. ${coordinatesRemain(value)}`,
         value.screens,
         value.foreground,
+        value,
         value,
       ),
     },
@@ -1540,7 +1935,11 @@ export function applyComputerUse(
     if (!await routeAcceptsImages(ctx, agent, signal)) return decision
     signal.throwIfAborted()
     const mode = coordinateModeOf(agent.session)
-    const observation = await observeDesktop(ctx, backend, signal, { coordinateMode: mode })
+    const observation = await observeDesktop(ctx, backend, signal, {
+      coordinateMode: mode,
+      displayInventoryEnabled: config.displayInventoryEnabled,
+      maxChars: config.modelTextMaxChars,
+    })
     rememberObservation(agent.session, observation.screens)
     signal.throwIfAborted()
     const notice = createUserMessage({

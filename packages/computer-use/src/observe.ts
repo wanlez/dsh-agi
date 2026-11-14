@@ -10,6 +10,18 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { CapturedScreen, DesktopBackend, DesktopForeground, ScreenInfo } from './backend.ts'
 import { FOCUS_FALLBACK_FOREGROUND } from './backend.ts'
 import type { CoordinateMode } from './coordinate-mode.ts'
+import {
+  formatDisplayInventoryEnvelope,
+  type DisplayInventory,
+} from './display-inventory.ts'
+import {
+  DEFAULT_MODEL_TEXT_MAX_CHARS,
+  formatObservationStatus,
+  observationState,
+  sanitizeModelText,
+  UNKNOWN_OBSERVATION_STATUS,
+  type ObservationStatus,
+} from './text-sanitize.ts'
 import { delay } from './wait.ts'
 
 /** Canonical image metadata stored beside one captured screen. */
@@ -48,6 +60,10 @@ export interface DesktopObservation {
   readonly blocks: ContentBlock[]
   /** Encoded rasters in the same order as {@link screens}, before attachment downscale. */
   readonly captures: readonly CapturedScreen[]
+  /** Multi-monitor inventory when the backend supplied one. */
+  readonly displayInventory?: DisplayInventory
+  /** Per-field sampling state for the observation envelope. */
+  readonly status: ObservationStatus
 }
 
 const IMAGE_NAME_PREFIX = 'desktop-screen'
@@ -89,30 +105,31 @@ export function imageRefFromObserved(image: ObservedImage): ImageAttachmentRef {
   }
 }
 
-function envelopeValue(value: string): string {
-  return value.replace(/[\r\n]+/g, ' ').trim()
-}
-
 /**
  * Format OS foreground metadata as one observation-level envelope.
- * Empty folder, title, and note fields are omitted. Screenshot filesystem paths are never included.
+ * Every value is sanitized before it enters the model. Empty folder, title, and note fields
+ * are omitted. Screenshot filesystem paths are never included.
  * @param foreground - inspect result after overlay-window skip.
+ * @param maxChars - maximum code points per field.
  * @returns model-facing tags for app name, optional window title, optional Finder folder, or focus fallback.
  */
-export function formatForegroundEnvelope(foreground: DesktopForeground): string {
-  const appName = envelopeValue(foreground.appName) || 'none'
+export function formatForegroundEnvelope(
+  foreground: DesktopForeground,
+  maxChars: number = DEFAULT_MODEL_TEXT_MAX_CHARS,
+): string {
+  const appName = sanitizeModelText(foreground.appName, { maxChars }).trim() || 'none'
   const lines = [`<frontmost_app>${appName}</frontmost_app>`]
   if (foreground.windowTitle !== undefined) {
-    const title = envelopeValue(foreground.windowTitle)
+    const title = sanitizeModelText(foreground.windowTitle, { maxChars }).trim()
     if (title !== '') lines.push(`<frontmost_window>${title}</frontmost_window>`)
   }
   if (foreground.focusNote !== undefined) {
-    const note = envelopeValue(foreground.focusNote)
+    const note = sanitizeModelText(foreground.focusNote, { maxChars }).trim()
     if (note !== '') lines.push(`<focus_note>${note}</focus_note>`)
     return lines.join('\n')
   }
   if (foreground.finderFolder !== undefined) {
-    const folder = envelopeValue(foreground.finderFolder)
+    const folder = sanitizeModelText(foreground.finderFolder, { maxChars }).trim()
     if (folder !== '') lines.push(`<frontmost_folder>${folder}</frontmost_folder>`)
   }
   return lines.join('\n')
@@ -124,11 +141,18 @@ export function formatForegroundEnvelope(foreground: DesktopForeground): string 
  * @returns a tool-output object with only defined optional fields.
  */
 export function compactForeground(foreground: DesktopForeground): DesktopForeground {
+  const appName = sanitizeModelText(foreground.appName, { maxChars: 200 })
   return {
-    appName: foreground.appName,
-    ...foreground.windowTitle === undefined ? {} : { windowTitle: foreground.windowTitle },
-    ...foreground.finderFolder === undefined ? {} : { finderFolder: foreground.finderFolder },
-    ...foreground.focusNote === undefined ? {} : { focusNote: foreground.focusNote },
+    appName,
+    ...foreground.windowTitle === undefined
+      ? {}
+      : { windowTitle: sanitizeModelText(foreground.windowTitle, { maxChars: 512 }) },
+    ...foreground.finderFolder === undefined
+      ? {}
+      : { finderFolder: sanitizeModelText(foreground.finderFolder, { maxChars: 512 }) },
+    ...foreground.focusNote === undefined
+      ? {}
+      : { focusNote: sanitizeModelText(foreground.focusNote, { maxChars: 512 }) },
   }
 }
 
@@ -171,22 +195,41 @@ export function observationBlocks(
   return blocks
 }
 
+/** Extra envelope fields for the three-state status and display inventory. */
+export interface ObservationEnvelopeOptions {
+  /** Per-field states; omitted fields use {@link UNKNOWN_OBSERVATION_STATUS}. */
+  readonly status?: ObservationStatus
+  /** Multi-monitor inventory printed before the screenshots. */
+  readonly displayInventory?: DisplayInventory
+  /** Maximum code points per text field. */
+  readonly maxChars?: number
+}
+
 /**
- * Observation content: one foreground block, then per-screen envelopes and images.
+ * Observation content: status, foreground, optional display inventory, then per-screen
+ * envelopes and images.
  * @param screens - captured displays in index order.
  * @param foreground - OS metadata from {@link DesktopBackend.inspectForeground}.
  * @param mode - session click encoding; millifraction when omitted.
+ * @param options - tri-state status, display inventory, and text limit.
  * @returns model-facing content with no screenshot filesystem path.
  */
 export function observationContent(
   screens: readonly ObservedScreen[],
   foreground: DesktopForeground,
   mode: CoordinateMode = 'millifraction',
+  options: ObservationEnvelopeOptions = {},
 ): ContentBlock[] {
-  return [
-    { type: 'text', text: formatForegroundEnvelope(foreground) },
-    ...observationBlocks(screens, mode),
+  const status = options.status ?? UNKNOWN_OBSERVATION_STATUS
+  const maxChars = options.maxChars ?? DEFAULT_MODEL_TEXT_MAX_CHARS
+  const head: ContentBlock[] = [
+    { type: 'text', text: formatObservationStatus(status) },
+    { type: 'text', text: formatForegroundEnvelope(foreground, maxChars) },
   ]
+  if (options.displayInventory !== undefined) {
+    head.push({ type: 'text', text: formatDisplayInventoryEnvelope(options.displayInventory) })
+  }
+  return [...head, ...observationBlocks(screens, mode)]
 }
 
 /** Options for {@link observeDesktop}. */
@@ -202,6 +245,10 @@ export interface ObserveDesktopOptions {
    * @returns false to skip `saveImage` for this capture.
    */
   readonly persistCapture?: (captured: CapturedScreen) => boolean
+  /** Include the display inventory when the backend supplies it. Default: true. */
+  readonly displayInventoryEnabled?: boolean
+  /** Maximum code points per model-facing text field. */
+  readonly maxChars?: number
 }
 
 /**
@@ -222,11 +269,24 @@ export async function observeDesktop(
   signal.throwIfAborted()
   const settleMs = options.settleMs ?? 0
   if (settleMs > 0) await delay(settleMs, signal)
+  let displayInventory: DisplayInventory | undefined
+  let inventorySampled = false
+  if (options.displayInventoryEnabled !== false && backend.displayInventory !== undefined) {
+    try {
+      displayInventory = await backend.displayInventory(signal)
+      inventorySampled = true
+    } catch (error: unknown) {
+      if (isObservationAbort(error, signal)) throw error
+      // The inventory is diagnostic; a failure is recorded as unsampled, not as zero displays.
+    }
+  }
   const listed = await backend.listScreens(signal)
   const selected = listed.slice(0, 1)
   let foreground = FOCUS_FALLBACK_FOREGROUND
+  let foregroundSampled = false
   try {
     foreground = await backend.inspectForeground(signal)
+    foregroundSampled = true
   } catch (error: unknown) {
     if (isObservationAbort(error, signal)) throw error
   }
@@ -262,11 +322,31 @@ export async function observeDesktop(
       },
     })
   }
+  const status: ObservationStatus = {
+    foreground: observationState(
+      foregroundSampled,
+      foreground.appName === '' || foreground.appName === 'none',
+    ),
+    windowTitle: observationState(
+      foregroundSampled,
+      foreground.windowTitle === undefined || sanitizeModelText(foreground.windowTitle).trim() === '',
+    ),
+    capture: observationState(true, captures.length === 0),
+    displayInventory: displayInventory === undefined
+      ? observationState(inventorySampled, true)
+      : observationState(inventorySampled, displayInventory.displays.length === 0),
+  }
   return {
     screens,
     foreground,
-    blocks: observationContent(screens, foreground, options.coordinateMode ?? 'millifraction'),
+    blocks: observationContent(screens, foreground, options.coordinateMode ?? 'millifraction', {
+      status,
+      ...displayInventory === undefined ? {} : { displayInventory },
+      ...options.maxChars === undefined ? {} : { maxChars: options.maxChars },
+    }),
     captures,
+    ...displayInventory === undefined ? {} : { displayInventory },
+    status,
   }
 }
 

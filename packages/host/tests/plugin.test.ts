@@ -95,7 +95,7 @@ describe('agi-host plugin', () => {
     started.stop()
   })
 
-  it('keeps the helper down while an after-exit install is still running', async () => {
+  it('logs an update status and still loads the ball', async () => {
     const profile = join(root, 'installing')
     mkdirSync(join(profile, '.dsh-agi-update'), { recursive: true })
     writeFileSync(join(profile, '.dsh-agi-update', 'status.json'), JSON.stringify({
@@ -107,22 +107,22 @@ describe('agi-host plugin', () => {
     const started = host(profile)
     const errors: string[] = []
     const original = console.error
-    // Point the runtime at a path that does not exist: if the gate ever regresses, the test
-    // fails on its assertions instead of launching a real Electron helper.
     const previousRuntime = process.env.DSH_AGI_ELECTRON_PATH
+    // The gate no longer holds the ball back (an after-exit install only touches the
+    // package once this process is gone), but this test must never launch a real helper.
     process.env.DSH_AGI_ELECTRON_PATH = join(root, 'no-electron-here')
     console.error = (...args: unknown[]) => { errors.push(args.map(String).join(' ')) }
     try {
-      apply(started.ctx as never)
+      apply(started.ctx as never, { autoStart: false })
     } finally {
       console.error = original
       if (previousRuntime === undefined) delete process.env.DSH_AGI_ELECTRON_PATH
       else process.env.DSH_AGI_ELECTRON_PATH = previousRuntime
     }
-    assert.equal(errors.some((line) => line.includes('an update install is running')), true)
+    assert.equal(errors.some((line) => line.includes('an update status is present')), true)
+    assert.equal(errors.some((line) => line.includes('token=') || line.includes('secret')), false)
+    assert.deepEqual(started.routes, [{ kind: 'prefix', path: '/.dsh-agi' }])
     await new Promise((resolve) => setTimeout(resolve, 20))
-    // Nothing may load the package (koffi staging) or start the helper while pnpm replaces it.
-    assert.equal(errors.some((line) => line.includes('helper socket')), false)
     started.stop()
   })
 })

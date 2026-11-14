@@ -188,7 +188,9 @@ describe('ball menu', () => {
     void ball.api.tccStatus?.()
     void ball.api.openTcc?.('screen')
     assert.deepEqual(ball.sent.filter(([channel]) => !channel.startsWith('listen:')), [
-      ['orb:prompt', 'hello'],
+      // The composer can steer a live turn, so the payload carries the mode; the main
+      // process still accepts a bare string from a page loaded from an older build.
+      ['orb:prompt', { text: 'hello', mode: 'interrupt' }],
       ['orb:permission', 'read-only'],
       ['orb:history', undefined],
       ['orb:open', 'session-1'],

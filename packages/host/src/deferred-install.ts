@@ -476,7 +476,9 @@ for (let attempt = 1; attempt <= 3 && !ok; attempt += 1) {
     await sleep(3000)
   }
 }
-if (ok) {
+// A headless test run sets DSH_AGI_UPDATE_NO_POPUP: the dialog is modal and would hold the
+// suite until its timeout. The install itself still runs, so the test sees the real path.
+if (ok && process.env.DSH_AGI_UPDATE_NO_POPUP !== '1') {
   // The app is gone: do not launch it for the user (a client started by the installer
   // inherits its console and breaks the next update). Show a clear prompt instead.
   try {

@@ -863,7 +863,9 @@ body.expand-right #voice-meter-dot {
   box-shadow: 0 0 6px rgba(126, 190, 255, 0.85);
 }
 
-body.running #composer,
+/* The composer stays usable while the agent works: a typed line either steers the
+ * live turn or, with the accelerator, replaces it. Only the question card and the
+ * permission gate take the input away, because they own the answer. */
 body.asking #composer,
 body.tcc-gating #composer,
 body.running #selection-chip,
@@ -872,9 +874,8 @@ body.tcc-gating #selection-chip {
   visibility: hidden;
 }
 
-/* The meter lives inside the composer's box. While the agent works the composer is
- * hidden, but transcription is still open, so the meter overrides the inherited
- * visibility and keeps showing the microphone level. */
+/* The meter lives inside the composer's box, and transcription stays open while the
+ * agent works, so any inherited visibility is overridden. */
 body.running #voice-meter {
   visibility: visible;
 }

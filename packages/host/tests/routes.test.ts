@@ -7,6 +7,7 @@ import assert from 'node:assert/strict'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { absentVoiceModels } from '@dsh-agi/voice/manifest'
 import { normalizeCatalog } from '../src/catalog.ts'
+import { stopGraphEditorServer } from '../src/knowledge-graph/editor-server.ts'
 import { ProfileStore, MAX_AVATAR_BYTES } from '../src/preferences.ts'
 import { orbSupported, registerOrbRoutes, tokensMatch, type OrbControl } from '../src/routes.ts'
 import { TccMonitor } from '../src/tcc.ts'
@@ -38,6 +39,46 @@ function response(): ServerResponse & { status: number; body: Buffer } {
     off() { return this },
   }
   return res as ServerResponse & { status: number; body: Buffer }
+}
+
+/** Mount the settings routes with a stub ball control, for the graph editor contract. */
+function graphEditorRoutes(profile: string, openEditorUrl?: (url: string) => boolean): {
+  handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>
+  dispose: () => void
+} {
+  const store = new ProfileStore(profile)
+  const control: OrbControl = {
+    helperAuthorized: () => false,
+    takeJump: () => null,
+    confirmJump() {},
+    takeSettingsOpen: () => null,
+    confirmSettingsOpen() {},
+    async publishChrome() {},
+    async setOverlayModel() {},
+    async setBackgroundModel() {},
+    async setSelectionEnabled() {},
+    async setMillifractionEnabled() {},
+    async setObservationFrameEnabled() {},
+    async setBallEnabled() {},
+    updateState: () => EMPTY_UPDATE_STATE,
+    async checkUpdate() {},
+    installUpdate() {},
+    setAutoCheck() {},
+  }
+  let handler: ((req: IncomingMessage, res: ServerResponse) => Promise<void>) | undefined
+  const dispose = registerOrbRoutes({
+    ctx: {
+      webServer: { register(route) { handler = route.handler; return () => { handler = undefined } } },
+      connection: { admit: () => ({ peer: { id: 'local' } }) },
+      sessionController: { modelCatalog: () => ({ groups: [] }) },
+    },
+    store,
+    tcc: new TccMonitor(),
+    control,
+    ...openEditorUrl === undefined ? {} : { openEditorUrl },
+  })
+  if (handler === undefined) throw new Error('route handler was not registered')
+  return { handler, dispose }
 }
 
 describe('settings routes', () => {
@@ -496,7 +537,7 @@ describe('settings routes', () => {
     dispose()
   })
 
-  it('edits the character card and the experience library from the settings page', async () => {
+  it('edits the character card and reads the graph library from the settings page', async () => {
     const profile = join(root, 'profile-cards')
     mkdirSync(profile, { recursive: true })
     const store = new ProfileStore(profile)
@@ -557,41 +598,88 @@ describe('settings routes', () => {
       assert.equal(unnamed.status, 400)
       assert.equal(JSON.parse(unnamed.body.toString('utf8')).error, 'invalid-persona-name')
 
-      // Experience library: on by default, switched off with a marker, and moved to a picked
-      // folder only when the path is absolute.
+      // The markdown experience library card is gone: its routes are dead, and the library
+      // the settings page edits is the executable graph library.
+      const legacy = response()
+      await handler(request('GET', '/.dsh-agi/knowledge'), legacy)
+      assert.equal(legacy.status, 404)
+      assert.equal(legacy.body.length, 0)
+
+      const legacyToggle = response()
+      await handler(request('POST', '/.dsh-agi/knowledge', JSON.stringify({ enabled: false })), legacyToggle)
+      assert.equal(legacyToggle.status, 404)
+
       const library = response()
-      await handler(request('GET', '/.dsh-agi/knowledge'), library)
-      const state = JSON.parse(library.body.toString('utf8')) as { dir: string; enabled: boolean; isDefault: boolean }
-      assert.equal(state.isDefault, true)
-      assert.equal(state.enabled, true)
-
-      const off = response()
-      await handler(request('POST', '/.dsh-agi/knowledge', JSON.stringify({ enabled: false })), off)
-      assert.equal(JSON.parse(off.body.toString('utf8')).enabled, false)
-
-      const badEnabled = response()
-      await handler(request('POST', '/.dsh-agi/knowledge', JSON.stringify({ enabled: 'yes' })), badEnabled)
-      assert.equal(badEnabled.status, 400)
-      assert.equal(JSON.parse(badEnabled.body.toString('utf8')).error, 'invalid-enabled')
-
-      const relative = response()
-      await handler(request('POST', '/.dsh-agi/knowledge/dir', JSON.stringify({ dir: 'relative/notes' })), relative)
-      assert.equal(relative.status, 400)
-      assert.equal(JSON.parse(relative.body.toString('utf8')).error, 'knowledge-invalid-path')
-
-      const target = join(home, 'notes')
-      const moved = response()
-      await handler(request('POST', '/.dsh-agi/knowledge/dir', JSON.stringify({ dir: target })), moved)
-      assert.equal(moved.status, 200)
-      const afterMove = JSON.parse(moved.body.toString('utf8')) as { dir: string; isDefault: boolean; migration: { moved: number; failed: string[] } }
-      assert.equal(afterMove.dir, target)
-      assert.equal(afterMove.isDefault, false)
-      assert.equal(afterMove.migration.moved, 1, 'the OFF marker travelled with the library')
-      assert.deepEqual(afterMove.migration.failed, [])
+      await handler(request('GET', '/.dsh-agi/graph'), library)
+      assert.equal(library.status, 200)
+      const graph = JSON.parse(library.body.toString('utf8')) as { dir: string; isDefault: boolean; counts: { nodes: number; edges: number; paths: number } }
+      assert.equal(graph.isDefault, true)
+      assert.equal(graph.dir.startsWith(profile), true, 'the library lives under the profile')
+      assert.deepEqual(graph.counts, { nodes: 0, edges: 0, paths: 0, decisions: 0, screenshots: 0 })
     } finally {
       dispose()
       if (previousHome === undefined) delete process.env.DSH_HOME
       else process.env.DSH_HOME = previousHome
+    }
+  })
+
+  it('opens the graph editor on a loopback port and reuses it on the next click', async () => {
+    const profile = join(root, 'profile-editor')
+    mkdirSync(profile, { recursive: true })
+    const opened: string[] = []
+    const { handler, dispose } = graphEditorRoutes(profile, (url) => { opened.push(url); return true })
+    try {
+      const first = response()
+      await handler(request('POST', '/.dsh-agi/graph/editor', '{}'), first)
+      assert.equal(first.status, 200)
+      const body = JSON.parse(first.body.toString('utf8')) as {
+        ok: boolean
+        url: string
+        port: number
+        opened: boolean
+        reused: boolean
+      }
+      assert.equal(body.ok, true)
+      assert.match(body.url, /^http:\/\/127\.0\.0\.1:\d+\/\.dsh-agi\/knowledge-graph\/$/)
+      assert.ok(body.port > 0)
+      assert.equal(body.opened, true)
+      assert.equal(body.reused, false)
+      assert.deepEqual(opened, [body.url], 'the host hands the loopback URL to the system browser')
+
+      // The returned address answers without the DSH cookie: this is the whole point of
+      // the separate loopback server.
+      const page = await fetch(body.url)
+      assert.equal(page.status, 200)
+      assert.match(await page.text(), /首屏是空图/)
+
+      const second = response()
+      await handler(request('POST', '/.dsh-agi/graph/editor', '{}'), second)
+      const again = JSON.parse(second.body.toString('utf8')) as { url: string; port: number; reused: boolean }
+      assert.equal(again.reused, true)
+      assert.equal(again.port, body.port)
+      assert.equal(again.url, body.url)
+      assert.deepEqual(opened, [body.url, body.url], 'each click hands over the same address')
+    } finally {
+      dispose()
+      await stopGraphEditorServer()
+    }
+  })
+
+  it('returns the editor URL even when there is no system browser hand-off', async () => {
+    const profile = join(root, 'profile-editor-nobrowser')
+    mkdirSync(profile, { recursive: true })
+    const { handler, dispose } = graphEditorRoutes(profile, () => false)
+    try {
+      const res = response()
+      await handler(request('POST', '/.dsh-agi/graph/editor', '{}'), res)
+      assert.equal(res.status, 200)
+      const body = JSON.parse(res.body.toString('utf8')) as { url: string; opened: boolean }
+      assert.equal(body.opened, false, 'the page sees the failed hand-off and falls back to location.href')
+      assert.match(body.url, /^http:\/\/127\.0\.0\.1:\d+\/\.dsh-agi\/knowledge-graph\/$/)
+      assert.equal((await fetch(body.url)).status, 200)
+    } finally {
+      dispose()
+      await stopGraphEditorServer()
     }
   })
 

@@ -138,6 +138,21 @@ export function wrapDesktopBackend(
       ),
       signal,
     ),
+    ...inner.displayInventory === undefined ? {} : {
+      displayInventory: (signal?: AbortSignal) => inner.displayInventory!(signal),
+    },
+    ...inner.inspectAction === undefined ? {} : {
+      inspectAction: (input, signal) => inner.inspectAction!(input, signal),
+    },
+    ...inner.hoverProbe === undefined ? {} : {
+      hoverProbe: (input, signal) => guard.withCapture(
+        session => runWithCaptureExcludeWindowIds(
+          captureExcludeIds(session),
+          () => inner.hoverProbe!(input, signal),
+        ),
+        signal,
+      ),
+    },
     listApps: signal => inner.listApps(signal),
     openApp: (input, signal) => guard.withInput(() => inner.openApp(input, signal), signal),
     click: (input, signal) => guard.withInput(() => inner.click(input, signal), signal),

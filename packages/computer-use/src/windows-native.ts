@@ -9,14 +9,27 @@
  */
 
 import { execFileSync } from 'node:child_process'
+import type { ActionCursor, ActionSnapshot, CursorKind, ModalState, ModalWindowFact } from './action-receipt.ts'
+import { detectModalFromFacts } from './action-receipt.ts'
 import { selectAppWindow } from './app-match.ts'
+import { bitmapLooksDegenerate, captureWithFallback } from './capture-strategy.ts'
 import koffi from './koffi.ts'
 import { compositeCursor, cursorDrawPlacement, drawCrosshair, drawGrid, flipRows, resolveCursorAlpha } from './cursor.ts'
+import type { DisplayInfo, DisplayInventory, DpiAwareness } from './display-inventory.ts'
+import { compareHoverFrames, judgeHoverFeedback, unavailableHoverFeedback, type HoverFeedback } from './hover.ts'
 import { appOwnerPid } from './windows-foreground.ts'
 import type { WindowsDesktopSnapshot, WindowsWindowFact } from './windows-foreground.ts'
-import { clipboardRestoreIncomplete, encodeBgraPng, type ClipboardSnapshot, type WindowsDesktopOps, type WindowsRect } from './windows.ts'
+import {
+  clipboardRestoreIncomplete,
+  encodeBgraPng,
+  type ClipboardSnapshot,
+  type ResolvedWindowsDesktopOptions,
+  type WindowsDesktopOps,
+  type WindowsRect,
+} from './windows.ts'
 
 const SRCCOPY = 0x00CC0020
+const PW_RENDERFULLCONTENT = 0x00000002
 const MOUSEEVENTF_MOVE = 0x0001
 const MOUSEEVENTF_LEFTDOWN = 0x0002
 const MOUSEEVENTF_LEFTUP = 0x0004
@@ -76,6 +89,19 @@ const CURSOR_SHOWING = 0x0001
 const DPI_PER_MONITOR_V2 = -4
 const DPI_PER_MONITOR = -3
 const FOREGROUND_RETRY_MS = 50
+const GW_ENABLEDPOPUP = 6
+const MONITORINFOF_PRIMARY = 0x00000001
+/** DPI-awareness context for an unaware process; used only to sample logical monitor rectangles. */
+const DPI_UNAWARE = -1
+const IDC_ARROW = 32512
+const IDC_IBEAM = 32513
+const IDC_WAIT = 32514
+const IDC_CROSS = 32515
+const IDC_SIZEWE = 32644
+const IDC_SIZENS = 32645
+const IDC_HAND = 32649
+/** Size of `MONITORINFOEXW` on every supported architecture: 40-byte header + 32 UTF-16 chars. */
+const MONITORINFOEX_SIZE = 104
 
 const RECT = koffi.struct('DSH_CU_RECT', {
   left: 'int32',
@@ -135,6 +161,18 @@ const CURSORINFO = koffi.struct('DSH_CU_CURSORINFO', {
   flags: 'uint32',
   hCursor: 'void *',
   ptScreenPos: POINT,
+})
+
+const GUITHREADINFO = koffi.struct('DSH_CU_GUITHREADINFO', {
+  cbSize: 'uint32',
+  flags: 'uint32',
+  hwndActive: 'void *',
+  hwndFocus: 'void *',
+  hwndCapture: 'void *',
+  hwndMenuOwner: 'void *',
+  hwndMoveSize: 'void *',
+  hwndCaret: 'void *',
+  rcCaret: RECT,
 })
 
 const ICONINFO = koffi.struct('DSH_CU_ICONINFO', {
@@ -219,9 +257,12 @@ function bind(libraries: NativeBindings): {
   IsIconic: (hwnd: unknown) => number
   EnumWindows: (callback: unknown, param: number) => number
   EnumChildWindows: (hwnd: unknown, callback: unknown, param: number) => number
+  EnumDisplayMonitors: (hdc: unknown, rect: unknown, callback: unknown, param: number) => number
   GetClassNameW: (hwnd: unknown, buffer: Buffer, max: number) => number
   GetWindow: (hwnd: unknown, command: number) => unknown
   GetAncestor: (hwnd: unknown, flags: number) => unknown
+  GetParent: (hwnd: unknown) => unknown
+  IsWindowEnabled: (hwnd: unknown) => number
   GetWindowLongPtrW: (hwnd: unknown, index: number) => unknown
   ShowWindow: (hwnd: unknown, command: number) => number
   SetForegroundWindow: (hwnd: unknown) => number
@@ -241,6 +282,11 @@ function bind(libraries: NativeBindings): {
   CreateCompatibleBitmap: (hdc: unknown, width: number, height: number) => unknown
   SelectObject: (hdc: unknown, object: unknown) => unknown
   BitBlt: (dest: unknown, x: number, y: number, w: number, h: number, src: unknown, sx: number, sy: number, rop: number) => number
+  PrintWindow: (hwnd: unknown, hdc: unknown, flags: number) => number
+  DwmFlush: () => number
+  GetGUIThreadInfo: (threadId: number, info: Buffer) => number
+  GetFocus: () => unknown
+  LoadCursorW: (instance: unknown, name: number) => unknown
   GetDIBits: (
     hdc: unknown,
     bitmap: unknown,
@@ -281,10 +327,14 @@ function bind(libraries: NativeBindings): {
   DwmGetWindowAttribute: (hwnd: unknown, attribute: number, buffer: Buffer, size: number) => number
   enumProc: ReturnType<typeof koffi.proto>
   childProc: ReturnType<typeof koffi.proto>
+  monitorProc: ReturnType<typeof koffi.proto>
 } {
   const { user32, gdi32, kernel32, shell32, advapi32, dwmapi } = libraries
   const enumProc = koffi.proto('int __stdcall DshCuEnumWindowsProc(void *hwnd, intptr lParam)')
   const childProc = koffi.proto('int __stdcall DshCuEnumChildProc(void *hwnd, intptr lParam)')
+  const monitorProc = koffi.proto(
+    'int __stdcall DshCuMonitorEnumProc(void *hMonitor, void *hdc, DSH_CU_RECT *lprc, intptr lParam)',
+  )
   let setThreadDpi: ((context: DpiContext) => unknown) | undefined
   try {
     setThreadDpi = user32.func('intptr __stdcall SetThreadDpiAwarenessContext(intptr dpiContext)')
@@ -312,9 +362,14 @@ function bind(libraries: NativeBindings): {
     IsIconic: user32.func('int __stdcall IsIconic(void *hWnd)'),
     EnumWindows: user32.func('int __stdcall EnumWindows(DshCuEnumWindowsProc *lpEnumFunc, intptr lParam)'),
     EnumChildWindows: user32.func('int __stdcall EnumChildWindows(void *hWndParent, DshCuEnumChildProc *lpEnumFunc, intptr lParam)'),
+    EnumDisplayMonitors: user32.func(
+      'int __stdcall EnumDisplayMonitors(void *hdc, void *lprcClip, DshCuMonitorEnumProc *lpfnEnum, intptr dwData)',
+    ),
     GetClassNameW: user32.func('int __stdcall GetClassNameW(void *hWnd, uint16_t *lpClassName, int nMaxCount)'),
     GetWindow: user32.func('void * __stdcall GetWindow(void *hWnd, uint32 uCmd)'),
     GetAncestor: user32.func('void * __stdcall GetAncestor(void *hwnd, uint32 gaFlags)'),
+    GetParent: user32.func('void * __stdcall GetParent(void *hwnd)'),
+    IsWindowEnabled: user32.func('int __stdcall IsWindowEnabled(void *hWnd)'),
     GetWindowLongPtrW: user32.func('intptr __stdcall GetWindowLongPtrW(void *hWnd, int nIndex)'),
     ShowWindow: user32.func('int __stdcall ShowWindow(void *hWnd, int nCmdShow)'),
     SetForegroundWindow: user32.func('int __stdcall SetForegroundWindow(void *hWnd)'),
@@ -336,6 +391,13 @@ function bind(libraries: NativeBindings): {
     BitBlt: gdi32.func(
       'int __stdcall BitBlt(void *hdc, int x, int y, int cx, int cy, void *hdcSrc, int x1, int y1, uint32 rop)',
     ),
+    PrintWindow: user32.func('int __stdcall PrintWindow(void *hwnd, void *hdcBlt, uint32 nFlags)'),
+    DwmFlush: dwmapi.func('int __stdcall DwmFlush()'),
+    GetGUIThreadInfo: user32.func(
+      'int __stdcall GetGUIThreadInfo(uint32 idThread, _Inout_ DSH_CU_GUITHREADINFO *pgui)',
+    ),
+    GetFocus: user32.func('void * __stdcall GetFocus()'),
+    LoadCursorW: user32.func('void * __stdcall LoadCursorW(void *hInstance, intptr lpCursorName)'),
     GetDIBits: gdi32.func(
       'int __stdcall GetDIBits(void *hdc, void *hbm, uint32 start, uint32 cLines, '
       + '_Out_ uint8_t *lpvBits, _Inout_ DSH_CU_BITMAPINFOHEADER *lpbmi, uint32 usage)',
@@ -388,6 +450,7 @@ function bind(libraries: NativeBindings): {
     ),
     enumProc,
     childProc,
+    monitorProc,
   }
 }
 
@@ -594,6 +657,172 @@ function frameOf(api: Bindings, hwnd: unknown): WindowsRect | undefined {
   return { x: rect.left, y: rect.top, width: rect.right - rect.left, height: rect.bottom - rect.top }
 }
 
+function pointerKey(value: unknown): string {
+  if (typeof value === 'bigint') return `0x${value.toString(16)}`
+  if (typeof value === 'number' && Number.isFinite(value)) return `0x${Math.trunc(value).toString(16)}`
+  return String(value)
+}
+
+function samePointer(left: unknown, right: unknown): boolean {
+  if (isNull(left) || isNull(right)) return false
+  return pointerKey(left) === pointerKey(right)
+}
+
+interface NativeMonitorInfo {
+  readonly rect: WindowsRect
+  readonly work: WindowsRect
+  readonly primary: boolean
+  readonly name: string
+}
+
+function monitorInfo(api: Bindings, monitor: unknown): NativeMonitorInfo | undefined {
+  const info = Buffer.alloc(MONITORINFOEX_SIZE)
+  info.writeUInt32LE(MONITORINFOEX_SIZE, 0)
+  if (api.GetMonitorInfoW(monitor, info) === 0) return undefined
+  const rect = {
+    x: info.readInt32LE(4),
+    y: info.readInt32LE(8),
+    width: info.readInt32LE(12) - info.readInt32LE(4),
+    height: info.readInt32LE(16) - info.readInt32LE(8),
+  }
+  const work = {
+    x: info.readInt32LE(20),
+    y: info.readInt32LE(24),
+    width: info.readInt32LE(28) - info.readInt32LE(20),
+    height: info.readInt32LE(32) - info.readInt32LE(24),
+  }
+  const flags = info.readUInt32LE(36)
+  const rawName = info.toString('utf16le', 40, MONITORINFOEX_SIZE)
+  const nul = rawName.indexOf('\u0000')
+  return {
+    rect,
+    work,
+    primary: (flags & MONITORINFOF_PRIMARY) !== 0,
+    name: nul < 0 ? rawName : rawName.slice(0, nul),
+  }
+}
+
+function withDpiContext<T>(api: Bindings, context: DpiContext, run: () => T): T {
+  const set = api.SetThreadDpiAwarenessContext
+  if (set === undefined) return run()
+  const previous = dpiContext(set(context))
+  try {
+    return run()
+  } finally {
+    if (previous !== undefined) set(previous)
+  }
+}
+
+function enumMonitors(api: Bindings): unknown[] {
+  const monitors: unknown[] = []
+  const callback = koffi.register((monitor: unknown) => {
+    monitors.push(monitor)
+    return 1
+  }, koffi.pointer(api.monitorProc))
+  try {
+    api.EnumDisplayMonitors(null, null, callback, 0)
+  } finally {
+    koffi.unregister(callback)
+  }
+  return monitors
+}
+
+function dialogClass(className: string): boolean {
+  const lower = className.toLowerCase()
+  return className === '#32770' || lower.includes('dialog') || lower.includes('modal')
+}
+
+function modalFacts(api: Bindings, root: unknown): ModalWindowFact[] {
+  const facts: ModalWindowFact[] = []
+  const add = (hwnd: unknown, child: boolean, ownerOverride?: unknown): void => {
+    const id = hwndId(hwnd)
+    if (id === undefined) return
+    const owner = ownerOverride ?? api.GetWindow(hwnd, GW_OWNER)
+    facts.push({
+      hwnd: id,
+      ownerHwnd: hwndId(owner) ?? 0,
+      className: classNameOf(api, hwnd),
+      title: windowText(api, hwnd),
+      visible: api.IsWindowVisible(hwnd) !== 0,
+      enabled: api.IsWindowEnabled(hwnd) !== 0,
+      child,
+    })
+  }
+  for (const hwnd of enumTopLevel(api)) add(hwnd, false)
+  const enabledPopup = api.GetWindow(root, GW_ENABLEDPOPUP)
+  if (!isNull(enabledPopup)) add(enabledPopup, true, root)
+  const childCallback = koffi.register((child: unknown) => {
+    if (api.IsWindowVisible(child) !== 0 && dialogClass(classNameOf(api, child))) add(child, true, root)
+    return 1
+  }, koffi.pointer(api.childProc))
+  try {
+    api.EnumChildWindows(root, childCallback, 0)
+  } finally {
+    koffi.unregister(childCallback)
+  }
+  return facts
+}
+
+function cursorKind(api: Bindings, cursor: unknown): CursorKind {
+  if (isNull(cursor)) return 'hidden'
+  const systemCursors: ReadonlyArray<readonly [number, CursorKind]> = [
+    [IDC_ARROW, 'arrow'],
+    [IDC_HAND, 'hand'],
+    [IDC_IBEAM, 'ibeam'],
+    [IDC_CROSS, 'cross'],
+    [IDC_WAIT, 'wait'],
+    [IDC_SIZEWE, 'resize'],
+    [IDC_SIZENS, 'resize'],
+  ]
+  for (const [id, kind] of systemCursors) {
+    if (samePointer(cursor, api.LoadCursorW(null, id))) return kind
+  }
+  return 'other'
+}
+
+function readCursorSignal(api: Bindings): ActionCursor {
+  const info = Buffer.alloc(CURSORINFO.size)
+  info.writeUInt32LE(CURSORINFO.size, 0)
+  if (api.GetCursorInfo(info) === 0) return { handle: 'hidden', kind: 'hidden' }
+  const cursor = koffi.decode(info, CURSORINFO) as { flags: number; hCursor: unknown }
+  if ((cursor.flags & CURSOR_SHOWING) === 0 || isNull(cursor.hCursor)) return { handle: 'hidden', kind: 'hidden' }
+  return { handle: pointerKey(cursor.hCursor), kind: cursorKind(api, cursor.hCursor) }
+}
+
+function threadIdOf(api: Bindings, hwnd: unknown): number {
+  const pid = [0]
+  return api.GetWindowThreadProcessId(hwnd, pid)
+}
+
+function focusWindowOf(api: Bindings, hwnd: unknown): number {
+  const threadId = threadIdOf(api, hwnd)
+  if (threadId !== 0) {
+    const info = Buffer.alloc(GUITHREADINFO.size)
+    info.writeUInt32LE(GUITHREADINFO.size, 0)
+    if (api.GetGUIThreadInfo(threadId, info) !== 0) {
+      const decoded = koffi.decode(info, GUITHREADINFO) as { hwndFocus: unknown }
+      const focus = hwndId(decoded.hwndFocus)
+      if (focus !== undefined) return focus
+    }
+  }
+  return hwndId(api.GetFocus()) ?? 0
+}
+
+function isSameOrDescendant(api: Bindings, candidate: unknown, root: unknown): boolean {
+  if (isNull(candidate) || isNull(root)) return false
+  let current: unknown = candidate
+  const seen = new Set<string>()
+  for (let depth = 0; depth < 32; depth += 1) {
+    if (isNull(current)) return false
+    const key = pointerKey(current)
+    if (seen.has(key)) return false
+    seen.add(key)
+    if (samePointer(current, root)) return true
+    current = api.GetParent(current)
+  }
+  return false
+}
+
 function cloaked(api: Bindings, hwnd: unknown): boolean {
   const flag = Buffer.alloc(4)
   if (api.DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, flag, 4) !== 0) return false
@@ -633,6 +862,115 @@ function bitmapPixels(
   if (api.GetDIBits(dc, bitmap, 0, size.height, pixels, header, 0) === 0) return undefined
   flipRows(pixels, rowBytes, size.height)
   return pixels
+}
+
+/**
+ * Copy one physical screen rectangle with BitBlt.
+ * All GDI objects are released in `finally`, including the failure path.
+ */
+function captureRegionPixels(api: Bindings, region: WindowsRect): Buffer {
+  const screenDc = api.GetDC(null)
+  if (isNull(screenDc)) throw new Error('computer-use: screen capture failed (GetDC)')
+  const memory = api.CreateCompatibleDC(screenDc)
+  if (isNull(memory)) {
+    api.ReleaseDC(null, screenDc)
+    throw new Error('computer-use: screen capture failed (CreateCompatibleDC)')
+  }
+  const bitmap = api.CreateCompatibleBitmap(screenDc, region.width, region.height)
+  if (isNull(bitmap)) {
+    api.DeleteDC(memory)
+    api.ReleaseDC(null, screenDc)
+    throw new Error('computer-use: screen capture failed (CreateCompatibleBitmap)')
+  }
+  const previous = api.SelectObject(memory, bitmap)
+  try {
+    if (api.BitBlt(memory, 0, 0, region.width, region.height, screenDc, region.x, region.y, SRCCOPY) === 0) {
+      throw new Error('computer-use: screen capture failed (BitBlt)')
+    }
+    const pixels = bitmapPixels(api, memory, bitmap, { width: region.width, height: region.height })
+    if (pixels === undefined) throw new Error('computer-use: screen capture failed (GetDIBits)')
+    return pixels
+  } finally {
+    api.SelectObject(memory, previous)
+    api.DeleteObject(bitmap)
+    api.DeleteDC(memory)
+    api.ReleaseDC(null, screenDc)
+  }
+}
+
+/** Copy a rectangle out of a window-sized frame, filling any outside area with black. */
+function cropPixels(
+  source: Buffer,
+  sourceWidth: number,
+  sourceHeight: number,
+  sourceRect: WindowsRect,
+  target: WindowsRect,
+): Buffer {
+  const output = Buffer.alloc(target.width * target.height * 4)
+  const offsetX = target.x - sourceRect.x
+  const offsetY = target.y - sourceRect.y
+  for (let y = 0; y < target.height; y += 1) {
+    const sourceY = y + offsetY
+    if (sourceY < 0 || sourceY >= sourceHeight) continue
+    for (let x = 0; x < target.width; x += 1) {
+      const sourceX = x + offsetX
+      if (sourceX < 0 || sourceX >= sourceWidth) continue
+      const sourceOffset = (sourceY * sourceWidth + sourceX) * 4
+      const targetOffset = (y * target.width + x) * 4
+      output[targetOffset] = source[sourceOffset] ?? 0
+      output[targetOffset + 1] = source[sourceOffset + 1] ?? 0
+      output[targetOffset + 2] = source[sourceOffset + 2] ?? 0
+      output[targetOffset + 3] = 255
+    }
+  }
+  return output
+}
+
+/**
+ * Capture a window surface with `PrintWindow(PW_RENDERFULLCONTENT)` and crop the requested
+ * screen rectangle out of it. This is the rescue path for GPU-composited and Chromium
+ * surfaces that BitBlt leaves black. GDI objects are released on every path.
+ */
+function captureWindowPixels(api: Bindings, target: unknown, region: WindowsRect): Buffer {
+  const windowRect: NativeRect = { left: 0, top: 0, right: 0, bottom: 0 }
+  if (api.GetWindowRect(target, windowRect) === 0) {
+    throw new Error('computer-use: PrintWindow failed (GetWindowRect)')
+  }
+  const width = windowRect.right - windowRect.left
+  const height = windowRect.bottom - windowRect.top
+  if (width <= 0 || height <= 0) throw new Error('computer-use: PrintWindow failed (empty window)')
+  const screenDc = api.GetDC(null)
+  if (isNull(screenDc)) throw new Error('computer-use: PrintWindow failed (GetDC)')
+  const memory = api.CreateCompatibleDC(screenDc)
+  if (isNull(memory)) {
+    api.ReleaseDC(null, screenDc)
+    throw new Error('computer-use: PrintWindow failed (CreateCompatibleDC)')
+  }
+  const bitmap = api.CreateCompatibleBitmap(screenDc, width, height)
+  if (isNull(bitmap)) {
+    api.DeleteDC(memory)
+    api.ReleaseDC(null, screenDc)
+    throw new Error('computer-use: PrintWindow failed (CreateCompatibleBitmap)')
+  }
+  const previous = api.SelectObject(memory, bitmap)
+  try {
+    if (api.PrintWindow(target, memory, PW_RENDERFULLCONTENT) === 0) {
+      throw new Error('computer-use: PrintWindow returned false')
+    }
+    const pixels = bitmapPixels(api, memory, bitmap, { width, height })
+    if (pixels === undefined) throw new Error('computer-use: PrintWindow failed (GetDIBits)')
+    return cropPixels(pixels, width, height, {
+      x: windowRect.left,
+      y: windowRect.top,
+      width,
+      height,
+    }, region)
+  } finally {
+    api.SelectObject(memory, previous)
+    api.DeleteObject(bitmap)
+    api.DeleteDC(memory)
+    api.ReleaseDC(null, screenDc)
+  }
 }
 
 interface NativeCursor {
@@ -677,7 +1015,6 @@ function readCursor(api: Bindings): NativeCursor | undefined {
  */
 function drawCursor(
   api: Bindings,
-  dc: unknown,
   pixels: Buffer,
   width: number,
   height: number,
@@ -685,14 +1022,16 @@ function drawCursor(
 ): void {
   const cursor = readCursor(api)
   if (cursor === undefined) return
+  const screenDc = api.GetDC(null)
+  if (isNull(screenDc)) return
   try {
     const size = bitmapSize(api, cursor.color)
     if (size === undefined) return
     const placement = cursorDrawPlacement(cursor.pointer, cursor.hotspot, size, bounds)
     if (placement === undefined) return
-    const color = bitmapPixels(api, dc, cursor.color, size)
+    const color = bitmapPixels(api, screenDc, cursor.color, size)
     if (color === undefined) return
-    const mask = isNull(cursor.mask) ? undefined : bitmapPixels(api, dc, cursor.mask, size)
+    const mask = isNull(cursor.mask) ? undefined : bitmapPixels(api, screenDc, cursor.mask, size)
     const resolved = resolveCursorAlpha({
       width: size.width,
       height: size.height,
@@ -703,6 +1042,7 @@ function drawCursor(
   } finally {
     if (!isNull(cursor.color)) api.DeleteObject(cursor.color)
     if (!isNull(cursor.mask)) api.DeleteObject(cursor.mask)
+    api.ReleaseDC(null, screenDc)
   }
 }
 
@@ -745,14 +1085,31 @@ function cachedAppName(api: Bindings, cache: Map<number, string>, pid: number): 
 
 /**
  * Win32 operations for the production Windows backend.
+ * @param options - hardening switches and probe tunables from the plugin config.
  * @returns operations that capture and post input on this machine.
  */
-export function createProductionWindowsOps(): WindowsDesktopOps {
+export function createProductionWindowsOps(
+  options: ResolvedWindowsDesktopOptions = {
+    displayInventoryEnabled: true,
+    modalGuardEnabled: true,
+    captureFallbackEnabled: true,
+    printWindowEnabled: true,
+    dwmFlushEnabled: true,
+    hoverFeedbackEnabled: true,
+    hoverPixelTolerance: 8,
+    hoverMinChangedRatio: 0.02,
+    hoverMinChangedPixels: 16,
+    hoverSettleMs: 80,
+  },
+): WindowsDesktopOps {
   if (process.arch === 'x64' && INPUT.size !== 40) {
     throw new Error(`computer-use: INPUT size ${String(INPUT.size)} is not 40`)
   }
   if (process.arch === 'x64' && (CURSORINFO.size !== 24 || ICONINFO.size !== 32 || BITMAP.size !== 32)) {
     throw new Error('computer-use: cursor structs are not laid out for x64')
+  }
+  if (process.arch === 'x64' && GUITHREADINFO.size !== 72) {
+    throw new Error(`computer-use: GUITHREADINFO size ${String(GUITHREADINFO.size)} is not 72`)
   }
   const libraries: NativeBindings = {
     user32: koffi.load('user32.dll'),
@@ -857,56 +1214,194 @@ export function createProductionWindowsOps(): WindowsDesktopOps {
     }
   }
 
+  function monitorDpi(monitor: unknown): { x: number; y: number } {
+    const read = api.GetDpiForMonitor
+    if (read === undefined) return { x: 96, y: 96 }
+    const x = [0]
+    const y = [0]
+    if (read(monitor, MDT_EFFECTIVE_DPI, x, y) !== 0) return { x: 96, y: 96 }
+    return { x: (x[0] ?? 0) > 0 ? x[0] ?? 96 : 96, y: (y[0] ?? 0) > 0 ? y[0] ?? 96 : 96 }
+  }
+
+  function displayInventoryNow(): DisplayInventory {
+    return perMonitor(() => {
+      const displays: DisplayInfo[] = []
+      for (const [index, monitor] of enumMonitors(api).entries()) {
+        const physical = monitorInfo(api, monitor)
+        if (physical === undefined) continue
+        const logical = withDpiContext(api, DPI_UNAWARE, () => monitorInfo(api, monitor)) ?? physical
+        const dpi = monitorDpi(monitor)
+        const scale = dpi.x / 96
+        displays.push({
+          index,
+          name: physical.name === '' ? `display-${String(index)}` : physical.name,
+          handle: pointerKey(monitor),
+          primary: physical.primary,
+          physicalRect: physical.rect,
+          workArea: physical.work,
+          logicalRect: logical.rect,
+          dpiX: dpi.x,
+          dpiY: dpi.y,
+          scale,
+          rotation: 0,
+        })
+      }
+      const awareness: DpiAwareness = api.SetThreadDpiAwarenessContext === undefined
+        ? 'unknown'
+        : 'per-monitor-v2'
+      return {
+        sampledAt: new Date().toISOString(),
+        dpiAwareness: awareness,
+        virtualDesktop: {
+          x: api.GetSystemMetrics(SM_XVIRTUALSCREEN),
+          y: api.GetSystemMetrics(SM_YVIRTUALSCREEN),
+          width: Math.max(1, api.GetSystemMetrics(SM_CXVIRTUALSCREEN)),
+          height: Math.max(1, api.GetSystemMetrics(SM_CYVIRTUALSCREEN)),
+        },
+        displays,
+      }
+    })
+  }
+
+  function detectModalNow(): ModalState | undefined {
+    return perMonitor(() => {
+      const foreground = api.GetForegroundWindow()
+      if (isNull(foreground)) return undefined
+      const root = api.GetAncestor(foreground, GA_ROOT)
+      const target = isNull(root) ? foreground : root
+      const rootId = hwndId(target)
+      if (rootId === undefined) return undefined
+      return detectModalFromFacts(rootId, modalFacts(api, target))
+    })
+  }
+
+  function inspectActionNow(
+    windowId?: number,
+    point?: { readonly x: number; readonly y: number },
+  ): ActionSnapshot {
+    return perMonitor(() => {
+      let target = windowId === undefined ? undefined : windowPointer(windowId)
+      if (target === undefined && point !== undefined) {
+        const hit = api.WindowFromPoint({ x: point.x, y: point.y })
+        if (!isNull(hit)) {
+          const root = api.GetAncestor(hit, GA_ROOT)
+          target = isNull(root) ? hit : root
+        }
+      }
+      const targetId = target === undefined ? windowId : hwndId(target)
+      const focus = target === undefined ? 0 : focusWindowOf(api, target)
+      const foreground = hwndId(api.GetForegroundWindow()) ?? 0
+      const modal = options.modalGuardEnabled ? detectModalNow() : undefined
+      const windowRect = target === undefined ? undefined : frameOf(api, target)
+      return {
+        ...targetId === undefined ? {} : { windowId: targetId },
+        ...windowRect === undefined ? {} : { windowRect },
+        foregroundWindowId: foreground,
+        focusWindowId: focus,
+        focusOnTarget: target === undefined ? false : isSameOrDescendant(api, api.GetAncestor(focus, GA_ROOT), api.GetAncestor(target, GA_ROOT)),
+        targetEnabled: target === undefined ? true : api.IsWindowEnabled(target) !== 0,
+        ...modal === undefined ? {} : { modal },
+        cursor: readCursorSignal(api),
+      }
+    })
+  }
+
+  function captureFramePixels(region: WindowsRect, windowId?: number): Buffer {
+    const target = windowId === undefined ? undefined : windowPointer(windowId)
+    const choice = captureWithFallback<Buffer>({
+      enabled: options.captureFallbackEnabled,
+      dwmFlush: () => {
+        if (options.dwmFlushEnabled) api.DwmFlush()
+      },
+      bitblt: () => captureRegionPixels(api, region),
+      ...target === undefined || !options.printWindowEnabled
+        ? {}
+        : { printWindow: () => captureWindowPixels(api, target, region) },
+      isDegenerate: pixels => bitmapLooksDegenerate(pixels, region.width, region.height).degenerate,
+    })
+    if (choice.backend === 'printwindow') {
+      // One line is enough to explain a rescue in the host log; titles never go here.
+      console.error(
+        `computer-use: capture backend PrintWindow (${choice.fallbackReason ?? 'fallback'}`
+        + `${choice.printWindowDegenerate ? ', still degenerate' : ''})`,
+      )
+    }
+    return choice.data
+  }
+
+  let hoverBaseline: { key: string; pixels: Buffer; at: number } | undefined
+
+  function hoverProbeNow(
+    rect: WindowsRect,
+    point: { readonly x: number; readonly y: number },
+    settleMs = options.hoverSettleMs,
+  ): HoverFeedback {
+    return perMonitor(() => {
+      if (!options.hoverFeedbackEnabled) return unavailableHoverFeedback('hover feedback is disabled')
+      const width = Math.max(1, Math.round(rect.width))
+      const height = Math.max(1, Math.round(rect.height))
+      const normalized = { x: Math.round(rect.x), y: Math.round(rect.y), width, height }
+      const foregroundKey = pointerKey(api.GetForegroundWindow())
+      const key = `${foregroundKey}:${String(normalized.x)},${String(normalized.y)},${String(width)},${String(height)}`
+      const pos: NativePoint = { x: 0, y: 0 }
+      const hasPos = api.GetCursorPos(pos) !== 0
+      const pointerInside = hasPos
+        && pos.x >= normalized.x && pos.x <= normalized.x + normalized.width
+        && pos.y >= normalized.y && pos.y <= normalized.y + normalized.height
+      if (hoverBaseline === undefined || hoverBaseline.key !== key || Date.now() - hoverBaseline.at > 10_000) {
+        if (pointerInside) {
+          return unavailableHoverFeedback('the pointer was already over the target and no baseline frame exists')
+        }
+        const baseline = captureFramePixels(normalized)
+        hoverBaseline = { key, pixels: baseline, at: Date.now() }
+      }
+      const beforeCursor = readCursorSignal(api)
+      if (!hasPos || pos.x !== point.x || pos.y !== point.y) placePointer(point.x, point.y)
+      if (settleMs > 0) sleepSync(settleMs)
+      const after = captureFramePixels(normalized)
+      const afterCursor = readCursorSignal(api)
+      const diff = compareHoverFrames(hoverBaseline.pixels, after, width, height, {
+        pixelTolerance: options.hoverPixelTolerance,
+        minChangedRatio: options.hoverMinChangedRatio,
+        minChangedPixels: options.hoverMinChangedPixels,
+      })
+      const feedback = judgeHoverFeedback(diff, {
+        pixelTolerance: options.hoverPixelTolerance,
+        minChangedRatio: options.hoverMinChangedRatio,
+        minChangedPixels: options.hoverMinChangedPixels,
+      }, {
+        before: beforeCursor.kind,
+        after: afterCursor.kind,
+        changed: beforeCursor.handle !== afterCursor.handle,
+      })
+      // Keep the pre-hover baseline for the follow-up preview: keeping the post-hover
+      // frame would make the second preview compare hover against hover and report none.
+      return feedback
+    })
+  }
+
   return {
     listWindows,
-    capturePng(bounds, mark) {
+    ...options.displayInventoryEnabled ? { displayInventory: displayInventoryNow } : {},
+    ...options.modalGuardEnabled ? { detectModal: detectModalNow } : {},
+    inspectAction: inspectActionNow,
+    hoverProbe: hoverProbeNow,
+    capturePng(bounds, mark, windowId) {
       return perMonitor(() => {
         const width = Math.max(1, Math.round(bounds.width))
         const height = Math.max(1, Math.round(bounds.height))
         const originX = Math.round(bounds.x)
         const originY = Math.round(bounds.y)
         const region: WindowsRect = { x: originX, y: originY, width, height }
-        const screenDc = api.GetDC(null)
-        if (isNull(screenDc)) throw new Error('computer-use: screen capture failed')
-        const memory = api.CreateCompatibleDC(screenDc)
-        const bitmap = api.CreateCompatibleBitmap(screenDc, width, height)
-        const previous = api.SelectObject(memory, bitmap)
-        try {
-          if (api.BitBlt(memory, 0, 0, width, height, screenDc, originX, originY, SRCCOPY) === 0) {
-            throw new Error('computer-use: screen capture failed')
-          }
-          const header = {
-            biSize: 40,
-            biWidth: width,
-            biHeight: height,
-            biPlanes: 1,
-            biBitCount: 32,
-            biCompression: 0,
-            biSizeImage: width * height * 4,
-            biXPelsPerMeter: 0,
-            biYPelsPerMeter: 0,
-            biClrUsed: 0,
-            biClrImportant: 0,
-          }
-          const pixels = Buffer.alloc(width * height * 4)
-          if (api.GetDIBits(memory, bitmap, 0, height, pixels, header, 0) === 0) {
-            throw new Error('computer-use: screen capture failed')
-          }
-          flipRows(pixels, width * 4, height)
-          drawCursor(api, memory, pixels, width, height, region)
-          // The grid lets the model estimate a position from any screenshot; the crosshair
-          // marks the exact point a previewed pointer action will act on.
-          drawGrid(pixels, width, height)
-          if (mark !== undefined && Number.isFinite(mark.x) && Number.isFinite(mark.y)) {
-            drawCrosshair(pixels, width, height, mark.x - originX, mark.y - originY)
-          }
-          return encodeBgraPng(width, height, pixels, false)
-        } finally {
-          api.SelectObject(memory, previous)
-          api.DeleteObject(bitmap)
-          api.DeleteDC(memory)
-          api.ReleaseDC(null, screenDc)
+        const pixels = captureFramePixels(region, windowId)
+        drawCursor(api, pixels, width, height, region)
+        // The grid lets the model estimate a position from any screenshot; the crosshair
+        // marks the exact point a previewed pointer action will act on.
+        drawGrid(pixels, width, height)
+        if (mark !== undefined && Number.isFinite(mark.x) && Number.isFinite(mark.y)) {
+          drawCrosshair(pixels, width, height, mark.x - originX, mark.y - originY)
         }
+        return encodeBgraPng(width, height, pixels, false)
       })
     },
     targetBlocksInput(hwnd) {

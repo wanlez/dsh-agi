@@ -4,9 +4,12 @@
  */
 
 import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
+import type { ActionSnapshot, ModalState } from './action-receipt.ts'
+import type { DisplayInventory } from './display-inventory.ts'
+import type { HoverFeedback } from './hover.ts'
 import { createMacosDesktopBackend, type OverlayExcludedRegionCapture } from './macos.ts'
 import { createUnsupportedDesktopBackend } from './unsupported.ts'
-import { createWindowsDesktopBackend } from './windows.ts'
+import { createWindowsDesktopBackend, type WindowsDesktopOptions } from './windows.ts'
 
 /** One observation surface: the overlay-skipped frontmost app's on-screen window union. */
 export interface ScreenInfo {
@@ -43,6 +46,37 @@ export interface ScreenInfo {
 export interface CapturedScreen {
   readonly data: Uint8Array
   readonly mediaType: ImageMediaType
+}
+
+/**
+ * Whether a pointer/keyboard action actually posted input.
+ * A modal guard returns `performed:false` plus the structured modal warning, so callers can
+ * report what happened instead of pretending a click landed.
+ */
+export interface PointerActionOutcome {
+  readonly performed: boolean
+  readonly modal?: ModalState
+}
+
+/** Environment sampling around one action target, used for receipts and modal guards. */
+export interface ActionInspectionInput {
+  /** Screen whose owner window is the target. */
+  readonly screen: ScreenInfo
+  /** Physical point the action will touch, when the action has one. */
+  readonly point?: { readonly x: number; readonly y: number }
+}
+
+/** One hover probe rectangle and the pointer point that will enter it. */
+export interface HoverProbeInput {
+  /** Rectangle in physical screen pixels to compare before and after the pointer move. */
+  readonly rect: {
+    readonly x: number
+    readonly y: number
+    readonly width: number
+    readonly height: number
+  }
+  /** Physical pointer destination. */
+  readonly point: { readonly x: number; readonly y: number }
 }
 
 /**
@@ -219,6 +253,30 @@ export interface DesktopBackend {
    */
   capture(screen: ScreenInfo, signal?: AbortSignal): Promise<CapturedScreen>
   /**
+   * Sample every display with physical and logical rectangles, DPI, and scale.
+   * Optional: non-Windows and fake backends may omit it, in which case the observation
+   * envelope marks the inventory `unsampled` instead of pretending there are no displays.
+   * @param signal - cooperative cancellation.
+   * @returns the multi-monitor inventory.
+   */
+  displayInventory?(signal?: AbortSignal): Promise<DisplayInventory>
+  /**
+   * Sample the target window, focus chain, foreground, enabled state, and modal warning.
+   * Optional; when omitted no action receipt is attached.
+   * @param input - target screen and optional physical point.
+   * @param signal - cooperative cancellation.
+   * @returns point-in-time target environment.
+   */
+  inspectAction?(input: ActionInspectionInput, signal?: AbortSignal): Promise<ActionSnapshot>
+  /**
+   * Compare the same small rectangle before and after moving the pointer onto the target.
+   * Optional; when omitted previews report hover feedback as unavailable.
+   * @param input - rectangle and pointer destination in physical pixels.
+   * @param signal - cooperative cancellation.
+   * @returns local-difference judgement.
+   */
+  hoverProbe?(input: HoverProbeInput, signal?: AbortSignal): Promise<HoverFeedback>
+  /**
    * Report the frontmost app after skipping overlay window ids, plus Finder's
    * folder when that app is Finder. Query failures return {@link FOCUS_FALLBACK_FOREGROUND}.
    * @param signal - cooperative cancellation.
@@ -243,7 +301,7 @@ export interface DesktopBackend {
    * @param input - screen, position, button, click count, and optional modifiers held only for this click.
    * @param signal - cooperative cancellation.
    */
-  click(input: ClickInput, signal?: AbortSignal): Promise<void>
+  click(input: ClickInput, signal?: AbortSignal): Promise<PointerActionOutcome | void>
   /**
    * Move the pointer to a 0–1000 position on `input.screen` and capture a square crop
    * around it, for the pre-action preview of two-stage aiming.
@@ -260,13 +318,13 @@ export interface DesktopBackend {
    * @param input - screen, position, text, and modifiers.
    * @param signal - cooperative cancellation.
    */
-  typeText(input: TypeInput, signal?: AbortSignal): Promise<void>
+  typeText(input: TypeInput, signal?: AbortSignal): Promise<PointerActionOutcome | void>
   /**
    * Scroll at a 0–1000 position on `input.screen`.
    * @param input - screen, position, direction, and level.
    * @param signal - cooperative cancellation.
    */
-  scroll(input: ScrollInput, signal?: AbortSignal): Promise<void>
+  scroll(input: ScrollInput, signal?: AbortSignal): Promise<PointerActionOutcome | void>
   /**
    * Post a key combination. Callers must already reject screenshot chords.
    * @param input - key tokens.
@@ -278,13 +336,13 @@ export interface DesktopBackend {
    * @param input - screen, position, and hold duration in seconds.
    * @param signal - cooperative cancellation.
    */
-  longPress(input: LongPressInput, signal?: AbortSignal): Promise<void>
+  longPress(input: LongPressInput, signal?: AbortSignal): Promise<PointerActionOutcome | void>
   /**
    * Drag from `startPosition` to `endPosition`, mapping each through its screen.
    * @param input - start and end screens and 0–1000 positions.
    * @param signal - cooperative cancellation.
    */
-  drag(input: DragInput, signal?: AbortSignal): Promise<void>
+  drag(input: DragInput, signal?: AbortSignal): Promise<PointerActionOutcome | void>
   /**
    * Launch the default browser, or open `input.url` in it.
    * @param input - optional normalized http(s) URL.
@@ -318,13 +376,15 @@ export interface DesktopBackend {
  * Construct the backend for a host platform.
  * @param platform - Node `process.platform` value; tests pass an explicit id.
  * @param excludedRegionCapture - Desktop overlay-exclude capture; CLI omits it and spawns the helper.
+ * @param windowsOptions - hardening switches and probe tunables for the Windows backend.
  * @returns macOS capture/input on Darwin, Windows capture/input on Win32, otherwise a backend whose methods throw.
  */
 export function createPlatformBackend(
   platform: NodeJS.Platform = process.platform,
   excludedRegionCapture?: OverlayExcludedRegionCapture,
+  windowsOptions?: WindowsDesktopOptions,
 ): DesktopBackend {
   if (platform === 'darwin') return createMacosDesktopBackend(undefined, excludedRegionCapture)
-  if (platform === 'win32') return createWindowsDesktopBackend()
+  if (platform === 'win32') return createWindowsDesktopBackend(undefined, windowsOptions)
   return createUnsupportedDesktopBackend()
 }
