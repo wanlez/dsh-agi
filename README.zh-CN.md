@@ -1,86 +1,122 @@
-# dsh-agi（中文）
+# dsh-agi
 
-[English](README.md) | **中文**
+[English](README.md)
 
-DeepSeek Harness 的悬浮球插件：语音输入、人设卡、经验库、截图学习。
+DeepSeek Harness 的悬浮球智能体。跟它说话、把截图贴给它，让它操作你的桌面——然后让它记住你的流程到底怎么走。
 
-本项目基于 [dsh-orb](https://github.com/mini-yifan/dsh-orb-cordis)（MIT，作者 mini-yifan）修改，改名为 `dsh-agi` 并独立维护。
+本仓库 fork 自 [dsh-orb](https://github.com/mini-yifan/dsh-orb-cordis)（MIT，作者 mini-yifan），改名为 `dsh-agi` 并独立维护。
 
-## 最近更新
+## 它凭什么不一样
 
-- **状态提示**：悬浮球面板里显示三种状态——蓝点「大肥鱼正在思考」、绿点「大肥鱼正在操作」（点击/打字前约 0.35 秒变绿）、红点「大肥鱼不在工作」（结束后 5 秒隐藏）。
-- **安全模式**：设置里可开启，开启时面板上有黄色「安全模式已启用」常驻提示；任何真实键鼠操作都会立刻停止当前任务，大肥鱼自己注入的输入不会误触发。停止不结束会话，可以继续打字或语音。
-- **自动更新**：设置里检查更新走 npm（npmmirror 优先），GitHub 兜底；点更新后按提示退出 DeepSeek Harness，装完重新打开即可生效。
-- **npm 发布**：`dsh-agi` 已上架 npm，安装和更新可以直接用 `dsh plugin add dsh-agi`。
+| | |
+|---|---|
+| **说，不用敲** | 点一下头像开始听，说完再点一下结束。说「你好大肥鱼」唤醒并固定面板，说「退下吧」停止任务，说「大肥鱼」可在它干活时插话。唤醒词、语音识别、语音合成全部本地运行。 |
+| **有人设，也有记性** | 角色卡决定每一轮由谁回答；配合经验图谱，同一个球在不同项目里可以像不同的专家。 |
+| **经验是图谱，不是笔记** | 你的屏幕操作流程被存成可执行的路径：节点、硬前置关系、截图作为准确度参考。遇到没操作过的应用，它先查图谱，而不是现编。 |
+| **扛造的桌面操作** | 六套独立机制（见下）保证每次点击都真的落地、画面是新的、瞄的就是那个控件。 |
+| **安全模式** | 你按下任何真实按键或移动鼠标，任务立刻停止；只有球自己注入的输入被忽略。停止不会结束对话。 |
+
+## 经验图谱：能活下来的流程
+
+Markdown 笔记会过期、会被跳过。`dsh-agi` 把流程存成图谱：
+
+- **路径**——每个任务一份准备好的流程，带 `start_title`、`end_title` 和 `runnable` 标记。
+- **节点**——一步一个节点，带说明和参考截图。节点是平级的，任何节点都能作为流程起点。
+- **硬前置**——每条入边都是 AND：所有前置都满足、或被明确标记跳过，节点才能执行。
+- **先查后做**——智能体先读 `ACTIVE_GRAPH`，把请求和路径的名称、摘要做语义匹配，让你从最优的三条里挑一条，然后按 `node_sequence` 顺序执行。
+- **失败要响，不许静默**——前置缺失时，它会明确报告「『<后续步骤>』需要『<前置步骤>』的产出，当前缺失」，并给出选项：补执行前置 / 标记跳过 / 修改入边。不现编、不跳过。
+- **真正的编辑器**——在内置编辑器里新建、编辑、连线、搜索、复制、软删除和恢复节点；操作记录用中文写清谁在什么时候新建/修改/连线/删除了什么。
+
+数据全部在你自己的目录（`$DSH_HOME\dsh-agi\`），不在任何云端账号里。
+
+## 扛造的电脑操作
+
+桌面自动化的失败都很无聊：模态框挡住窗口时点了进去、截图是改动前的旧帧、窗口动了或第二块屏 DPI 不同导致坐标偏。Windows 层吸收了 [Windows-MCP](https://github.com/CursorTouch/Windows-MCP) 的六个工程思路，把每种失败变成模型能看见的信号：
+
+| 失败场景 | `dsh-agi` 的做法 |
+|---|---|
+| **点进被挡住的窗口** | **操作回执。** 点击前原生层会报告「前台被禁用 + 它拥有的对话框」，于是调用返回结构化模态警告，并给出真实选项（`press-esc` / `focus-modal` / `ask-user`），而不是闭眼点下去。 |
+| **"这一下点到底有没有用？"** | **动作后校验。** 动作落地后重新采样同一目标，记录四件事：焦点是否还在、前台是否稳定、目标是否变为禁用、窗口是否移动到大到坐标失效。 |
+| **拿到旧帧** | **帧新鲜度 + 救援截图。** 每次截图前先 `DwmFlush`，保证拿到的是合成完成的帧；BitBlt 失败或全黑时切到 `PrintWindow(PW_RENDERFULLCONTENT)`；救援帧也退化时仍返回原始位图并附带过程记录，绝不让异常吞掉整次截图。 |
+| **看着瞄对了其实没有** | **悬停探测。** 预览阶段在指针移到目标前后各截同一小块矩形，逐像素比较容差内的变化，报告控件到底有没有反应——抗锯齿和亚像素抖动骗不过它。 |
+| **屏幕选错、DPI 算错** | **显示器清单。** 以 per-monitor-v2 DPI 感知枚举每块屏的物理与逻辑矩形；归一化坐标经「窗口矩形 → 所在显示器 → 物理像素」一次换算，清单同时写进观测信封。 |
+| **"读不到"被当成"没有"** | **三态观测 + 文本消毒。** 每个字段都标记 `provided` / `empty` / `unsampled`（权限、超时、平台不支持），读失败再也不会伪装成空界面。所有面向模型的文本都过消毒：清除私用区字符、修复孤立代理项、转义换行、截断必须显式标注。 |
+
+这些都有专门的测试覆盖：373 个 host 测试、68 个知识图谱测试，以及操作回执、截图策略、悬停、显示器清单、文本消毒、窗口加固等 computer-use 专项用例。
+
+## 近期变化 — 0.6.1
+
+- **经验图谱编辑器**：收藏、全中文操作记录、软删除与恢复、搜索式建立关系（节点上的 `+` 或顶部工具栏，不依赖画布可见）、1/3 宽度详情抽屉，移除 `io.input`/`io.output`。
+- **电脑操作加固**：上面六套机制，外加模态框守卫、窗口加固与诊断。
+- **诊断**：显示器清单改为进程级发布，设置页和排查路由都能读取（preset 不允许直接提供 Cordis 服务）。
+- **状态胶囊**：蓝色「思考」、绿色「行动中」（点击或按键前约 0.35 秒变绿），任务结束或停止后红色「未工作」持续五秒。
+- **安全模式**：设置里的开关；打开后胶囊旁常驻黄色提示，任何真实输入都会立刻停止任务，注入的输入被忽略，停止不会结束对话。
+- **自动更新**：设置页先查 npm（优先 npmmirror），GitHub 兜底。
 
 ## 安装
-
-普通用户直接从 npm 安装：
 
 ```powershell
 & "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add dsh-agi
 ```
 
-npm 不可用时，可以退回 Release 的 tgz：
+npm 不通时改用发布包：从 [Releases](https://github.com/wanlez/dsh-agi/releases) 下载最新的 `.tgz`，执行 `dsh plugin add "file:<路径>"`。
 
-国内网络会走 npmmirror 镜像。如果 npm 不可用，到 [Releases](https://github.com/wanlez/dsh-agi/releases) 下载最新的 `.tgz`，再用 `dsh plugin add "file:<下载路径>"` 安装。
+然后在 `%USERPROFILE%\.dsh\profiles\desktop\package.json` 的 `dsh.profile.bundles` 里加上 `"dsh-agi"`，重启 DeepSeek Harness。
 
-然后在 `%USERPROFILE%\.dsh\profiles\desktop\package.json` 的 `dsh.profile.bundles` 里加入 `"dsh-agi"`，重启 DeepSeek Harness。
+发布包内置代码与运行时依赖（koffi 等），安装不依赖任何其它源；Electron 运行时与语音模型仍在首次使用时下载。
 
-Release 包内含代码和运行时依赖（koffi 等），安装不需要访问其他 registry；Electron 运行时和语音模型仍在首次使用时下载。
+### 安装报错：pnpm 拦截了 koffi 的构建脚本
 
-### 安装报错：koffi 的构建脚本被 pnpm 拦截
+DeepSeek Harness 自带 pnpm 11.x，默认开启 `strictDepBuilds`。声明了 `install`/`postinstall` 的依赖会被拒绝，于是 `dsh plugin add` 走到 koffi 时以 **exit code 1** 退出。此时包文件其实已经解压，koffi 的 win32-x64 预编译二进制也能正常加载。
 
-DSH 自带的 pnpm（11.x）默认开启 `strictDepBuilds`，安装带有 `install`/`postinstall` 的依赖时会拒绝执行构建脚本。早期 Release 包在 manifest 里声明过 koffi，会命中这一条，`dsh plugin add` 以**退出码 1** 结束，但文件其实已经解压好，koffi 自带的 win32-x64 预编译也能正常加载。
+当前版本已内置运行时依赖并从清单里去掉 `dependencies`，所以不会再触发；下面的绕过办法只适用于旧包。
 
-当前 Release 已把运行时依赖打进包内并去掉 `dependencies`，不会再触发这个提示；下面的处理只对旧包有效。
+如果只卡在这一步，二选一：
 
-如果确认只是这个原因，任选一种处理：
-
-1. 在 profile 目录的 `pnpm-workspace.yaml` 里允许（或跳过）koffi 的构建：
+1. 在 profile 的 `pnpm-workspace.yaml` 里允许（或跳过）koffi 的构建脚本：
 
    ```yaml
    allowBuilds:
      koffi: false
    ```
 
-   保存后重新执行 `dsh plugin add`，退出码应为 0。
+   保存后重新执行 `dsh plugin add`，退出码应变为 0。
 
-2. 或者直接用仓库里的安装脚本，它会先写好上面的配置再安装：
+2. 或者运行随包附带的安装脚本，它会先写好这一项：
 
    ```powershell
    powershell -ExecutionPolicy Bypass -File .\install.ps1
    ```
 
-注意：这一步只影响构建脚本是否执行，不改变插件功能；koffi 的预编译二进制随依赖一起提供。
+这只控制构建脚本是否运行，不改变插件行为，因为 koffi 的预编译二进制随依赖一起分发。
 
 ## 怎么用
 
-- **语音**：点球上的头像开始说话，再点一次结束；停顿约 1 秒也会自动结束。说出来的内容走和打字发送同一条路径。
-- **发图片**：在面板输入框按 `Ctrl+V` 粘贴截图，一条消息最多 9 张，和文字一起发。
-- **人设卡**：设置 → 悬浮球 → 人设卡。新建或选中一张卡后，球每轮都按这张卡的设定回复。
-- **经验库**：设置 → 悬浮球 → 经验库。选一个文件夹；截图 + 一句说明会保存成 `<流程名>/<流程名>.md`，截图按序号放在 `screenshots/`。
-- **唤醒词**：球收起时喊「你好大肥鱼」（可改），面板展开并固定，本机回一句「我在呢」。唤醒词、回复语、灵敏度、判定粒度和 1.5 秒冷却都能改。唤醒模型约 9 MB，首次使用时从本仓库下载。Agent 干活时说「大肥鱼」可以插话，说「退下吧」立刻停止并取消固定。
+- **语音**：点球的头像开始听，说完再点一下结束；停顿一秒也会自动结束。说话和发消息走同一条路径。
+- **图片**：在输入框里 Ctrl+V 粘贴截图，每条消息最多九张，和文字一起发送。
+- **角色卡**：设置 → 悬浮球 → 角色卡。新建或选择一张卡，之后每一轮都以该角色的口吻回答。
+- **经验图谱**：设置 → 悬浮球 → 知识库。边做边存路径，或口述一段经验让它整理成带截图的节点。操作没见过的应用前，它会先查图谱并照着路径走。
+- **唤醒词**：球收起时，说「你好大肥鱼」（或你配置的短语），面板会弹出并固定，球本地回答「我在呢」。唤醒词、回答、阈值、决策粒度和 1.5 秒冷却都可改。9 MB 唤醒模型首次使用时从本仓库下载。干活时可以说「大肥鱼」插话，说「退下吧」停止并取消固定。
 
-## 安全模式与状态提示
+## 安全模式与状态胶囊
 
-- **三色状态**：悬浮球面板里有一条状态提示。任务思考时蓝点「大肥鱼正在思考」，动手操作时绿点「大肥鱼正在操作」（真正点击/打字前约 0.35 秒变绿，留出反应时间），任务结束或被停止后红点「大肥鱼不在工作」，5 秒后自动隐藏；没有任务活动时不显示。
-- **安全模式**：设置 → 悬浮球 → 安全模式。开启后，你敲键盘、移动鼠标、点击鼠标都会**立刻停止当前任务**（等同按停止按钮），大肥鱼自己注入的点击和打字不会误触发。
-- **停止不等于结束会话**：安全模式停下后，会话和上下文都保留，你可以继续打字或语音，像往常一样接着指挥。
+- **三色状态**：球面板里的胶囊显示它在干什么。蓝点「思考」，绿点「行动中」（点击或按键落地前约 0.35 秒变绿，给你反应时间），红点表示任务结束或停止后「未工作」五秒。没有任务时胶囊隐藏。
+- **安全模式**：设置 → 悬浮球 → 安全模式。开启后，你按下的任何键、移动鼠标或点击都会立刻停止当前任务，效果等同停止按钮。球自己注入的输入带 Windows 注入标记，不会触发。
+- **停止不是结束对话**：会话和上下文都保留，继续打字或说话，球会接着干。
 
 ## 更新
 
-设置 → 悬浮球 → 检查更新。检查优先询问 npm（npmmirror → npmjs），GitHub Releases 作为兜底；安装优先使用 npm 的 `dsh-agi@版本`，npm 不可用时改用 Release 的 tgz。自动检查默认开启，每天一次。
+设置 → 悬浮球 → 检查更新。先查 npm（npmmirror、再 npmjs），GitHub Releases 兜底；升级优先从 npm 装 `dsh-agi@版本`，npm 不通时用发布包。自动检查默认开启，每天一次。
 
 ## 模型
 
-所有模型都放在本仓库的 Release 里，不再依赖原作者或 npm。
+所有模型文件都从本仓库的 Releases 分发，项目不再依赖上游作者或 npm。
 
-| 模型 | 大小 | 地址 | 是否自动下载 |
+| 模型 | 大小 | 链接 | 自动下载 |
 |---|---:|---|---|
-| 唤醒模型 `dsh-agi-kws` | 9 MB | [models-v1](https://github.com/wanlez/dsh-agi/releases/download/models-v1/dsh-agi-kws-2026.10.0.tgz) | 是，首次使用时 |
-| 本地播报 `tts` | 188 MB | [models-v1](https://github.com/wanlez/dsh-agi/releases/download/models-v1/dsh-agi-tts-2026.10.0.tgz) | 是；先走 Hugging Face 镜像，全失败才用这个整包兜底 |
-| 语音识别 `SenseVoice` | 162 MB | [models-v1](https://github.com/wanlez/dsh-agi/releases/download/models-v1/dsh-agi-asr-sensevoice-2026.10.0.tgz) | 否；ASR 由 DeepSeek Harness 自己管理，需要这份副本可手动下载 |
+| 唤醒词（`dsh-agi-kws`） | 9 MB | [models-v1](https://github.com/wanlez/dsh-agi/releases/download/models-v1/dsh-agi-kws-2026.10.0.tgz) | 是，首次使用时 |
+| 本地 TTS（`tts`） | 188 MB | [models-v1](https://github.com/wanlez/dsh-agi/releases/download/models-v1/dsh-agi-tts-2026.10.0.tgz) | 是；优先 Hugging Face 镜像，最后才用这个包 |
+| ASR（`SenseVoice`） | 162 MB | [models-v1](https://github.com/wanlez/dsh-agi/releases/download/models-v1/dsh-agi-asr-sensevoice-2026.10.0.tgz) | 否；DeepSeek Harness 自带 ASR 管理，需要这份拷贝请手动下载 |
 
 ## 从源码构建
 
@@ -92,16 +128,6 @@ pnpm build    # 产物在 packages/bundle
 pnpm test
 ```
 
-## 发布（维护者）
-
-Release 包用自定义打包脚本生成：它会把运行时依赖塞进包内、去掉 manifest 里的 `dependencies`，安装时不需要访问 registry，也就不会再触发 pnpm 的构建脚本拦截。
-
-```powershell
-pnpm --filter dsh-agi pack -- --version x.y.z
-```
-
-打包脚本会把运行时依赖放进包内并删掉 manifest 里的 `dependencies`，所以装的时候不会碰 registry，也不会触发 koffi 的构建脚本提示。
-
 ## 许可
 
-MIT。上游版权归 mini-yifan，修改部分归 dsh-agi contributors。见 `LICENSE` 与 `NOTICE.md`。
+MIT。上游版权归 mini-yifan；修改部分归 dsh-agi 贡献者。见 `LICENSE` 与 `NOTICE.md`。
