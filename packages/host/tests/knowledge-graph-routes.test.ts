@@ -79,7 +79,9 @@ describe('knowledge graph HTTP surface', () => {
     assert.match(text, /操作记录/)
     assert.match(text, /被这些路径引用/)
     assert.match(text, /没有路径引用它/)
-    assert.match(text, /复制节点/)
+    // Paths carry their own delete action; the node copy affordance was removed.
+    assert.match(text, /data-action="delete-path-editor"/)
+    assert.doesNotMatch(text, /复制节点/)
     assert.match(text, /删除节点/)
   })
 

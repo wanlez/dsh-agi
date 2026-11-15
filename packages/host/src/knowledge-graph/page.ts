@@ -613,8 +613,7 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
         + '<button class="btn small" data-action="open-path" data-id="' + esc(path.id) + '">查看路径</button></div>';
     });
     html += '</div>';
-    html += '<div class="block"><h3>节点操作</h3><div class="actionGrid">'
-      + '<button class="btn wide" data-action="copy-node" data-id="' + esc(node.id) + '">复制节点</button>';
+    html += '<div class="block"><h3>节点操作</h3><div class="actionGrid">';
     if (deleted) {
       html += '<button class="btn primary wide" data-action="restore-node" data-id="' + esc(node.id) + '">恢复节点</button>';
     } else {
@@ -751,6 +750,7 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
     var html = '<div class="pvHead"><h3>' + esc(editor.name || "未命名路径") + '</h3>'
       + '<span class="tag ' + (state.pathDirty ? "warn" : "ok") + '">' + (state.pathDirty ? "未保存" : "已保存") + '</span>'
       + '<span class="grow"></span>'
+      + (editor.pathId == null ? "" : '<button class="btn small danger" data-action="delete-path-editor">删路径</button>')
       + '<button class="btn small" data-action="check-path-editor">检查</button>'
       + '<button class="btn small primary" data-action="save-path-editor">保存</button>'
       + '<button class="btn small ghost" data-action="close-path-editor">关闭</button></div>';
@@ -1037,6 +1037,25 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
         loadFavorites();
         return openDetail(id);
       }).catch(function (error) { toast(error.message, "bad"); });
+      return;
+    }
+    if (action === "delete-path-editor") {
+      event.preventDefault();
+      var editor = state.pathEditor;
+      if (!editor || editor.pathId == null) return;
+      askConfirm({
+        title: "删除这条路径？",
+        message: "只删除这条路径收藏；节点和它们的截图都会保留。",
+        confirmText: "删除",
+        danger: true,
+      }).then(function (yes) {
+        if (!yes) return;
+        api("/api/paths/" + encodeURIComponent(editor.pathId), { method: "DELETE" }).then(function () {
+          toast("路径已删除。");
+          closePathEditor();
+          loadFavorites();
+        }).catch(function (error) { toast(error.message, "bad"); });
+      });
       return;
     }
     if (action === "copy-node") {
