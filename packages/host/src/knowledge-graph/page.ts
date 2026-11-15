@@ -512,7 +512,7 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
   }
   function show(el, yes) { if (el) el.hidden = !yes; }
   function formatTs(ts) { return String(ts == null ? "" : ts).slice(0, 19).replace("T", " "); }
-  function statusLabel(status) { return status === "deleted" ? "已删除" : "在用"; }
+  function statusLabel(status) { return status === "deleted" ? "已删除" : "正常"; }
   function toast(message, kind) {
     var el = $("toast");
     el.textContent = message;
@@ -578,8 +578,8 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
     var drawer = $("detail");
     var html = '<div id="detailResize" title="拖动调整宽度"></div>';
     html += '<div class="row"><h2 class="grow">' + esc(node.title || "未命名节点") + '</h2>'
-      + '<span class="tag ' + (deleted ? "bad" : "ok") + '">' + esc(statusLabel(node.status)) + '</span>'
-      + '<button class="btn small ghost" data-action="close-detail">关闭</button></div>';
+      + '<span class="tag ' + (deleted ? "bad" : "ok") + '" title="正常：可搜索、可被路径引用；删除是软删除，可恢复">' + esc(statusLabel(node.status)) + '</span>'
+      + '<button class="btn ghost" data-action="close-detail">关闭</button></div>';
     html += '<div class="meta">创建人 ' + esc(node.created_by) + ' · ' + esc(formatTs(node.created_at)) + '</div>';
     html += '<div class="field"><label>标题</label><input id="detailTitle" value="' + esc(node.title) + '"></div>';
     html += '<div class="field"><label>说明（人写的打底，执行时先读它）</label><textarea id="detailDesc" rows="6">' + esc(node.description) + '</textarea></div>';
@@ -1099,6 +1099,14 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
       return;
     }
   });
+  // A click on the path surface never closes the node drawer; only its own controls act.
+  (function () {
+    var pathSurface = $("pathView");
+    if (!pathSurface) return;
+    pathSurface.addEventListener("click", function (event) {
+      if (!actionOf(event.target)) event.stopPropagation();
+    });
+  })();
   $("nodeSearchForm").addEventListener("submit", function (event) { event.preventDefault(); searchNodes(); });
   $("pathSearchForm").addEventListener("submit", function (event) { event.preventDefault(); searchPaths(); });
   document.addEventListener("keydown", function (event) {
