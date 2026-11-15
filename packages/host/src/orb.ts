@@ -2767,10 +2767,17 @@ export class OrbRuntime {
     try {
       const rows = await this.listHistoryRows()
       const orb = this.store.workspaceDirectory()
+      const shared = this.store.sessionMode() === 'shared'
       const items: { sessionId: string; title: string; running: boolean }[] = []
       for (const row of rows) {
         const record = asRecord(row)
-        if (!record || !isHistoryRow(record, orb) || typeof record.sessionId !== 'string') continue
+        if (!record || typeof record.sessionId !== 'string') continue
+        if (record.origin === 'subagent') continue
+        // Shared mode mirrors the window, so its history shows every conversation the window can
+        // see — including the ones running another preset. Isolated mode shows only ball-owned
+        // conversations: the orb workspace plus the ball's private one, computer-use (or
+        // unrecorded) preset only.
+        if (!shared && !isHistoryRow(record, orb, dshHomePath('dsh-agi', 'workspace'))) continue
         // The main window shows only the selected blank conversation, never the others: the ball
         // follows it, so the empty rows an older New Chat button minted stop cluttering the list.
         if (record.blank === true && record.sessionId !== this.sessionId) continue
@@ -3206,9 +3213,12 @@ function isQuestionCancel(message: unknown): message is { type: 'question-cancel
   return record.type === 'question-cancel' && typeof record.id === 'string'
 }
 
-function isHistoryRow(record: Record<string, unknown>, orb: string): boolean {
+function isHistoryRow(record: Record<string, unknown>, orb: string, ballWorkspace?: string): boolean {
   if (record.origin === 'subagent') return false
-  if (typeof record.cwd !== 'string' || resolve(record.cwd) !== resolve(orb)) return false
+  if (typeof record.cwd !== 'string') return false
+  const cwd = resolve(record.cwd)
+  const inBall = cwd === resolve(orb) || (ballWorkspace !== undefined && cwd === resolve(ballWorkspace))
+  if (!inBall) return false
   const preset = projection(record, 'agentPreset')
   return preset === undefined || preset === 'computer-use'
 }
