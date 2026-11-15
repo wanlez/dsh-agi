@@ -16,6 +16,7 @@ This is a fork of [dsh-orb](https://github.com/mini-yifan/dsh-orb-cordis) (MIT, 
 | **Edited from the chat box** | A one-sentence request like "帮我创建一个节点，内容是 xxx" is enough: seven library tools search, create, check and confirm — with confirmation gates the code enforces, not just prompts. |
 | **Hardened desktop control** | Six independent safety mechanisms check that every click landed, that the frame is fresh, that the target is really the control it aimed at. |
 | **Safe mode** | Any real key or pointer event stops the task instantly; only input the ball injects itself is ignored. Stopping never ends the conversation. |
+| **Its own conversation** | The ball runs an isolated `computer-use` conversation, so it can drive the desktop and use the experience library while the main window keeps its own session. |
 
 ## The experience library
 
@@ -28,20 +29,23 @@ Markdown notes go stale and get skipped. `dsh-agi` keeps a library you can actua
 - **Screenshots with a source** — human screenshots are the **core accuracy standard**; AI screenshots are guidance for the next run. Both live in the same node package, labelled `human` / `ai`.
 - **Edit in place** — the editor shows the human block and the AI block side by side, so you can see what it learned and keep your own wording authoritative.
 
-### Paths: independent by design
+### Paths: a node graph you can actually read
 
-- A path is its **own ordered list of node references**. Paths never interfere with each other; the order *is* the relation, no graph edges required.
+- A path owns a **directed graph of node instances and edges**, not a flat list. Two arrows into one node is a merge; two arrows out is a branch.
+- The same node may appear more than once. **A repeat is not a cycle**: whether the flow loops depends on the edges, and every insert runs real cycle detection (Kahn's algorithm) on the instance graph.
+- The canvas draws circles with arrows, and each position carries a display number (1..N) that is recomputed on every render — two instances of the same node stay distinguishable, and numbers never jump or leave gaps.
+- The insert dialog offers three sources: positions already in this path, search results, and favorites. Picking an existing position adds **one edge to that exact position** — no duplicate node. Picking a library node adds one new position plus an edge; the library node itself is never copied.
+- Nodes and paths can be copied (`_复制版_<timestamp>` naming) and exported into an empty folder as JSON plus screenshots plus a manifest, then imported back unchanged.
 - Editing a node improves **every** path that references it — one fix, everywhere.
-- The editor opens a path as an editable flow: every step has **before / after insert** and delete, and the insert dialog offers three sources — nodes already in this path, search results, and favorites — with **immediate cycle rejection** when you pick a repeated node.
-- A node's insert affordance exists only inside a path. A lonely node never has a "where do I go" problem.
 
 ### Checks that run before anything executes
 
 A path is checked statically, on demand and on save:
 
 - every referenced node still exists and is not soft-deleted;
-- no node repeats (a repeat is a cycle);
-- the recorded start and end match the actual first and last steps;
+- every edge points at a node that belongs to this path;
+- the graph is **acyclic** — checked by real cycle detection, not by "did this node repeat";
+- the recorded start and end belong to the path;
 - required fields (title, description, captions) are filled.
 
 Nothing here touches the desktop — checking is pure data. A broken path can never silently reach the machine.
@@ -77,7 +81,21 @@ Desktop automation fails in boring ways: a click lands while a modal owns the wi
 
 The observation frame (the glowing border drawn while the agent is in control) is excluded from every screenshot via `WDA_EXCLUDEFROMCAPTURE`, so it can never pollute what the model sees.
 
-## Recent changes — 0.6.6
+## Version notes
+
+Each release keeps its own section, newest first, so the delta between two versions is always readable.
+
+### 0.6.7
+
+- **Isolated ball conversations, computer-use by default.** The ball now owns its own `computer-use` conversation and never reuses the main window's. On upgrade it opens one fresh ball conversation, and every later start resumes that one; the main window keeps whichever session the operator chooses.
+- **Paths became graphs.** The linear step list is gone: circles with arrows, display numbers, and topology-aware cycle detection. The same node may appear twice — that is only a cycle when the edges actually lead back.
+- **Graph editing.** Before/after insert on any node, insert into an existing position (one edge, no duplicate node), a three-source insert dialog with per-column guidance, graph-level save and check, and instant cycle rejection.
+- **Copy and transfer.** Copy node, copy path (`_复制版_<timestamp>`), export a node or a full path into an empty folder (JSON + screenshots + manifest), and import it back — colliding ids get a fresh id instead of overwriting anything.
+- **Favorites as stars.** One star per node and path (filled = favorited, hollow = not); unfavoriting asks first and never deletes the entity.
+- **Fixed: the ball could not be clicked, dragged, or hovered.** A TDZ error (`Cannot access 'running' before initialization`) killed the ball page script before it bound any pointer listener; the module now runs end to end.
+- **Fixed: leftover `dsh-orb` naming.** The bridge is `window.dshAgi`, the voice build emits `dsh-agi-voice-capture.exe`, and the native selection types are `DshAgiSel*`.
+
+### 0.6.6
 
 - **Fixed the floating ball failing to load after a restart in 0.6.5.** The Host plugin imported `@deepseek-ai/dsh-tools`, which the DSH runtime keeps outside the profile, so the plugin failed to load and the settings page reported "could not load floating-ball settings". The library tools are now plain registry-compatible definitions, and a failed registration can no longer take the ball down.
 - **The operator decides reuse.** Search returns candidates for the person to choose between reusing and creating; the agent never treats a similar node as the same action on its own.
