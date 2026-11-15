@@ -77,6 +77,12 @@ Desktop automation fails in boring ways: a click lands while a modal owns the wi
 
 The observation frame (the glowing border drawn while the agent is in control) is excluded from every screenshot via `WDA_EXCLUDEFROMCAPTURE`, so it can never pollute what the model sees.
 
+## Recent changes — 0.6.6
+
+- **Fixed the floating ball failing to load after a restart in 0.6.5.** The Host plugin imported `@deepseek-ai/dsh-tools`, which the DSH runtime keeps outside the profile, so the plugin failed to load and the settings page reported "could not load floating-ball settings". The library tools are now plain registry-compatible definitions, and a failed registration can no longer take the ball down.
+- **The operator decides reuse.** Search returns candidates for the person to choose between reusing and creating; the agent never treats a similar node as the same action on its own.
+- **AI supplement limit** raised from 300 to 600 characters.
+
 ## Recent changes — 0.6.5
 
 - **Experience library rebuilt** around a node library and independent paths: the old canvas, anchor, path-stack and relation-builder surfaces are gone; the editor is now a two-column search (nodes / paths) with an editable path flow.
