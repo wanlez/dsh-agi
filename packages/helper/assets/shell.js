@@ -310,8 +310,6 @@ if (prompt) prompt.addEventListener('input', () => { api.voiceArm(false) })
   const composer = document.querySelector('#composer')
   const voiceMeter = document.querySelector('#voice-meter')
 
-  applyStaticText()
-
   let expanded = false
   let pinned = false
   let voiceHold = false
@@ -368,6 +366,10 @@ let expandedAt = 0
   let lastTccStatus
   /** Delivery mode the next submit uses: plain Enter steers a live turn, the accelerator interrupts it. */
   let submitMode = 'interrupt'
+
+  // Static labels read `running` and the avatar, so they run only once every state
+  // variable above exists; calling this earlier hit a TDZ error and killed the module.
+  applyStaticText()
 
   /**
    * The placeholder follows the turn state: while the agent works the composer
