@@ -12,4 +12,4 @@ g++ -O2 -std=c++17 -municode native/windows-voice-capture.cpp \
   $(pkg-config --cflags --static --libs webrtc-audio-processing-1) \
   -lole32 -loleaut32 -luuid -lavrt -lksuser \
   -static -static-libgcc -static-libstdc++ \
-  -o prebuilds/win32-x64/dsh-orb-voice-capture.exe
+  -o prebuilds/win32-x64/dsh-agi-voice-capture.exe

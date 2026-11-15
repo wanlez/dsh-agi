@@ -20,7 +20,7 @@ window.addEventListener('unhandledrejection', (event) => {
   if (window.__lastError === null) window.__lastError = 'reject: ' + String(event.reason)
 })
 
-const api = window.dshOrb
+const api = window.dshAgi
 const COLLAPSE_MS = 180
 const ANIMATION_MS = 300
 /** 展开动画期间（含 hover 触发）的一次点击只当“打开面板”。 */

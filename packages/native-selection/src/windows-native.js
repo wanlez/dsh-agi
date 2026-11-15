@@ -43,8 +43,8 @@ function prepareKoffi() {
     time: 'uint32',
     dwExtraInfo: 'uintptr',
   })
-  lib.proto('int __stdcall DshOrbSelEnumProc(void *hwnd, intptr lParam)')
-  lib.proto('intptr __stdcall DshOrbSelHookProc(int nCode, uintptr wParam, intptr lParam)')
+  lib.proto('int __stdcall DshAgiSelEnumProc(void *hwnd, intptr lParam)')
+  lib.proto('intptr __stdcall DshAgiSelHookProc(int nCode, uintptr wParam, intptr lParam)')
   prepared = true
   return lib
 }
@@ -57,7 +57,7 @@ function windowsActivationApi() {
     SetForegroundWindow: user32.func('int __stdcall SetForegroundWindow(void *hWnd)'),
     IsWindowVisible: user32.func('int __stdcall IsWindowVisible(void *hWnd)'),
     GetWindowThreadProcessId: user32.func('uint32 __stdcall GetWindowThreadProcessId(void *hWnd, _Out_ uint32 *pid)'),
-    EnumWindows: user32.func('int __stdcall EnumWindows(DshOrbSelEnumProc *cb, intptr lParam)'),
+    EnumWindows: user32.func('int __stdcall EnumWindows(DshAgiSelEnumProc *cb, intptr lParam)'),
   }
   return activationApi
 }
@@ -150,7 +150,7 @@ export function activateWindowsPid(pid) {
       found = true
     }
     return 1
-  }, lib.pointer('DshOrbSelEnumProc'))
+  }, lib.pointer('DshAgiSelEnumProc'))
   try {
     api.EnumWindows(callback, 0)
   } finally {

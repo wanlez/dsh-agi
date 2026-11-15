@@ -66,7 +66,7 @@ function loadPreload(file: string): { api: PreloadApi; sent: [string, unknown][]
     delete loader._cache['electron-mock-dsh-agi']
     delete loader._cache[filename]
   }
-  return { api: exposed.dshOrb ?? {}, sent, invoked }
+  return { api: exposed.dshAgi ?? {}, sent, invoked }
 }
 
 const catalog = {

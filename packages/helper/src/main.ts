@@ -381,7 +381,7 @@ function openWindow(): BrowserWindow {
     // The ball page binds every pointer listener only after its preload bridge exists;
     // probing it tells a preload failure from a page-script failure in one line.
     void created.webContents.executeJavaScript(`(() => {
-      const api = window.dshOrb
+      const api = window.dshAgi
       return JSON.stringify({
         orb: api ? Object.keys(api).length : null,
         ball: !!document.querySelector('#ball'),

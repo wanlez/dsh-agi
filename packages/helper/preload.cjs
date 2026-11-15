@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
-contextBridge.exposeInMainWorld('dshOrb', {
+contextBridge.exposeInMainWorld('dshAgi', {
   // Drag signals only: the main process reads the cursor itself, so no coordinates cross IPC.
   dragPress() {
     ipcRenderer.send('orb:drag-press')

@@ -46,12 +46,12 @@ lib.struct('DSH_AGI_SEL_MSG', {
   time: 'uint32',
   pt: 'DSH_AGI_SEL_POINT',
 })
-lib.proto('intptr __stdcall DshOrbSelHookProc(int nCode, uintptr wParam, intptr lParam)')
+lib.proto('intptr __stdcall DshAgiSelHookProc(int nCode, uintptr wParam, intptr lParam)')
 
 const user32 = lib.load('user32.dll')
 const shcore = lib.load('shcore.dll')
 const CallNextHookEx = user32.func('intptr __stdcall CallNextHookEx(void *hhk, int nCode, uintptr wParam, intptr lParam)')
-const SetWindowsHookExW = user32.func('void * __stdcall SetWindowsHookExW(int idHook, DshOrbSelHookProc *lpfn, void *hMod, uint32 dwThreadId)')
+const SetWindowsHookExW = user32.func('void * __stdcall SetWindowsHookExW(int idHook, DshAgiSelHookProc *lpfn, void *hMod, uint32 dwThreadId)')
 const UnhookWindowsHookEx = user32.func('int __stdcall UnhookWindowsHookEx(void *hhk)')
 const GetMessageW = user32.func('int __stdcall GetMessageW(_Out_ DSH_AGI_SEL_MSG *msg, void *hwnd, uint32 min, uint32 max)')
 const TranslateMessage = user32.func('int __stdcall TranslateMessage(DSH_AGI_SEL_MSG *msg)')
@@ -103,7 +103,7 @@ const mouse = lib.register((code, wParam, lParam) => {
     // A hook fault must not swallow the rest of the mouse chain.
   }
   return CallNextHookEx(null, code, wParam, lParam)
-}, lib.pointer('DshOrbSelHookProc'))
+}, lib.pointer('DshAgiSelHookProc'))
 callbacks.push(mouse)
 hooks.push(SetWindowsHookExW(WH_MOUSE_LL, mouse, null, 0))
 
@@ -119,7 +119,7 @@ const keyboard = lib.register((code, wParam, lParam) => {
     // A hook fault must not swallow the rest of the keyboard chain.
   }
   return CallNextHookEx(null, code, wParam, lParam)
-}, lib.pointer('DshOrbSelHookProc'))
+}, lib.pointer('DshAgiSelHookProc'))
 callbacks.push(keyboard)
 hooks.push(SetWindowsHookExW(WH_KEYBOARD_LL, keyboard, null, 0))
 

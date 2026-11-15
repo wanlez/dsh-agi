@@ -1,4 +1,4 @@
-const api = window.dshOrb
+const api = window.dshAgi
 
 function applyLanguage(language) {
   document.querySelector('#language-zh').setAttribute('aria-checked', language === 'zh' ? 'true' : 'false')

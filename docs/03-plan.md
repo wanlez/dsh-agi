@@ -60,7 +60,7 @@
 - 右键菜单。打开主窗口走 `dsh://open`。「退出」改为停用悬浮球。
 - 头像：Host 存文件。helper 带 token 去取，再显示。页面自己不拿鉴权 URL。
 - 设置页 client 插件改为 HTTP。官方主窗口「设置 → 悬浮球」能读写上述各项。权限文件损坏时页面会提示，并降为工作区内修改。
-- 对话区在 helper 内做完整，仍然不占用官方页面的 `root` 槽。preload 暴露 `window.dshOrb`，不复刻 `window.dshDesktop`。转录由 Host 轮询会话事件后推送，不走 `$events`。
+- 对话区在 helper 内做完整，仍然不占用官方页面的 `root` 槽。preload 暴露 `window.dshAgi`，不复刻 `window.dshDesktop`。转录由 Host 轮询会话事件后推送，不走 `$events`。
 - 发送前检查屏幕录制和辅助功能。缺权限时展开引导屏，不发送。划词「发给 Agent」放在输入框上方的 chip 里，发送时再拼进正文。
 
 验收：对照 fork 版 README「悬浮球」一节逐项操作。差别只保留 [01-analysis.md](01-analysis.md) §2 里已经写明的那些：没有独立退出、权限弹窗上的应用名、球跟着官方进程走。

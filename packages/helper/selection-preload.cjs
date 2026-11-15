@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
-contextBridge.exposeInMainWorld('dshOrb', {
+contextBridge.exposeInMainWorld('dshAgi', {
   selection: {
     search() {
       ipcRenderer.send('orb:selection-action', { action: 'search' })

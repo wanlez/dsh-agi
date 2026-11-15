@@ -85,14 +85,14 @@ helper 在 `dist/helper`，划词监控在 `dist/native-selection`。Host 用相
 |---|---|
 | `apps/desktop/src/floating-window.ts` | 去掉对官方 `main`、`ipc`、`paths` 的依赖。`presentOverlayWindow` 一并搬，工具条和观察框复用它 |
 | `apps/desktop/renderer/floating.html`、`floating.css`、`floating.js` | 页面搬进来，改成 helper 自己的 `shell.js`。不嵌官方 SPA，所以不复刻 `window.dshDesktop` |
-| `apps/desktop/src/preload.ts` | 不按原 API 整份复刻。球的 preload 暴露 `window.dshOrb`。划词工具条用另一份 preload，只暴露 `selection` |
+| `apps/desktop/src/preload.ts` | 不按原 API 整份复刻。球的 preload 暴露 `window.dshAgi`。划词工具条用另一份 preload，只暴露 `selection` |
 | `apps/desktop/src/floating-agent-menu.ts` | `quit` 改为停用悬浮球。`focusMain` 在 macOS 上打开 `dsh://open` |
 | `selection-toolbar-window.ts`、`observation-frame-window.ts` 及对应 renderer | 原样搬 |
 | 头像 GIF 等静态资源 | 原样搬 |
 
 preload 里需要跨进程的成员走控制 socket，问 Host：会话、权限、模型、TCC 状态、划词动作。窗口几何、展开、穿透、编辑态留在 helper 进程内。
 
-球的页面是 helper 自己的，不是官方主窗口那一页，所以 API 叫 `window.dshOrb`，不叫 `dshDesktop`。官方主窗口的 preload 我们改不了。设置页不靠这个对象，走 HTTP。
+球的页面是 helper 自己的，不是官方主窗口那一页，所以 API 叫 `window.dshAgi`，不叫 `dshDesktop`。官方主窗口的 preload 我们改不了。设置页不靠这个对象，走 HTTP。
 
 对话记录做在 helper 页面里。Host 读官方会话存储，经控制 socket 把块推过来。不装 `ui-overlay-chat`，也不请求 `index.html?surface=overlay`。头像由 Host 存文件；helper 带本次 token 去取，再交给页面。页面的 CSP 不允许它自己去打带凭据的地址。
 
