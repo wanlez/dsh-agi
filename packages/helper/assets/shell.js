@@ -11,6 +11,15 @@ import {
   icon, THINK, CHEVRON_DOWN, CHEVRON_UP, SEARCH, GLOBE, BROWSE, EDIT, CODE, API, SPARKLE, COPY, CHECK, CLOSE, stateSpinner,
 } from './icons.js'
 
+// First failure wins: the ball has no console, so remember it for the main-process probe.
+window.__lastError = window.__lastError || null
+window.addEventListener('error', (event) => {
+  if (window.__lastError === null) window.__lastError = String(event.message || 'error') + ' @' + String(event.filename || '') + ':' + String(event.lineno || 0)
+})
+window.addEventListener('unhandledrejection', (event) => {
+  if (window.__lastError === null) window.__lastError = 'reject: ' + String(event.reason)
+})
+
 const api = window.dshOrb
 const COLLAPSE_MS = 180
 const ANIMATION_MS = 300
@@ -2867,3 +2876,5 @@ let expandedAt = 0
 }
 
 main()
+
+window.__shellReady = true

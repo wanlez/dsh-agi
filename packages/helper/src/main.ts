@@ -3,7 +3,10 @@
  */
 
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, screen, shell } from 'electron'
+import { appendFileSync } from 'node:fs'
 import { request as httpRequest } from 'node:http'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { createConnection, type Socket } from 'node:net'
 import { fileURLToPath } from 'node:url'
 import { MAX_AVATAR_RESPONSE_BYTES, readAvatarChoice, type AvatarChoice } from './avatar.ts'
@@ -122,10 +125,13 @@ void app.whenReady().then(async () => {
 })
 
 ipcMain.handle('orb:expand', (event, expanded) => {
+  helperLog(`expand request fromBall=${fromBall(event)} placement=${placement !== undefined} expanded=${String(expanded)}`)
   if (!fromBall(event) || !placement || typeof expanded !== 'boolean') {
     return { expanded: false, horizontal: 'left', vertical: 'up', docked: undefined, strip: 0 }
   }
-  return placement.setExpanded(expanded)
+  const result = placement.setExpanded(expanded)
+  helperLog(`expand applied ${JSON.stringify(result)}`)
+  return result
 })
 
 /**
@@ -370,6 +376,22 @@ function openWindow(): BrowserWindow {
     created.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true })
   }
   created.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  created.webContents.on('did-finish-load', () => {
+    helperLog('ball page loaded')
+    // The ball page binds every pointer listener only after its preload bridge exists;
+    // probing it tells a preload failure from a page-script failure in one line.
+    void created.webContents.executeJavaScript(`(() => {
+      const api = window.dshOrb
+      return JSON.stringify({
+        orb: api ? Object.keys(api).length : null,
+        ball: !!document.querySelector('#ball'),
+        shellReady: window.__shellReady === true,
+        lastError: window.__lastError || null,
+      })
+    })()`)
+      .then((info: unknown) => helperLog(`page probe: ${String(info).slice(0, 500)}`))
+      .catch((error: unknown) => helperLog(`page probe failed: ${error instanceof Error ? error.message : String(error)}`))
+  })
   created.webContents.on('context-menu', (event, params) => {
     // Editable text and an active selection get the native menu (Copy/Paste);
     // bare right-click still opens the ball's own menu.
@@ -589,6 +611,15 @@ function applyStrip(present: boolean): void {
   if (!placement) return
   const state = placement.setStrip(present ? AGENT_STRIP_WIDTH : 0)
   if (win && !win.isDestroyed()) win.webContents.send('orb:expand-state', state)
+}
+
+/** Debug trail for ball interaction faults; the ball page has no visible console. */
+function helperLog(message: string): void {
+  try {
+    appendFileSync(join(homedir(), '.dsh', 'dsh-agi', 'helper-debug.log'), `${new Date().toISOString()} ${message}\n`)
+  } catch {
+    // Best effort only: never let diagnostics take the ball down.
+  }
 }
 
 function fromBall(event: unknown): boolean {
