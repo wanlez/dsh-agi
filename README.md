@@ -2,7 +2,7 @@
 
 [中文](README.zh-CN.md)
 
-A floating-ball agent for DeepSeek Harness. Talk to it, paste screenshots into it, and let it operate your desktop — then let it remember how your workflows actually work.
+A floating-ball agent for DeepSeek Harness. Talk to it, paste screenshots into it, and let it operate your desktop — then let it remember how your workflows actually work, and get better at them on every run.
 
 This is a fork of [dsh-orb](https://github.com/mini-yifan/dsh-orb-cordis) (MIT, by mini-yifan), renamed to `dsh-agi` and maintained independently.
 
@@ -11,23 +11,56 @@ This is a fork of [dsh-orb](https://github.com/mini-yifan/dsh-orb-cordis) (MIT, 
 | | |
 |---|---|
 | **Voice, not typing** | Click the avatar, speak, click again. Wake phrase (`你好大肥鱼`) opens the panel, a second phrase (`退下吧`) stops the task, and `大肥鱼` interjects while it works. Wake word, ASR and TTS all run locally. |
-| **Personas with memory** | Persona cards change who answers each turn. Paired with the knowledge graph, the same ball can behave like a different specialist per project. |
-| **A knowledge graph, not notes** | Your screen workflows are stored as executable paths: nodes, hard prerequisites, screenshots as the accuracy reference. The agent looks up the graph before touching an unfamiliar app instead of improvising. |
-| **Hardened desktop control** | Six independent safety mechanisms (below) check that every click landed, that the frame is fresh, that the target is really the control it aimed at. |
+| **Personas with memory** | Persona cards change who answers each turn. Paired with the experience library, the same ball can behave like a different specialist per project. |
+| **An experience library, not notes** | Workflows are stored as a **node library plus independent paths**. Human text stays the base, the agent appends what it learned from real runs, and human screenshots remain the accuracy standard. |
+| **Edited from the chat box** | A one-sentence request like "帮我创建一个节点，内容是 xxx" is enough: seven library tools search, create, check and confirm — with confirmation gates the code enforces, not just prompts. |
+| **Hardened desktop control** | Six independent safety mechanisms check that every click landed, that the frame is fresh, that the target is really the control it aimed at. |
 | **Safe mode** | Any real key or pointer event stops the task instantly; only input the ball injects itself is ignored. Stopping never ends the conversation. |
 
-## Knowledge graph: workflows that survive
+## The experience library
 
-Markdown notes go stale and get skipped. `dsh-agi` stores a workflow as a graph instead:
+Markdown notes go stale and get skipped. `dsh-agi` keeps a library you can actually maintain, and it is designed so the agent's own experience improves it without overwriting yours.
 
-- **Paths** — one prepared procedure per task, with `start_title`, `end_title`, and a `runnable` flag.
-- **Nodes** — one step each, with a description and reference screenshots. Nodes are peers; any node can start a flow.
-- **Hard prerequisites** — every in-edge is an AND: a node may not run until *all* predecessors are met or explicitly skipped by you.
-- **Lookup before acting** — the agent reads `ACTIVE_GRAPH`, matches your request semantically against path names and summaries, asks you to pick one of the best three, then runs `node_sequence` in order.
-- **Fail loud, never silent** — when a predecessor is missing it reports exactly `「<next step>」 requires the output of「<previous step>」, currently missing` and offers: run the prerequisite / mark it skipped / edit the edge. It does not improvise and does not skip.
-- **A real editor** — create, edit, connect, search, copy, soft-delete and restore nodes in the built-in editor; the operations log records who created, changed, connected or deleted what, in plain Chinese.
+### Nodes: one package per step
 
-Everything lives in a folder you own (`$DSH_HOME\dsh-agi\`), not in a cloud account.
+- **Title + human description** — the operator's own words. This is the base the agent reads first.
+- **AI supplement (`ai_notes`)** — written only by the agent after it actually ran the step: pitfalls, better prompts, what the next run should watch for. The human text is never rewritten.
+- **Screenshots with a source** — human screenshots are the **core accuracy standard**; AI screenshots are guidance for the next run. Both live in the same node package, labelled `human` / `ai`.
+- **Edit in place** — the editor shows the human block and the AI block side by side, so you can see what it learned and keep your own wording authoritative.
+
+### Paths: independent by design
+
+- A path is its **own ordered list of node references**. Paths never interfere with each other; the order *is* the relation, no graph edges required.
+- Editing a node improves **every** path that references it — one fix, everywhere.
+- The editor opens a path as an editable flow: every step has **before / after insert** and delete, and the insert dialog offers three sources — nodes already in this path, search results, and favorites — with **immediate cycle rejection** when you pick a repeated node.
+- A node's insert affordance exists only inside a path. A lonely node never has a "where do I go" problem.
+
+### Checks that run before anything executes
+
+A path is checked statically, on demand and on save:
+
+- every referenced node still exists and is not soft-deleted;
+- no node repeats (a repeat is a cycle);
+- the recorded start and end match the actual first and last steps;
+- required fields (title, description, captions) are filled.
+
+Nothing here touches the desktop — checking is pure data. A broken path can never silently reach the machine.
+
+### Chat-driven edits with double constraints
+
+The input box can drive the library through seven tools:
+
+| Tool | What it does |
+|---|---|
+| `knowledge_graph_search` | Finds existing nodes and paths before anything is created — reuse beats duplicates. |
+| `knowledge_graph_get_node` | Reads a node, including its AI supplement and which screenshots are human vs AI. |
+| `knowledge_graph_create_node` | Creates a node; refuses a duplicate title unless the operator confirms, and can store screenshots attached in the same message. |
+| `knowledge_graph_create_path` | Saves an ordered path **only after explicit confirmation**; rejects cycles and missing nodes, and checks the saved path afterwards. |
+| `knowledge_graph_check_path` | Runs the static check and reports every finding. |
+| `knowledge_graph_update_node` | Fixes a human title or description — wording stays the operator's. |
+| `knowledge_graph_learn_node` | After a real run, updates **only** the AI part: `ai_notes` (capped at 300 characters, 3 bullets) and AI screenshots. Skips when nothing new was learned. |
+
+The safety order is enforced twice: the code refuses an unconfirmed write, and a per-step prompt states the procedure — search first, confirm every step with the operator, then check and report. Creating a path also starts with the explicit warning *"路径创建较复杂，请务必打开经验库核对每个细节"*, so the operator is expected in the loop, not surprised by it.
 
 ## Hardened computer use
 
@@ -40,18 +73,17 @@ Desktop automation fails in boring ways: a click lands while a modal owns the wi
 | **An old frame** | **Frame freshness + rescue capture.** `DwmFlush` runs before every capture, so the bitmap is a composed frame. A failed or all-black BitBlt switches to `PrintWindow(PW_RENDERFULLCONTENT)`; a degenerate rescue frame still returns the original bitmap plus a trace, never an exception that loses the capture. |
 | **Aim that looks right but is not** | **Hover probe.** The preview stage captures the same small rectangle before and after the pointer moves onto the target and reports whether the control actually reacted — pixel differencing with a tolerance, so anti-aliasing and subpixel jitter cannot fake it. |
 | **Wrong screen, wrong DPI** | **Display inventory.** Every monitor is enumerated with physical and logical rectangles at per-monitor-v2 DPI awareness. One conversion maps a normalized point → window rect → containing monitor → physical pixel, and the inventory is printed into the observation envelope. |
-| **"Could not read" shown as "nothing there"** | **Three-state observation + text hygiene.** Every field is `provided`, `empty`, or `unsampled` (permission, timeout, unsupported), so a failed read can never masquerade as an empty UI. All model-facing text is sanitized: private-use areas removed, lone surrogates repaired, line breaks escaped, truncation marked explicitly. |
+| **"Could not read" shown as "nothing there"** | **Three-state observation + text hygiene.** Every field is `provided`, `empty`, or `unsampled` (permission, timeout, unsupported), so a failed read can never masquerade as an empty UI. All model-facing text is sanitized: private-use areas removed, zero-width characters dropped, lone surrogates repaired, line breaks escaped, truncation marked explicitly. |
 
-These are covered by dedicated suites: 373 host tests and 68 knowledge-graph tests, plus computer-use specs for action receipts, capture strategy, hover, display inventory, text sanitize and window hardening.
+The observation frame (the glowing border drawn while the agent is in control) is excluded from every screenshot via `WDA_EXCLUDEFROMCAPTURE`, so it can never pollute what the model sees.
 
-## Recent changes — 0.6.1
+## Recent changes — 0.6.5
 
-- **Knowledge graph editor**: favorites, plain-Chinese operations log, soft delete with restore, search-driven relation building (from a node's `+` or the toolbar, independent of the canvas), a 1/3-width detail drawer, and `io.input`/`io.output` removed.
-- **Hardened computer use**: the six mechanisms above, plus modal guard, window hardening and diagnostics.
-- **Diagnostics**: display inventory is published process-wide so the settings page and troubleshooting route can read it (a preset may not provide Cordis services).
-- **Activity pill**: blue "thinking", green "acting" (turns green about 0.35 s before a click or keystroke) and red "not working" for five seconds after a task ends.
-- **Safe mode**: a switch in settings; while on, a yellow chip stays beside the activity pill and any real input stops the task. Injected input is ignored, and stopping does not end the conversation.
-- **Automatic updates**: the settings page checks npm (npmmirror first) with GitHub as the fallback.
+- **Experience library rebuilt** around a node library and independent paths: the old canvas, anchor, path-stack and relation-builder surfaces are gone; the editor is now a two-column search (nodes / paths) with an editable path flow.
+- **Chat-driven library editing**: seven tools with confirmation gates, cycle rejection, and a static check after every save.
+- **Self-learning nodes**: `ai_notes` and AI screenshots are written by the agent from real runs, kept separate from the human description and human screenshots in the same node package.
+- **Computer use hardening**: optional frame deduplication (off by default, because it hides the "nothing changed" evidence), zero-width character cleanup, virtual-desktop bounds pre-check, retryable three-state error hints, and a stronger observation halo.
+- **Editor polish**: wood-board theme, path checks, and a static check button.
 
 ## Install
 
@@ -95,7 +127,7 @@ This only controls whether the build script runs; it does not change what the pl
 - **Voice**: click the ball's avatar to start listening, speak, and click it again to stop. A one-second pause also ends the utterance automatically. Speak and send go through the same path.
 - **Images**: paste a screenshot (Ctrl+V) into the panel's composer, up to nine per message, and send it with your text.
 - **Persona cards**: Settings → Floating ball → Persona cards. Create or pick a card; the agent then answers in that character every turn.
-- **Knowledge graph**: Settings → Floating ball → Knowledge library. Save a path while you work, or dictate an experience and let the agent file it as nodes with screenshots. Before operating an unfamiliar app the agent looks up the graph and follows the path.
+- **Experience library**: Settings → Floating ball → Knowledge library, or the ball's right-click menu → 进入经验库. Search nodes to view and edit them, search paths to see the whole flow; insert, reorder and check steps inside the path view. Or just ask in the chat box — "创建节点：xxx", "创建路径 A→B→C" — and confirm the steps it lists back.
 - **Wake word**: with the ball collapsed, say 你好大肥鱼 (or your configured phrase). The panel opens and pins itself, and the ball answers 我在呢 locally. The wake phrase, reply, threshold, decision granularity and the 1.5 s cooldown are all editable. The 9 MB wake model downloads from this repository on first use. Say 大肥鱼 to interject while the agent works, or 退下吧 to stop and unpin.
 
 ## Safe mode and the activity pill
