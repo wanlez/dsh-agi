@@ -114,6 +114,9 @@ contextBridge.exposeInMainWorld('dshAgi', {
   onMode(callback) {
     ipcRenderer.on('orb:mode', (_event, mode) => callback(mode))
   },
+  onSessionMode(callback) {
+    ipcRenderer.on('orb:session-mode', (_event, mode) => callback(mode))
+  },
   setMode(mode) {
     ipcRenderer.send('orb:mode', mode)
   },

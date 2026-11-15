@@ -2004,6 +2004,7 @@ export class OrbRuntime {
       update: this.updateAvailable,
       catalog,
     })
+    this.broadcast({ type: 'session-mode', mode: this.store.sessionMode() })
     this.broadcast(avatarMessage(this.store))
     // A live session still runs the previous fallback: hand it the new one. Only the
     // fallback moves this way — an explicit pick is never reported as changed.

@@ -339,6 +339,11 @@ body.pinned #panel {
   box-shadow: 0 0 0 3px var(--pin);
 }
 
+#history:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 #history,
 #new-conversation,
 #permission {

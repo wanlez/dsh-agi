@@ -32,6 +32,7 @@ interface ChromeState {
   overlay: MenuSelection
   background: MenuSelection
   millifractionEnabled: boolean
+  sessionMode: 'isolated' | 'shared'
   openMain: boolean
   catalog: MenuCatalog
   /** Newer published version the host found, or null when there is nothing to install. */
@@ -48,6 +49,7 @@ let chrome: ChromeState = {
   overlay: noSelection,
   background: noSelection,
   millifractionEnabled: false,
+  sessionMode: 'isolated',
   openMain: false,
   catalog: { groups: [] },
   update: null,
@@ -115,6 +117,7 @@ void app.whenReady().then(async () => {
       // or the panel would sit over them until the next expand.
       applyStrip(lastAgentItems.length > 0)
       if (lastAgentItems.length > 0) win.webContents.send('orb:agents', lastAgentItems)
+      win.webContents.send('orb:session-mode', chrome.sessionMode)
     }
   })
   // OS scheme flips ride through while the theme preference is `system`.
@@ -500,6 +503,12 @@ function deliver(message: unknown): void {
     win.webContents.send('orb:mode', (record as { mode?: unknown }).mode)
     return
   }
+  if (record.type === 'session-mode') {
+    const mode = (record as { mode?: unknown }).mode === 'shared' ? 'shared' : 'isolated'
+    chrome.sessionMode = mode
+    win.webContents.send('orb:session-mode', mode)
+    return
+  }
   if (record.type === 'status') {
     win.webContents.send('orb:status', (record as { text?: unknown }).text)
     return
@@ -746,6 +755,7 @@ function readChrome(value: unknown): ChromeState {
     overlay?: MenuSelection
     background?: MenuSelection
     millifractionEnabled?: unknown
+    sessionMode?: unknown
     openMain?: unknown
     update?: unknown
     catalog?: MenuCatalog
@@ -754,6 +764,7 @@ function readChrome(value: unknown): ChromeState {
     overlay: selectionOr(record.overlay, chrome.overlay),
     background: selectionOr(record.background, chrome.background),
     millifractionEnabled: record.millifractionEnabled === true,
+    sessionMode: record.sessionMode === 'shared' ? 'shared' : 'isolated',
     openMain: record.openMain === true,
     update: typeof record.update === 'string' && record.update !== '' ? record.update : null,
     catalog: record.catalog ?? { groups: [] },

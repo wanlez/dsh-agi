@@ -72,6 +72,7 @@ const zh = {
   chipDismiss: '移除',
   workLocked: '悬浮球 Agent 执行期间不能切换对话',
   historyLocked: 'Agent 执行期间不能查看历史对话',
+  historyShared: '共享模式绑定的是重启时锚定的会话；要更换，先去另一个会话发条消息，再重启 DSH',
   newLocked: 'Agent 执行期间不能新建对话',
   tccTitle: '使用桌面 agent 需要两项 Mac 权限',
   tccAppHint: '在列表里打开 {name}。',
@@ -135,6 +136,7 @@ const en = {
   chipDismiss: 'Remove',
   workLocked: 'Cannot switch conversations while the floating-ball agent is working',
   historyLocked: 'History is unavailable while the agent is working',
+  historyShared: 'Shared mode is pinned to the conversation adopted at the last restart — send a message in another conversation, then restart DSH to switch',
   newLocked: 'A new conversation cannot start while the agent is working',
   tccTitle: 'Desktop agent needs two Mac permissions',
   tccAppHint: 'In the list, turn on {name}.',
@@ -354,6 +356,7 @@ let expandedAt = 0
   let permission = 'danger-full-access'
   let permissionOpen = false
   let historyOpen = false
+  let sessionMode = 'isolated'
   let agentItems = []
   let agentClock
   let pending
@@ -2653,12 +2656,28 @@ let expandedAt = 0
     setPermissionOpen(false)
   })
   historyButton.addEventListener('click', () => {
+    if (sessionMode === 'shared') {
+      showHint(messages.historyShared)
+      return
+    }
     if (workLocked) {
       showHint(messages.workLocked)
       return
     }
     setHistoryOpen(!historyOpen)
   })
+  /**
+   * Shared mode pins the ball to the conversation it adopted at the last restart, so its history
+   * list has nothing safe to switch to: the title explains the rule instead of offering rows.
+   */
+  function applySessionMode(mode) {
+    sessionMode = mode === 'shared' ? 'shared' : 'isolated'
+    const shared = sessionMode === 'shared'
+    historyButton.disabled = shared
+    historyButton.setAttribute('aria-disabled', String(shared))
+    historyButton.title = shared ? messages.historyShared : messages.history
+    if (shared && historyOpen) setHistoryOpen(false)
+  }
   function renderAttachments() {
     if (!attachmentsBox) return
     attachmentsBox.hidden = composerImages.length === 0
@@ -2761,6 +2780,7 @@ let expandedAt = 0
   }
   setModeState('operate')
   api.onMode((mode) => { setModeState(mode) })
+  api.onSessionMode((mode) => { applySessionMode(mode) })
   if (modeToggle !== null) {
     modeToggle.addEventListener('click', () => {
       if (modeToggle.disabled) return
