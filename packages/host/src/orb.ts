@@ -277,6 +277,9 @@ interface AgentBookmarkRegistry {
 
 /** Cordis service name of {@link AgentBookmarkRegistry}. */
 const CODE_AGENT_REGISTRY = 'codeAgentRegistry'
+
+/** The preset every ball-owned conversation runs: computer use plus the experience tools. */
+const BALL_AGENT_PRESET = 'computer-use'
 /**
  * Backoff before the first-run runtime download is retried; the last entry is
  * the self-heal attempt. One dropped connection must not cost the user the ball
@@ -1132,14 +1135,18 @@ export class OrbRuntime {
   private async createSession(): Promise<string> {
     const workspaceId = await this.workspaceId()
     const saved = await readSavedSession(this.sessionFile)
-    if (saved !== undefined) {
-      if (await this.openConversation(saved)) return this.adopt(saved)
+    // Isolated by default: only a conversation the ball created itself is reused. A conversation
+    // the main window owns stays the window's — otherwise both surfaces drive the same agent and
+    // the ball loses its computer-use preset. A record written before this rule carries no
+    // preset, so the first start after upgrading creates a fresh ball conversation.
+    if (saved !== undefined && saved.agentPreset === BALL_AGENT_PRESET) {
+      if (await this.openConversation(saved.sessionId)) return this.adopt(saved.sessionId)
       console.error('dsh-agi: saved session cannot be opened; creating a new one')
-      await rm(this.sessionFile, { force: true })
     }
+    await rm(this.sessionFile, { force: true })
     const session = await this.ctx.sessionController.create({
       workspaceId,
-      agentPreset: 'computer-use',
+      agentPreset: BALL_AGENT_PRESET,
     })
     return this.adopt(session.sessionId)
   }
@@ -1216,7 +1223,7 @@ export class OrbRuntime {
     publishScreenOwner(sessionId)
     try {
       await mkdir(dirname(this.sessionFile), { recursive: true })
-      await writeFile(this.sessionFile, `${JSON.stringify({ sessionId })}\n`)
+      await writeFile(this.sessionFile, `${JSON.stringify({ sessionId, agentPreset: BALL_AGENT_PRESET })}\n`)
     } catch (error) {
       console.error(`dsh-agi: could not save session id: ${error instanceof Error ? error.message : String(error)}`)
     }
@@ -2943,10 +2950,15 @@ function readWindowIds(value: unknown): readonly number[] {
   return ids
 }
 
-async function readSavedSession(file: string): Promise<string | undefined> {
+async function readSavedSession(file: string): Promise<{ sessionId: string; agentPreset?: string } | undefined> {
   try {
-    const parsed = JSON.parse(await readFile(file, 'utf8')) as { sessionId?: unknown }
-    if (typeof parsed.sessionId === 'string' && parsed.sessionId.startsWith('session-')) return parsed.sessionId
+    const parsed = JSON.parse(await readFile(file, 'utf8')) as { sessionId?: unknown; agentPreset?: unknown }
+    if (typeof parsed.sessionId === 'string' && parsed.sessionId.startsWith('session-')) {
+      return {
+        sessionId: parsed.sessionId,
+        ...typeof parsed.agentPreset === 'string' ? { agentPreset: parsed.agentPreset } : {},
+      }
+    }
   } catch {
     // No saved session yet, or the file is unreadable. A new session is created.
   }
