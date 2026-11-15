@@ -990,20 +990,64 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
   }
 
   // ---------- create node ----------
+  var createState = { files: [] };
+  function renderCreateShots() {
+    var box = $("createShotList");
+    if (!box) return;
+    if (createState.files.length === 0) { box.innerHTML = '<span class="muted">还没有选择截图。</span>'; return; }
+    box.innerHTML = createState.files.map(function (file, index) {
+      return '<figure class="shot"><img src="' + URL.createObjectURL(file) + '" alt="" style="max-height:90px">'
+        + '<figcaption><span class="grow">' + esc(file.name) + '</span>'
+        + '<button class="btn small danger" data-action="remove-create-shot" data-index="' + index + '">删</button></figcaption></figure>';
+    }).join("");
+  }
   function openCreate() {
+    createState = { files: [] };
     showModal("新建节点",
       '<div class="field"><label>标题</label><input id="createTitle" placeholder="例如：进入天翼云电脑"></div>'
-      + '<div class="field"><label>说明（步骤正文，检索和模型都读它）</label><textarea id="createDesc" rows="6" placeholder="先做什么，再做什么，成功判据是什么"></textarea></div>',
+      + '<div class="field"><label>说明（步骤正文，检索和模型都读它）</label><textarea id="createDesc" rows="6" placeholder="先做什么，再做什么，成功判据是什么"></textarea></div>'
+      + '<div class="field"><label>人的截图（核心评判标准，可多张）</label>'
+      + '<input type="file" id="createShots" accept="image/png,image/jpeg,image/webp,image/gif" multiple style="width:100%">'
+      + '<input id="createShotCaption" placeholder="截图说明（用来校验准确性；多张可共用一句）" style="width:100%;margin-top:6px">'
+      + '<div id="createShotList" class="shots" style="margin-top:8px"></div></div>',
       '<button class="btn ghost" data-action="close-modal">取消</button><button class="btn primary" data-action="create-node-apply">创建</button>');
+    renderCreateShots();
+    $("createShots").addEventListener("change", function () {
+      var picked = this.files ? Array.prototype.slice.call(this.files) : [];
+      createState.files = createState.files.concat(picked);
+      renderCreateShots();
+    });
   }
   function createNodeApply() {
     var title = $("createTitle").value.trim();
     if (!title) { toast("标题不能为空。", "warn"); return; }
+    var caption = $("createShotCaption").value.trim();
     api("/api/nodes", { method: "POST", body: { title: title, description: $("createDesc").value } }).then(function (data) {
-      closeModal();
-      toast("节点已创建。");
-      loadFavorites();
-      return openDetail(data.node.id);
+      var nodeId = data.node.id;
+      var files = createState.files.slice();
+      // Upload one by one so the server sees a stable node and a failed image cannot lose the node.
+      var chain = Promise.resolve();
+      files.forEach(function (file, index) {
+        chain = chain.then(function () {
+          return new Promise(function (resolve) {
+            var reader = new FileReader();
+            reader.onload = function () {
+              api("/api/nodes/" + encodeURIComponent(nodeId) + "/screenshots", {
+                method: "POST",
+                body: { caption: caption || file.name || "用户提供的截图", data: String(reader.result), file_name: file.name },
+              }).then(resolve).catch(function () { resolve(); });
+            };
+            reader.onerror = function () { resolve(); };
+            reader.readAsDataURL(file);
+          });
+        });
+      });
+      return chain.then(function () {
+        closeModal();
+        toast(files.length > 0 ? "节点已创建，并存入 " + files.length + " 张截图。" : "节点已创建。");
+        loadFavorites();
+        return openDetail(nodeId);
+      });
     }).catch(function (error) { toast(error.message, "bad"); });
   }
 
@@ -1035,6 +1079,12 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
     if (action === "reload-favorites") { loadFavorites(); return; }
     if (action === "close-modal") { closeModal(); return; }
     if (action === "create-node-apply") { createNodeApply(); return; }
+    if (action === "remove-create-shot") {
+      event.preventDefault();
+      createState.files.splice(Number(el.getAttribute("data-index")), 1);
+      renderCreateShots();
+      return;
+    }
     if (action === "close-path-editor") { closePathEditor(); return; }
     if (action === "save-path-editor") { savePathEditor(); return; }
     if (action === "check-path-editor") { checkPathEditor(); return; }
