@@ -664,8 +664,19 @@ let expandedAt = 0
     if (docked === undefined) return
     suppressExpand = true
     if (dragging) skipDockCommit = true
-    applyDocked(undefined)
-    applyDockedFrom(await api.unsnap())
+    try {
+      applyDocked(undefined)
+      applyDockedFrom(await api.unsnap())
+      // The hover that woke a docked ball must also open the panel, or a ball parked at
+      // the edge would need a second hover (and the window covers the screen, so a second
+      // enter may never arrive).
+      suppressExpand = false
+      void setExpanded(true)
+    } catch (error) {
+      // A failed unsnap must never leave hover permanently suppressed.
+      suppressExpand = false
+      console.error('dsh-agi: unsnap failed', error)
+    }
   }
 
   async function setExpanded(next, force = false) {
