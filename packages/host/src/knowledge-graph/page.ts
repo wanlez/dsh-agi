@@ -1084,6 +1084,8 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
   }
   function nextPathKey(nodeId) { return "k" + Math.random().toString(36).slice(2, 8) + "-" + nodeId; }
   function insertNodeAt(anchorKey, direction) {
+    // Recompute the canvas numbers first, so the list below always matches the circles.
+    renderPathCanvas();
     state.insert = { anchor: anchorKey, direction: direction };
     var body = '<div class="insertCols">'
       + '<div class="insertCol"><h4>本路径内节点</h4><div class="insertNote">选这里的节点＝把新连线连到这个已有位置，不会重复加节点。</div><div id="insertLocal" class="insertList"></div></div>'
@@ -1161,6 +1163,8 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
     var nextGraph = { nodes: graph.nodes.slice(), edges: graph.edges.slice() };
     if (insert.pickedInstance) {
       // Already in the path: this only adds an edge to that exact position.
+      var stillThere = graph.nodes.some(function (entry) { return entry.key === insert.pickedInstance; });
+      if (!stillThere) { toast("选中的位置已经不存在，请重新选择。", "bad"); return; }
       if (!insert.anchor) { toast("先选一个锚点位置。", "warn"); return; }
       if (insert.anchor === insert.pickedInstance) { toast("不能连到自己。", "bad"); return; }
       if (insert.direction === "before") nextGraph.edges.push({ from: insert.pickedInstance, to: insert.anchor });
