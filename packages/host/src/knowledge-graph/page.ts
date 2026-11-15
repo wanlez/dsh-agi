@@ -409,6 +409,7 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
   .pathNode circle { fill: #e6efe4; stroke: var(--accent); stroke-width: 2; }
   .pathNode:hover circle { fill: #fffaf0; }
   .pathNode text { font-size: 12px; fill: var(--text); font-weight: 600; }
+  .pathNode .pathNumber { font-size: 15px; fill: var(--accent); font-weight: 700; }
   .pathTool { font-size: 12px; fill: var(--accent); cursor: pointer; font-weight: 600; }
   .pathTool.danger { fill: var(--danger); }
   .pathTool:hover { text-decoration: underline; }
@@ -517,6 +518,7 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
     detailDirty: false,
     pathEditor: null,
     pathDirty: false,
+    pathNumbers: {},
     insert: null,
     nodes: [],
     paths: [],
@@ -951,6 +953,16 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
     });
     var width = padX * 2 + (layerKeys.length - 1) * gapX + 140;
     var height = padY * 2 + (maxRows - 1) * gapY + 80;
+    // Display numbers 1..N in flow order; recomputed on every render, never stored. Two
+    // instances of the same node still get different numbers, so they stay distinguishable.
+    var number = 0;
+    state.pathNumbers = {};
+    layerKeys.forEach(function (l) {
+      byLayer[l].forEach(function (key) {
+        number += 1;
+        state.pathNumbers[key] = number;
+      });
+    });
     var svg = '<svg class="pathSvg" viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="xMinYMin meet">'
       + '<defs><marker id="pathArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#7a6148"></path></marker></defs>';
     graph.edges.forEach(function (edge) {
@@ -966,6 +978,7 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
       var short = title.length > 9 ? title.slice(0, 9) + "…" : title;
       svg += '<g class="pathNode" data-action="open-node" data-id="' + esc(entry.node_id) + '">'
         + '<circle cx="' + point.x + '" cy="' + point.y + '" r="' + radius + '"></circle>'
+        + '<text class="pathNumber" x="' + point.x + '" y="' + (point.y + 6) + '" text-anchor="middle">' + (state.pathNumbers[entry.key] || "") + '</text>'
         + '<text x="' + point.x + '" y="' + (point.y + radius + 18) + '" text-anchor="middle">' + esc(short) + '</text></g>';
       svg += '<text class="pathTool" data-action="insert-step" data-key="' + esc(entry.key) + '" data-dir="before" x="' + (point.x - radius - 8) + '" y="' + (point.y - radius - 10) + '">前+</text>'
         + '<text class="pathTool" data-action="insert-step" data-key="' + esc(entry.key) + '" data-dir="after" x="' + (point.x + radius - 18) + '" y="' + (point.y - radius - 10) + '">后+</text>'
@@ -1080,12 +1093,11 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
       + '<div class="insertFoot"><span id="insertPicked" class="muted">选一个节点</span><button class="btn primary" data-action="insert-apply" disabled id="insertApplyBtn">插入</button></div>';
     showModal("插入节点（" + (direction === "before" ? "作为上一步" : "作为下一步") + "）", body);
     var local = (state.pathEditor.graph.nodes || []).map(function (entry, index) {
-      return { key: entry.key, node_id: entry.node_id, index: index };
-    });
+      return { key: entry.key, node_id: entry.node_id, number: state.pathNumbers[entry.key] || (index + 1) };
+    }).sort(function (a, b) { return a.number - b.number; });
     $("insertLocal").innerHTML = local.length === 0 ? '<span class="muted">路径还没有节点。</span>' : local.map(function (entry) {
       return '<button class="insertItem" data-pick-node="' + esc(entry.node_id) + '" data-pick-instance="' + esc(entry.key) + '">'
-        + '<span class="riTitle">' + esc(state.titles[entry.node_id] || entry.node_id) + '</span>'
-        + '<span class="riMeta">路径里第 ' + (entry.index + 1) + ' 个位置</span></button>';
+        + '<span class="riTitle">' + entry.number + '. ' + esc(state.titles[entry.node_id] || entry.node_id) + '</span></button>';
     }).join("");
     $("insertFavorites").innerHTML = state.nodes.length === 0 ? '<span class="muted">还没有节点。</span>' : state.nodes.map(function (node) {
       return '<button class="insertItem" data-pick-node="' + esc(node.id) + '">' + esc(node.title || "未命名节点") + '</button>';
@@ -1115,8 +1127,8 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
       state.insert.pickedInstance = pick.getAttribute("data-pick-instance");
       var pickedTitle = state.titles[state.insert.picked] || state.insert.picked;
       if (state.insert.pickedInstance) {
-        var index = (state.pathEditor.graph.nodes || []).findIndex(function (entry) { return entry.key === state.insert.pickedInstance; });
-        $("insertPicked").textContent = "已选：路径里第 " + (index + 1) + " 个位置（" + pickedTitle + "）";
+        var pickedNumber = state.pathNumbers[state.insert.pickedInstance];
+        $("insertPicked").textContent = "已选：" + (pickedNumber || "?") + ". " + pickedTitle;
       } else {
         $("insertPicked").textContent = "已选：" + pickedTitle;
       }
