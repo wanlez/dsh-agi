@@ -339,7 +339,7 @@ body.pinned #panel {
   box-shadow: 0 0 0 3px var(--pin);
 }
 
-#history:disabled {
+#history.is-locked {
   opacity: 0.4;
   cursor: not-allowed;
 }

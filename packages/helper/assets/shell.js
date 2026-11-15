@@ -2655,6 +2655,9 @@ let expandedAt = 0
     if (permissionRoot.contains(event.target)) return
     setPermissionOpen(false)
   })
+  historyButton.addEventListener('pointerenter', () => {
+    if (sessionMode === 'shared') showHint(messages.historyShared)
+  })
   historyButton.addEventListener('click', () => {
     if (sessionMode === 'shared') {
       showHint(messages.historyShared)
@@ -2673,8 +2676,10 @@ let expandedAt = 0
   function applySessionMode(mode) {
     sessionMode = mode === 'shared' ? 'shared' : 'isolated'
     const shared = sessionMode === 'shared'
-    historyButton.disabled = shared
+    // A disabled button receives no pointer events, so the hover hint would never show. Keep it
+    // focusable and aria-disabled, dim it with a class, and let the click handler refuse.
     historyButton.setAttribute('aria-disabled', String(shared))
+    historyButton.classList.toggle('is-locked', shared)
     historyButton.title = shared ? messages.historyShared : messages.history
     if (shared && historyOpen) setHistoryOpen(false)
   }
