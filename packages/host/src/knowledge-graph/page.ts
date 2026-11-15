@@ -1055,7 +1055,13 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
   function actionOf(target) { return target && target.closest ? target.closest("[data-action]") : null; }
   document.addEventListener("click", function (event) {
     var el = actionOf(event.target);
-    if (!el) return;
+    if (!el) {
+      // A click on the canvas (anywhere outside the drawer) closes the node drawer, exactly
+      // like its own close button; controls inside the drawer keep working.
+      var drawer = $("detail");
+      if (drawer && !drawer.hidden && event.target.closest && !event.target.closest("#detail")) hideDetail();
+      return;
+    }
     var action = el.getAttribute("data-action");
     var id = el.getAttribute("data-id");
     if (action === "open-node-picker") { event.preventDefault(); openPicker("node"); return; }
@@ -1182,14 +1188,6 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
       return;
     }
   });
-  // A click on the path surface never closes the node drawer; only its own controls act.
-  (function () {
-    var pathSurface = $("pathView");
-    if (!pathSurface) return;
-    pathSurface.addEventListener("click", function (event) {
-      if (!actionOf(event.target)) event.stopPropagation();
-    });
-  })();
   $("nodeSearchForm") && $("nodeSearchForm").addEventListener("submit", function (event) { event.preventDefault(); });
   $("pathSearchForm") && $("pathSearchForm").addEventListener("submit", function (event) { event.preventDefault(); });
   document.addEventListener("keydown", function (event) {
