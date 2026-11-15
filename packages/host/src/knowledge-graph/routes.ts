@@ -229,6 +229,11 @@ async function dispatch(options: GraphRequestOptions): Promise<void> {
       sendJson(res, 200, { ok: true, node: publicNode(await service.copyNode(id, operatorOf(req, url))) })
       return
     }
+    if (method === 'POST' && parts[3] === 'favorite') {
+      const body = asRecord(await readJson(req)) ?? {}
+      sendJson(res, 200, { ok: true, node: publicNode(await service.setNodeFavorite(id, body.favorite === true)) })
+      return
+    }
     if (method === 'POST' && parts[3] === 'delete') {
       sendJson(res, 200, { ok: true, node: publicNode(await service.deleteNode(id, operatorOf(req, url))) })
       return
@@ -316,6 +321,11 @@ async function dispatch(options: GraphRequestOptions): Promise<void> {
     if (method === 'DELETE') {
       await service.deletePath(id)
       sendJson(res, 200, { ok: true })
+      return
+    }
+    if (method === 'POST' && parts[3] === 'favorite') {
+      const body = asRecord(await readJson(req)) ?? {}
+      sendJson(res, 200, { ok: true, path: publicPath(await service.setPathFavorite(id, body.favorite === true)) })
       return
     }
     if (method === 'PUT') {

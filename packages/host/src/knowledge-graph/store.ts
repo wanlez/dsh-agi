@@ -143,6 +143,7 @@ function parseNode(raw: unknown): GraphNode | undefined {
     screenshots,
     ...typeof record.ai_notes === 'string' && record.ai_notes.trim() !== '' ? { ai_notes: record.ai_notes } : {},
     ...typeof record.ai_updated_at === 'string' && record.ai_updated_at !== '' ? { ai_updated_at: record.ai_updated_at } : {},
+    ...typeof record.favorite === 'boolean' ? { favorite: record.favorite } : {},
   }
 }
 
@@ -174,6 +175,7 @@ function parsePath(raw: unknown): GraphPath | undefined {
     start_node: record.start_node,
     end_node: record.end_node,
     node_sequence: record.node_sequence as string[],
+    ...typeof record.favorite === 'boolean' ? { favorite: record.favorite } : {},
   }
 }
 

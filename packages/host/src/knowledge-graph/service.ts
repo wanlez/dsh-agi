@@ -142,6 +142,8 @@ export interface PathRow {
   readonly node_count: number
   readonly runnable: boolean
   readonly problems: readonly string[]
+  /** False when the operator removed it from the favorites list; the path itself still exists. */
+  readonly favorite: boolean
 }
 
 /** The full path the executor loads after the operator confirms an index. */
@@ -299,6 +301,7 @@ export class KnowledgeGraphService {
         node_count: path.node_sequence.length,
         runnable: problems.length === 0,
         problems: problems.map((problem) => problem.message),
+        favorite: path.favorite !== false,
       }
     })
   }
@@ -676,6 +679,40 @@ export class KnowledgeGraphService {
       await this.store.removePathFile(pathId)
       ;(snapshot.paths as GraphPath[]).splice(index, 1)
       await this.store.commit(snapshot, settings)
+    })
+  }
+
+  /**
+   * Toggle the favorites flag for one node.
+   *
+   * "Remove from favorites" only hides the node from the favorites list: the node file, its
+   * screenshots and every path that references it stay exactly as they are.
+   */
+  async setNodeFavorite(nodeId: string, favorite: boolean): Promise<GraphNode> {
+    return this.locked(async () => {
+      const { snapshot, settings } = await this.loaded()
+      const node = snapshot.nodes.get(nodeId)
+      if (node === undefined) throw new GraphError('node-missing', '节点不存在。', 404)
+      const saved: GraphNode = { ...node, favorite }
+      await this.store.saveNode(saved)
+      ;(snapshot.nodes as Map<string, GraphNode>).set(nodeId, saved)
+      await this.store.commit(snapshot, settings)
+      return saved
+    })
+  }
+
+  /** Toggle the favorites flag for one path; the path file and its nodes stay untouched. */
+  async setPathFavorite(pathId: string, favorite: boolean): Promise<GraphPath> {
+    return this.locked(async () => {
+      const { snapshot, settings } = await this.loaded()
+      const index = snapshot.paths.findIndex((path) => path.id === pathId)
+      if (index === -1) throw new GraphError('path-missing', '收藏不存在。', 404)
+      const previous = snapshot.paths[index] as GraphPath
+      const saved: GraphPath = { ...previous, favorite }
+      await this.store.savePath(saved)
+      ;(snapshot.paths as GraphPath[])[index] = saved
+      await this.store.commit(snapshot, settings)
+      return saved
     })
   }
 

@@ -614,12 +614,14 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
     });
     html += '</div>';
     html += '<div class="block"><h3>节点操作</h3><div class="actionGrid">';
+    var favorited = node.favorite !== false;
+    html += '<button class="btn wide" data-action="toggle-node-favorite" data-id="' + esc(node.id) + '">' + (favorited ? "取消收藏" : "收藏节点") + '</button>';
     if (deleted) {
       html += '<button class="btn primary wide" data-action="restore-node" data-id="' + esc(node.id) + '">恢复节点</button>';
     } else {
       html += '<button class="btn danger wide" data-action="delete-node" data-id="' + esc(node.id) + '">删除节点</button>';
     }
-    html += '</div><div class="muted" style="font-size:11px;margin-top:7px">删除是软删除，需要时在节点搜索里找回并恢复。</div></div>';
+    html += '</div><div class="muted" style="font-size:11px;margin-top:7px">取消收藏只把它从收藏列表移除，节点本身还在；删除是软删除，需要时在节点搜索里找回并恢复。</div></div>';
     drawer.innerHTML = html;
     drawer.hidden = false;
     bindDrawerResize();
@@ -701,8 +703,8 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
   }
   function loadFavorites() {
     return Promise.all([api("/api/nodes?status=active"), api("/api/paths")]).then(function (data) {
-      state.nodes = data[0].nodes || [];
-      state.paths = data[1].paths || [];
+      state.nodes = (data[0].nodes || []).filter(function (node) { return node.favorite !== false; });
+      state.paths = (data[1].paths || []).filter(function (path) { return path.favorite !== false; });
       var nodeBox = $("nodeFavorites");
       nodeBox.innerHTML = state.nodes.length === 0 ? '<span class="muted">还没有节点。</span>' : state.nodes.map(function (node) {
         return '<button class="resultItem" data-action="open-node" data-id="' + esc(node.id) + '"><span class="riTitle">' + esc(node.title || "未命名节点") + '</span></button>';
@@ -723,7 +725,7 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
   function openPath(id) {
     api("/api/paths/" + encodeURIComponent(id)).then(function (detail) {
       var path = detail.path;
-      state.pathEditor = { pathId: path.id, name: path.name, summary: path.summary, steps: (path.node_sequence || []).slice() };
+      state.pathEditor = { pathId: path.id, name: path.name, summary: path.summary, steps: (path.node_sequence || []).slice(), favorite: path.favorite !== false };
       state.pathDirty = false;
       (detail.nodes || []).forEach(function (node) { state.titles[node.id] = node.title; });
       renderPathEditor();
@@ -750,7 +752,7 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
     var html = '<div class="pvHead"><h3>' + esc(editor.name || "未命名路径") + '</h3>'
       + '<span class="tag ' + (state.pathDirty ? "warn" : "ok") + '">' + (state.pathDirty ? "未保存" : "已保存") + '</span>'
       + '<span class="grow"></span>'
-      + (editor.pathId == null ? "" : '<button class="btn small danger" data-action="delete-path-editor">删路径</button>')
+      + (editor.pathId == null ? "" : '<button class="btn small' + (editor.favorite === false ? "" : " danger") + '" data-action="toggle-path-favorite">' + (editor.favorite === false ? "收藏路径" : "取消收藏") + '</button>')
       + '<button class="btn small" data-action="check-path-editor">检查</button>'
       + '<button class="btn small primary" data-action="save-path-editor">保存</button>'
       + '<button class="btn small ghost" data-action="close-path-editor">关闭</button></div>';
@@ -1039,23 +1041,28 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
       }).catch(function (error) { toast(error.message, "bad"); });
       return;
     }
-    if (action === "delete-path-editor") {
+    if (action === "toggle-path-favorite") {
       event.preventDefault();
-      var editor = state.pathEditor;
-      if (!editor || editor.pathId == null) return;
-      askConfirm({
-        title: "删除这条路径？",
-        message: "只删除这条路径收藏；节点和它们的截图都会保留。",
-        confirmText: "删除",
-        danger: true,
-      }).then(function (yes) {
-        if (!yes) return;
-        api("/api/paths/" + encodeURIComponent(editor.pathId), { method: "DELETE" }).then(function () {
-          toast("路径已删除。");
-          closePathEditor();
-          loadFavorites();
-        }).catch(function (error) { toast(error.message, "bad"); });
-      });
+      var pathEditor = state.pathEditor;
+      if (!pathEditor || pathEditor.pathId == null) return;
+      var nextFavorite = pathEditor.favorite === false;
+      api("/api/paths/" + encodeURIComponent(pathEditor.pathId) + "/favorite", { method: "POST", body: { favorite: nextFavorite } }).then(function () {
+        pathEditor.favorite = nextFavorite;
+        toast(nextFavorite ? "已收藏这条路径。" : "已取消收藏；路径本身还在。");
+        loadFavorites();
+        renderPathEditor();
+      }).catch(function (error) { toast(error.message, "bad"); });
+      return;
+    }
+    if (action === "toggle-node-favorite") {
+      event.preventDefault();
+      var detailNode = state.detail && state.detail.node && state.detail.node.id === id ? state.detail.node : null;
+      var isFavorite = !detailNode || detailNode.favorite !== false;
+      api("/api/nodes/" + encodeURIComponent(id) + "/favorite", { method: "POST", body: { favorite: !isFavorite } }).then(function () {
+        toast(!isFavorite ? "已收藏。" : "已取消收藏；节点本身还在。");
+        loadFavorites();
+        return openDetail(id);
+      }).catch(function (error) { toast(error.message, "bad"); });
       return;
     }
     if (action === "copy-node") {

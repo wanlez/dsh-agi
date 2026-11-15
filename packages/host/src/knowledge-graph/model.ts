@@ -60,6 +60,12 @@ export interface GraphNode {
   readonly ai_notes?: string
   /** When the agent last touched {@link ai_notes}. */
   readonly ai_updated_at?: string
+  /**
+   * Whether the operator keeps this node in the favorites list. Absent means `true`; clearing it
+   * only hides the node from the list — the node, its screenshots and every path that references
+   * it stay exactly as they are.
+   */
+  readonly favorite?: boolean
 }
 
 /** The only edge type the editor creates today. */
@@ -85,6 +91,11 @@ export interface GraphPath {
   readonly end_node: string
   /** Ordered node ids; consecutive pairs are edges. */
   readonly node_sequence: readonly string[]
+  /**
+   * Whether the operator keeps this path in the favorites list. Absent means `true`; clearing it
+   * only hides the favorite — the path file and the nodes it references stay untouched.
+   */
+  readonly favorite?: boolean
 }
 
 /**
