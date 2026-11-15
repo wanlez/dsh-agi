@@ -568,12 +568,77 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
     });
   }
 
+  /** Three-way prompt for a dirty surface: save, discard, or stay. */
+  function askUnsaved(title) {
+    return new Promise(function (resolve) {
+      showModal(title || "有未保存的修改",
+        "<p>关闭会丢失这些修改。</p>",
+        '<button class="btn ghost" data-unsaved="cancel">取消</button>'
+        + '<button class="btn" data-unsaved="discard">放弃修改</button>'
+        + '<button class="btn primary" data-unsaved="save">保存并关闭</button>');
+      $("modalFoot").addEventListener("click", function handler(event) {
+        var button = event.target.closest ? event.target.closest("[data-unsaved]") : null;
+        if (!button) return;
+        $("modalFoot").removeEventListener("click", handler);
+        var choice = button.getAttribute("data-unsaved");
+        closeModal();
+        resolve(choice);
+      });
+    });
+  }
+
   // ---------- node detail (view + edit) ----------
   function openDetail(id) {
     return api("/api/nodes/" + encodeURIComponent(id)).then(function (detail) {
+      // Re-rendering the same node must not silently drop unsaved title/description edits.
+      if (state.detail && state.detailDirty && state.detail.node.id === detail.node.id) {
+        var pendingTitle = $("detailTitle") ? $("detailTitle").value : undefined;
+        var pendingDesc = $("detailDesc") ? $("detailDesc").value : undefined;
+        renderDetail(detail);
+        if (pendingTitle !== undefined) $("detailTitle").value = pendingTitle;
+        if (pendingDesc !== undefined) $("detailDesc").value = pendingDesc;
+        state.detailDirty = true;
+        return detail;
+      }
       renderDetail(detail);
       return detail;
     }).catch(function (error) { toast(error.message, "bad"); });
+  }
+  /** Open another node, asking first when the current drawer has unsaved edits. */
+  function requestOpenDetail(id) {
+    var current = state.detail;
+    if (current && state.detailDirty && current.node.id !== id) {
+      return askUnsaved("节点有未保存的修改").then(function (choice) {
+        if (choice === "cancel") return undefined;
+        if (choice === "save") return saveDetailNode().then(function () { return openDetail(id); });
+        state.detailDirty = false;
+        return openDetail(id);
+      });
+    }
+    return openDetail(id);
+  }
+  function saveDetailNode() {
+    var detail = state.detail;
+    if (!detail) return Promise.resolve(undefined);
+    return api("/api/nodes/" + encodeURIComponent(detail.node.id), {
+      method: "PATCH",
+      body: { title: $("detailTitle").value, description: $("detailDesc").value },
+    }).then(function (data) {
+      state.detailDirty = false;
+      state.titles[data.node.id] = data.node.title;
+      loadFavorites();
+      return data.node.id;
+    });
+  }
+  function closeDetailGuarded() {
+    if (!state.detailDirty) { hideDetail(); return Promise.resolve(true); }
+    return askUnsaved("节点有未保存的修改").then(function (choice) {
+      if (choice === "cancel") return false;
+      if (choice === "save") return saveDetailNode().then(function () { hideDetail(); return true; }).catch(function (error) { toast(error.message, "bad"); return false; });
+      state.detailDirty = false;
+      hideDetail();
+      return true;
+    });
   }
   function renderDetail(detail) {
     state.detail = detail;
@@ -636,6 +701,9 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
     html += '</div><div class="muted" style="font-size:11px;margin-top:7px">取消收藏只把它从收藏列表移除，节点本身还在；删除是软删除，需要时在节点搜索里找回并恢复。</div></div>';
     drawer.innerHTML = html;
     drawer.hidden = false;
+    state.detailDirty = false;
+    $("detailTitle").addEventListener("input", function () { state.detailDirty = true; });
+    $("detailDesc").addEventListener("input", function () { state.detailDirty = true; });
     bindDrawerResize();
   }
   function hideDetail() { $("detail").hidden = true; $("detail").innerHTML = ""; state.detail = null; }
@@ -805,6 +873,40 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
     view.innerHTML = html;
     view.hidden = false;
     $("emptyHint").hidden = true;
+    $("pathNameInput").addEventListener("input", function () { state.pathDirty = true; markPathHead(); });
+    $("pathSummaryInput").addEventListener("input", function () { state.pathDirty = true; markPathHead(); });
+  }
+  function markPathHead() {
+    var tag = document.querySelector("#pathView .pvHead .tag");
+    if (tag) { tag.className = "tag warn"; tag.textContent = "未保存"; }
+  }
+  function closePathEditorGuarded() {
+    if (!state.pathDirty) { closePathEditor(); return Promise.resolve(true); }
+    return askUnsaved("路径有未保存的修改").then(function (choice) {
+      if (choice === "cancel") return false;
+      if (choice === "save") return savePathEditor().then(function (ok) { if (ok) closePathEditor(); return ok; });
+      state.pathDirty = false;
+      closePathEditor();
+      return true;
+    });
+  }
+  function newPathGuarded() {
+    if (!state.pathDirty) { newPath(); return; }
+    askUnsaved("路径有未保存的修改").then(function (choice) {
+      if (choice === "cancel") return;
+      if (choice === "save") { savePathEditor().then(function (ok) { if (ok) newPath(); }); return; }
+      state.pathDirty = false;
+      newPath();
+    });
+  }
+  function openPathGuarded(id) {
+    if (!state.pathDirty || (state.pathEditor && state.pathEditor.pathId === id)) { openPath(id); return; }
+    askUnsaved("路径有未保存的修改").then(function (choice) {
+      if (choice === "cancel") return;
+      if (choice === "save") { savePathEditor().then(function (ok) { if (ok) openPath(id); }); return; }
+      state.pathDirty = false;
+      openPath(id);
+    });
   }
   function closePathEditor() {
     state.pathEditor = null;
@@ -931,13 +1033,14 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
     var request = editor.pathId == null
       ? api("/api/paths", { method: "POST", body: body })
       : api("/api/paths/" + encodeURIComponent(editor.pathId), { method: "PUT", body: body });
-    request.then(function (data) {
+    return request.then(function (data) {
       editor.pathId = data.path.id;
       state.pathDirty = false;
       toast("路径已保存。");
       loadFavorites();
       renderPathEditor();
-    }).catch(function (error) { toast(error.message, "bad"); });
+      return true;
+    }).catch(function (error) { toast(error.message, "bad"); return false; });
   }
   function checkPathEditor() {
     var editor = state.pathEditor;
@@ -1086,7 +1189,7 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
       // A click on the canvas (anywhere outside the drawer) closes the node drawer, exactly
       // like its own close button; controls inside the drawer keep working.
       var drawer = $("detail");
-      if (drawer && !drawer.hidden && event.target.closest && !event.target.closest("#detail")) hideDetail();
+      if (drawer && !drawer.hidden && event.target.closest && !event.target.closest("#detail")) closeDetailGuarded();
       return;
     }
     var action = el.getAttribute("data-action");
@@ -1099,14 +1202,14 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
       event.preventDefault();
       var pickedKind = el.getAttribute("data-kind");
       closeModal();
-      if (pickedKind === "path") openPath(id); else openDetail(id);
+      if (pickedKind === "path") openPathGuarded(id); else requestOpenDetail(id);
       return;
     }
-    if (action === "open-node") { event.preventDefault(); openDetail(id); return; }
-    if (action === "open-path") { event.preventDefault(); openPath(id); return; }
-    if (action === "close-detail") { hideDetail(); return; }
+    if (action === "open-node") { event.preventDefault(); requestOpenDetail(id); return; }
+    if (action === "open-path") { event.preventDefault(); openPathGuarded(id); return; }
+    if (action === "close-detail") { closeDetailGuarded(); return; }
     if (action === "new-node") { openCreate(); return; }
-    if (action === "new-path") { newPath(); return; }
+    if (action === "new-path") { newPathGuarded(); return; }
     if (action === "open-stats") { openStats(); return; }
     if (action === "refresh-log") { loadLog(); return; }
     if (action === "reload-favorites") { loadFavorites(); return; }
@@ -1118,7 +1221,7 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
       renderCreateShots();
       return;
     }
-    if (action === "close-path-editor") { closePathEditor(); return; }
+    if (action === "close-path-editor") { closePathEditorGuarded(); return; }
     if (action === "save-path-editor") { savePathEditor(); return; }
     if (action === "check-path-editor") { checkPathEditor(); return; }
     if (action === "insert-step") { event.preventDefault(); insertStep(el.getAttribute("data-index"), el.getAttribute("data-dir")); return; }
@@ -1128,12 +1231,7 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
     if (action === "insert-apply") { event.preventDefault(); applyInsert(); return; }
     if (action === "save-node") {
       event.preventDefault();
-      api("/api/nodes/" + encodeURIComponent(id), { method: "PATCH", body: { title: $("detailTitle").value, description: $("detailDesc").value } }).then(function (data) {
-        toast("已保存。");
-        state.titles[data.node.id] = data.node.title;
-        loadFavorites();
-        return openDetail(id);
-      }).catch(function (error) { toast(error.message, "bad"); });
+      saveDetailNode().then(function (nodeId) { toast("已保存。"); return openDetail(nodeId); }).catch(function (error) { toast(error.message, "bad"); });
       return;
     }
     if (action === "delete-node") {
@@ -1162,23 +1260,37 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
       var pathEditor = state.pathEditor;
       if (!pathEditor || pathEditor.pathId == null) return;
       var nextFavorite = pathEditor.favorite === false;
-      api("/api/paths/" + encodeURIComponent(pathEditor.pathId) + "/favorite", { method: "POST", body: { favorite: nextFavorite } }).then(function () {
-        pathEditor.favorite = nextFavorite;
-        toast(nextFavorite ? "已收藏这条路径。" : "已取消收藏；路径本身还在。");
-        loadFavorites();
-        renderPathEditor();
-      }).catch(function (error) { toast(error.message, "bad"); });
+      var applyPathFavorite = function () {
+        api("/api/paths/" + encodeURIComponent(pathEditor.pathId) + "/favorite", { method: "POST", body: { favorite: nextFavorite } }).then(function () {
+          pathEditor.favorite = nextFavorite;
+          toast(nextFavorite ? "已收藏这条路径。" : "已取消收藏；路径本身还在。");
+          loadFavorites();
+          renderPathEditor();
+        }).catch(function (error) { toast(error.message, "bad"); });
+      };
+      if (nextFavorite) {
+        applyPathFavorite();
+      } else {
+        askConfirm({ title: "取消收藏这条路径？", message: "只是从收藏列表移除，路径本身和它的节点都还在。", confirmText: "取消收藏" }).then(function (yes) { if (yes) applyPathFavorite(); });
+      }
       return;
     }
     if (action === "toggle-node-favorite") {
       event.preventDefault();
       var detailNode = state.detail && state.detail.node && state.detail.node.id === id ? state.detail.node : null;
       var isFavorite = !detailNode || detailNode.favorite !== false;
-      api("/api/nodes/" + encodeURIComponent(id) + "/favorite", { method: "POST", body: { favorite: !isFavorite } }).then(function () {
-        toast(!isFavorite ? "已收藏。" : "已取消收藏；节点本身还在。");
-        loadFavorites();
-        return openDetail(id);
-      }).catch(function (error) { toast(error.message, "bad"); });
+      var applyNodeFavorite = function () {
+        api("/api/nodes/" + encodeURIComponent(id) + "/favorite", { method: "POST", body: { favorite: !isFavorite } }).then(function () {
+          toast(!isFavorite ? "已收藏。" : "已取消收藏；节点本身还在。");
+          loadFavorites();
+          return openDetail(id);
+        }).catch(function (error) { toast(error.message, "bad"); });
+      };
+      if (isFavorite) {
+        askConfirm({ title: "取消收藏这个节点？", message: "只是从收藏列表移除，节点本身和它的截图都还在。", confirmText: "取消收藏" }).then(function (yes) { if (yes) applyNodeFavorite(); });
+      } else {
+        applyNodeFavorite();
+      }
       return;
     }
     if (action === "copy-node") {
@@ -1213,10 +1325,14 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
     }
     if (action === "delete-shot") {
       event.preventDefault();
-      api("/api/nodes/" + encodeURIComponent(id) + "/screenshots/" + encodeURIComponent(el.getAttribute("data-shot")), { method: "DELETE" }).then(function () {
-        toast("截图已删除。");
-        return openDetail(id);
-      }).catch(function (error) { toast(error.message, "bad"); });
+      var shotToDelete = el.getAttribute("data-shot");
+      askConfirm({ title: "删除这张截图？", message: "删除后这张截图、它的名字和说明都会移除。", confirmText: "删除", danger: true }).then(function (yes) {
+        if (!yes) return;
+        api("/api/nodes/" + encodeURIComponent(id) + "/screenshots/" + encodeURIComponent(shotToDelete), { method: "DELETE" }).then(function () {
+          toast("截图已删除。");
+          return openDetail(id);
+        }).catch(function (error) { toast(error.message, "bad"); });
+      });
       return;
     }
     if (action === "upload-shot") {
