@@ -9,7 +9,7 @@
 import { readFile } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { GraphCompletion } from './search.ts'
-import type { GraphNode, GraphPath, NodeStatus } from './model.ts'
+import type { GraphNode, GraphPath, NodeStatus, PathGraph, PathGraphEdge, PathGraphNode } from './model.ts'
 import { KNOWLEDGE_GRAPH_PAGE } from './page.ts'
 import { KnowledgeGraphService } from './service.ts'
 import { KnowledgeGraphStore } from './store.ts'
@@ -305,6 +305,7 @@ async function dispatch(options: GraphRequestOptions): Promise<void> {
         name: stringField(body, 'name') ?? '',
         summary: stringField(body, 'summary') ?? '',
         node_sequence: sequence,
+        graph: pathGraphFromBody(body),
         operator: operatorOf(req, url),
       })
       sendJson(res, 200, { ok: true, path })
@@ -347,6 +348,7 @@ async function dispatch(options: GraphRequestOptions): Promise<void> {
         name: stringField(body, 'name') ?? '',
         summary: stringField(body, 'summary') ?? '',
         node_sequence: sequence,
+        graph: pathGraphFromBody(body),
         operator: operatorOf(req, url),
       })
       sendJson(res, 200, { ok: true, path: publicPath(path) })
@@ -473,6 +475,33 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 function stringField(body: Record<string, unknown>, key: string): string | undefined {
   const value = body[key]
   return typeof value === 'string' ? value : undefined
+}
+
+/** The optional graph form of a saved path; absent keeps the legacy linear shape. */
+function pathGraphFromBody(body: Record<string, unknown>): PathGraph | undefined {
+  const raw = asRecord(body.graph)
+  if (raw === undefined) return undefined
+  const nodes: PathGraphNode[] = []
+  if (Array.isArray(raw.nodes)) {
+    for (const item of raw.nodes) {
+      const entry = asRecord(item)
+      if (entry === undefined) continue
+      const key = stringField(entry, 'key')
+      const nodeId = stringField(entry, 'node_id')
+      if (key !== undefined && nodeId !== undefined) nodes.push({ key, node_id: nodeId })
+    }
+  }
+  const edges: PathGraphEdge[] = []
+  if (Array.isArray(raw.edges)) {
+    for (const item of raw.edges) {
+      const entry = asRecord(item)
+      if (entry === undefined) continue
+      const from = stringField(entry, 'from')
+      const to = stringField(entry, 'to')
+      if (from !== undefined && to !== undefined) edges.push({ from, to })
+    }
+  }
+  return { nodes, edges }
 }
 
 /** One node status from the query string; anything else means "no filter". */

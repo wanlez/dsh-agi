@@ -44,6 +44,29 @@ export interface NodeScreenshot {
   readonly source?: 'human' | 'ai'
 }
 
+/**
+ * One node instance inside a saved path. The same library node may appear more than once:
+ * two instances are two positions in the flow, and whether they form a cycle depends on the
+ * edges, not on the repetition.
+ */
+export interface PathGraphNode {
+  /** Unique instance key inside this path; never a library id. */
+  readonly key: string
+  readonly node_id: string
+}
+
+/** One directed edge between two instances of the same path. */
+export interface PathGraphEdge {
+  readonly from: string
+  readonly to: string
+}
+
+/** The DAG a saved path owns: node instances and the edges between them. */
+export interface PathGraph {
+  readonly nodes: readonly PathGraphNode[]
+  readonly edges: readonly PathGraphEdge[]
+}
+
 /** One experience step. `embedding` is a cache; a missing value is recomputed on read. */
 export interface GraphNode {
   readonly id: string
@@ -101,6 +124,8 @@ export interface GraphPath {
    * only hides the favorite — the path file and the nodes it references stay untouched.
    */
   readonly favorite?: boolean
+  /** The owned flow graph. Absent on older paths; `node_sequence` is then the linear fallback. */
+  readonly graph?: PathGraph
 }
 
 /**
@@ -336,6 +361,8 @@ export interface PathProblem {
     | 'end-mismatch'
     | 'missing-edge'
     | 'missing-predecessor'
+    | 'cycle'
+    | 'broken-edge'
   readonly message: string
   readonly node_id?: string
   /** The unsatisfied predecessor for `missing-predecessor`. */
@@ -351,8 +378,87 @@ export interface PathProblem {
  * @param path - the saved path.
  * @returns all problems; empty means the path can be executed as written.
  */
+/** Turn a legacy linear sequence into a path graph (one chain, one entry). */
+export function linearPathGraph(sequence: readonly string[]): PathGraph {
+  const nodes = sequence.map((nodeId, index) => ({ key: `n${index}`, node_id: nodeId }))
+  const edges = nodes.slice(1).map((entry, index) => ({ from: nodes[index]?.key ?? '', to: entry.key }))
+  return { nodes, edges }
+}
+
 /**
- * Problems that keep a saved path from being a usable sequence.
+ * Problems in a path's owned graph.
+ *
+ * A path is a DAG of node *instances*: the same library node may sit at two positions, and that
+ * only becomes a cycle when the edges actually lead back. The check is therefore a real cycle
+ * detection over the instance graph, not a "did this node repeat" test.
+ */
+export function pathGraphProblems(
+  nodes: ReadonlyMap<string, GraphNode>,
+  graph: PathGraph,
+  path: GraphPath,
+): PathProblem[] {
+  const problems: PathProblem[] = []
+  if (graph.nodes.length === 0) {
+    problems.push({ code: 'empty', message: '路径里还没有节点。' })
+    return problems
+  }
+  const keys = new Set<string>()
+  for (const entry of graph.nodes) {
+    if (keys.has(entry.key)) problems.push({ code: 'duplicate-node', message: `路径里有重复的节点实例（${entry.key}）。` })
+    keys.add(entry.key)
+    const node = nodes.get(entry.node_id)
+    if (node === undefined) {
+      problems.push({ code: 'missing-node', message: `路径引用的节点 ${entry.node_id} 不存在。`, node_id: entry.node_id })
+      continue
+    }
+    if (!isNodePresent(node)) {
+      problems.push({ code: 'node-removed', message: `路径引用的节点「${node.title}」已删除。`, node_id: entry.node_id })
+    }
+  }
+  const outgoing = new Map<string, string[]>()
+  const indegree = new Map<string, number>()
+  for (const entry of graph.nodes) {
+    outgoing.set(entry.key, [])
+    indegree.set(entry.key, 0)
+  }
+  for (const edge of graph.edges) {
+    if (!keys.has(edge.from) || !keys.has(edge.to)) {
+      problems.push({ code: 'broken-edge', message: '路径里有一条边指向不存在的节点。' })
+      continue
+    }
+    if (edge.from === edge.to) {
+      problems.push({ code: 'cycle', message: '节点不能连向自己。' })
+      continue
+    }
+    outgoing.get(edge.from)?.push(edge.to)
+    indegree.set(edge.to, (indegree.get(edge.to) ?? 0) + 1)
+  }
+  // Kahn's algorithm: unvisited nodes mean the flow contains a cycle.
+  const queue = graph.nodes.map(entry => entry.key).filter(key => (indegree.get(key) ?? 0) === 0)
+  const visited = new Set<string>()
+  while (queue.length > 0) {
+    const key = queue.shift() as string
+    if (visited.has(key)) continue
+    visited.add(key)
+    for (const next of outgoing.get(key) ?? []) {
+      indegree.set(next, (indegree.get(next) ?? 1) - 1)
+      if ((indegree.get(next) ?? 0) === 0) queue.push(next)
+    }
+  }
+  if (visited.size !== graph.nodes.length) {
+    problems.push({ code: 'cycle', message: '路径里存在环：沿着箭头走能绕回已经走过的节点。' })
+  }
+  if (path.start_node !== '' && !graph.nodes.some(entry => entry.node_id === path.start_node)) {
+    problems.push({ code: 'start-mismatch', message: '记录的起点不在路径里。' })
+  }
+  if (path.end_node !== '' && !graph.nodes.some(entry => entry.node_id === path.end_node)) {
+    problems.push({ code: 'end-mismatch', message: '记录的终点不在路径里。' })
+  }
+  return problems
+}
+
+/**
+ * Problems that keep a saved path from being usable.
  *
  * A path is an independently stored reference list: it names an ordered run of nodes and owns
  * nothing else. Consecutive steps are *not* required to share a graph edge — the saved order is
@@ -370,6 +476,7 @@ export function pathProblems(
   _edges: readonly GraphEdge[],
   path: GraphPath,
 ): PathProblem[] {
+  if (path.graph !== undefined) return pathGraphProblems(nodes, path.graph, path)
   const problems: PathProblem[] = []
   const sequence = path.node_sequence
   if (sequence.length === 0) {

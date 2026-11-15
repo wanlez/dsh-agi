@@ -21,6 +21,7 @@ import {
   isNodePresent,
   neighborhood,
   nodeSearchText,
+  linearPathGraph,
   pathProblems,
   pathSearchText,
   validateNewEdge,
@@ -34,6 +35,7 @@ import {
   type GraphSnapshot,
   type NodeStatus,
   type Neighborhood,
+  type PathGraph,
 } from './model.ts'
 import { operationRows, type OperationRow } from './operations.ts'
 import { checkPath as checkPathStatic, type PathCheckResult } from './path-check.ts'
@@ -98,6 +100,8 @@ export interface CreatePathInput {
   readonly name: string
   readonly summary: string
   readonly node_sequence: readonly string[]
+  /** Graph form of the flow. When present it is the source of truth; the sequence is derived. */
+  readonly graph?: PathGraph
   readonly operator?: string
 }
 
@@ -150,6 +154,8 @@ export interface PathRow {
 /** The full path the executor loads after the operator confirms an index. */
 export interface PathDetail {
   readonly path: GraphPath
+  /** The owned flow graph; older paths are projected from their linear sequence. */
+  readonly graph: PathGraph
   readonly nodes: readonly GraphNode[]
   readonly problems: readonly { readonly code: string; readonly message: string }[]
   /** A compact text rendering suitable for a model prompt. */
@@ -648,23 +654,29 @@ export class KnowledgeGraphService {
   async createPath(input: CreatePathInput): Promise<GraphPath> {
     return this.locked(async () => {
       const { snapshot, settings } = await this.loaded()
-      const sequence = input.node_sequence
-      if (sequence.length === 0) throw new GraphError('path-empty', '收藏路径至少需要一个节点。', 400)
-      if (new Set(sequence).size !== sequence.length) throw new GraphError('path-duplicate', '收藏路径不能重复同一个节点。', 400)
       const name = input.name.trim()
       if (name === '') throw new GraphError('path-name-required', '收藏名不能为空。', 400)
+      const graph = input.graph ?? linearPathGraph(input.node_sequence)
+      const sequence = input.graph === undefined ? [...input.node_sequence] : graph.nodes.map((entry) => entry.node_id)
+      if (sequence.length === 0) throw new GraphError('path-empty', '收藏路径至少需要一个节点。', 400)
+      if (input.graph === undefined && new Set(sequence).size !== sequence.length) {
+        throw new GraphError('path-duplicate', '收藏路径不能重复同一个节点。', 400)
+      }
       const path: GraphPath = {
         id: `path-${randomUUID().slice(0, 8)}`,
         name,
         summary: input.summary.trim(),
         embedding: null,
-        start_node: sequence[0] as string,
-        end_node: sequence[sequence.length - 1] as string,
-        node_sequence: [...sequence],
+        start_node: input.graph === undefined ? (sequence[0] as string) : (graph.nodes[0]?.node_id ?? ''),
+        end_node: input.graph === undefined
+          ? (sequence[sequence.length - 1] as string)
+          : (graph.nodes[graph.nodes.length - 1]?.node_id ?? ''),
+        node_sequence: sequence,
+        graph,
       }
       const problems = pathProblems(snapshot.nodes, snapshot.edges, path)
       if (problems.length > 0) {
-        throw new GraphError('path-invalid', `这条路径当前不可执行：${problems.map((problem) => problem.message).join('；')}`, 409)
+        throw new GraphError('path-invalid', `这条路径当前不可用：${problems.map((problem) => problem.message).join('；')}`, 409)
       }
       const saved: GraphPath = { ...path, embedding: embedText(pathSearchText(path, snapshot.nodes)) }
       await this.store.savePath(saved)
@@ -732,24 +744,32 @@ export class KnowledgeGraphService {
       const { snapshot, settings } = await this.loaded()
       const index = snapshot.paths.findIndex((path) => path.id === input.pathId)
       if (index === -1) throw new GraphError('path-missing', '收藏不存在。', 404)
-      const sequence = [...input.node_sequence]
-      if (sequence.length === 0) throw new GraphError('path-empty', '收藏路径至少需要一个节点。', 400)
-      if (new Set(sequence).size !== sequence.length) throw new GraphError('path-duplicate', '收藏路径不能重复同一个节点。', 400)
       const name = input.name.trim()
       if (name === '') throw new GraphError('path-name-required', '收藏名不能为空。', 400)
-      for (const id of sequence) {
-        if (!snapshot.nodes.has(id)) throw new GraphError('node-missing', '路径引用了不存在的节点。', 404)
+      const graph = input.graph ?? linearPathGraph(input.node_sequence)
+      const sequence = input.graph === undefined ? [...input.node_sequence] : graph.nodes.map((entry) => entry.node_id)
+      if (sequence.length === 0) throw new GraphError('path-empty', '收藏路径至少需要一个节点。', 400)
+      if (input.graph === undefined && new Set(sequence).size !== sequence.length) {
+        throw new GraphError('path-duplicate', '收藏路径不能重复同一个节点。', 400)
       }
       const previous = snapshot.paths[index] as GraphPath
       const path: GraphPath = {
         ...previous,
         name,
         summary: input.summary.trim(),
-        start_node: sequence[0] as string,
-        end_node: sequence[sequence.length - 1] as string,
+        start_node: input.graph === undefined ? (sequence[0] as string) : (graph.nodes[0]?.node_id ?? ''),
+        end_node: input.graph === undefined
+          ? (sequence[sequence.length - 1] as string)
+          : (graph.nodes[graph.nodes.length - 1]?.node_id ?? ''),
         node_sequence: sequence,
+        graph,
         embedding: embedText(pathSearchText({ ...previous, name, summary: input.summary.trim() }, snapshot.nodes)),
       }
+      // Hard data faults must never reach the file; softer findings stay visible through the
+      // check button instead of blocking a save.
+      const hard = pathProblems(snapshot.nodes, snapshot.edges, path)
+        .filter((problem) => problem.code === 'cycle' || problem.code === 'missing-node' || problem.code === 'broken-edge')
+      if (hard.length > 0) throw new GraphError('path-invalid', `不能保存：${hard.map((problem) => problem.message).join('；')}`, 409)
       ;(snapshot.paths as GraphPath[])[index] = path
       await this.store.commit(snapshot, settings)
       return path
@@ -779,7 +799,13 @@ export class KnowledgeGraphService {
     if (problems.length > 0) {
       lines.push(`当前问题：${problems.map((problem) => problem.message).join('；')}`)
     }
-    return { path, nodes: nodes.filter((node): node is GraphNode => node !== undefined), problems, text: lines.join('\n') }
+    return {
+      path,
+      graph: path.graph ?? linearPathGraph(path.node_sequence),
+      nodes: nodes.filter((node): node is GraphNode => node !== undefined),
+      problems,
+      text: lines.join('\n'),
+    }
   }
 
   /**

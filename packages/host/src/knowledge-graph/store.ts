@@ -30,6 +30,9 @@ import {
   type GraphSettings,
   type GraphSnapshot,
   type NodeScreenshot,
+  type PathGraph,
+  type PathGraphEdge,
+  type PathGraphNode,
 } from './model.ts'
 
 /** Marker in manifest.json; changing it means a migration is needed. */
@@ -166,6 +169,28 @@ function parseEdge(raw: unknown): GraphEdge | undefined {
   }
 }
 
+/** Rebuild a path's owned graph from disk. */
+function parsePathGraph(raw: unknown): PathGraph | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined
+  const record = raw as Record<string, unknown>
+  if (!Array.isArray(record.nodes) || !Array.isArray(record.edges)) return undefined
+  const nodes: PathGraphNode[] = []
+  for (const item of record.nodes) {
+    if (typeof item !== 'object' || item === null) continue
+    const entry = item as Record<string, unknown>
+    if (typeof entry.key !== 'string' || typeof entry.node_id !== 'string') continue
+    nodes.push({ key: entry.key, node_id: entry.node_id })
+  }
+  const edges: PathGraphEdge[] = []
+  for (const item of record.edges) {
+    if (typeof item !== 'object' || item === null) continue
+    const entry = item as Record<string, unknown>
+    if (typeof entry.from !== 'string' || typeof entry.to !== 'string') continue
+    edges.push({ from: entry.from, to: entry.to })
+  }
+  return { nodes, edges }
+}
+
 /** Rebuild a path from disk. */
 function parsePath(raw: unknown): GraphPath | undefined {
   if (typeof raw !== 'object' || raw === null) return undefined
@@ -182,6 +207,7 @@ function parsePath(raw: unknown): GraphPath | undefined {
     end_node: record.end_node,
     node_sequence: record.node_sequence as string[],
     ...typeof record.favorite === 'boolean' ? { favorite: record.favorite } : {},
+    ...record.graph !== undefined ? { graph: parsePathGraph(record.graph) } : {},
   }
 }
 

@@ -401,6 +401,17 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
   .searchTrigger:hover { border-color: var(--accent2); color: var(--text); }
   .pickerQuery { width: 100%; padding: 10px 13px; }
   .pickerList { max-height: 60vh; }
+  .pathCanvas { border: 1px solid var(--line); border-radius: 14px; background: #fffaf0; padding: 10px; overflow: auto; min-height: 240px; margin-top: 10px; }
+  .pathEmpty { display: grid; place-items: center; min-height: 200px; }
+  .pathSvg { display: block; width: 100%; height: auto; }
+  .pathEdge { stroke: #7a6148; stroke-width: 2; }
+  .pathNode { cursor: pointer; }
+  .pathNode circle { fill: #e6efe4; stroke: var(--accent); stroke-width: 2; }
+  .pathNode:hover circle { fill: #fffaf0; }
+  .pathNode text { font-size: 12px; fill: var(--text); font-weight: 600; }
+  .pathTool { font-size: 12px; fill: var(--accent); cursor: pointer; font-weight: 600; }
+  .pathTool.danger { fill: var(--danger); }
+  .pathTool:hover { text-decoration: underline; }
   .riTitle { font-weight: 600; font-size: 13px; }
   .riMeta { font-size: 11px; color: var(--muted); }
   .riDesc { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -819,36 +830,131 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
 
   // ---------- path editor ----------
   function newPath() {
-    state.pathEditor = { pathId: null, name: "未命名路径", summary: "", steps: [] };
+    state.pathEditor = { pathId: null, name: "未命名路径", summary: "", graph: { nodes: [], edges: [] } };
     state.pathDirty = true;
     renderPathEditor();
   }
   function openPath(id) {
-    api("/api/paths/" + encodeURIComponent(id)).then(function (detail) {
+    return api("/api/paths/" + encodeURIComponent(id)).then(function (detail) {
       var path = detail.path;
-      state.pathEditor = { pathId: path.id, name: path.name, summary: path.summary, steps: (path.node_sequence || []).slice(), favorite: path.favorite !== false };
+      state.pathEditor = {
+        pathId: path.id,
+        name: path.name,
+        summary: path.summary,
+        favorite: path.favorite !== false,
+        graph: detail.graph || pathGraphFromSequence(path.node_sequence || []),
+      };
       state.pathDirty = false;
       (detail.nodes || []).forEach(function (node) { state.titles[node.id] = node.title; });
       renderPathEditor();
+      return detail;
     }).catch(function (error) { toast(error.message, "bad"); });
   }
-  function stepHtml(nodeId, index) {
-    var node = state.titles[nodeId] === undefined ? null : null;
-    var title = state.titles[nodeId] || nodeId;
-    return '<li class="pvStep">'
-      + '<div class="pvStepRow">'
-      + '<span class="pvIndex">' + (index + 1) + '</span>'
-      + '<button class="pvStepBtn" data-action="open-node" data-id="' + esc(nodeId) + '"><b>' + esc(title) + '</b></button>'
-      + '<span class="pvTools">'
-      + '<button class="btn small" title="在前面插入" data-action="insert-step" data-index="' + index + '" data-dir="before">前 +</button>'
-      + '<button class="btn small" title="在后面插入" data-action="insert-step" data-index="' + index + '" data-dir="after">后 +</button>'
-      + '<button class="btn small danger" data-action="remove-step" data-index="' + index + '">删</button>'
-      + '</span></div></li>';
+  function pathGraphFromSequence(sequence) {
+    var nodes = (sequence || []).map(function (nodeId, index) { return { key: "n" + index, node_id: nodeId }; });
+    var edges = [];
+    for (var i = 1; i < nodes.length; i += 1) edges.push({ from: nodes[i - 1].key, to: nodes[i].key });
+    return { nodes: nodes, edges: edges };
+  }
+  function pathGraphHasCycle(graph) {
+    var outgoing = {};
+    var indegree = {};
+    graph.nodes.forEach(function (entry) { outgoing[entry.key] = []; indegree[entry.key] = 0; });
+    graph.edges.forEach(function (edge) {
+      if (outgoing[edge.from] === undefined || indegree[edge.to] === undefined) return;
+      outgoing[edge.from].push(edge.to);
+      indegree[edge.to] += 1;
+    });
+    var queue = graph.nodes.filter(function (entry) { return indegree[entry.key] === 0; }).map(function (entry) { return entry.key; });
+    var visited = 0;
+    while (queue.length > 0) {
+      var key = queue.shift();
+      visited += 1;
+      (outgoing[key] || []).forEach(function (next) {
+        indegree[next] -= 1;
+        if (indegree[next] === 0) queue.push(next);
+      });
+    }
+    return visited !== graph.nodes.length;
+  }
+  function renderPathCanvas() {
+    var box = $("pathCanvas");
+    var editor = state.pathEditor;
+    if (!box || !editor) return;
+    var graph = editor.graph || { nodes: [], edges: [] };
+    if (graph.nodes.length === 0) {
+      box.innerHTML = '<div class="pathEmpty"><button class="btn" data-action="insert-root">+ 添加第一个节点</button></div>';
+      return;
+    }
+    var outgoing = {};
+    var indegree = {};
+    graph.nodes.forEach(function (entry) { outgoing[entry.key] = []; indegree[entry.key] = 0; });
+    graph.edges.forEach(function (edge) {
+      if (outgoing[edge.from] === undefined || indegree[edge.to] === undefined) return;
+      outgoing[edge.from].push(edge.to);
+      indegree[edge.to] += 1;
+    });
+    var layer = {};
+    var queue = graph.nodes.filter(function (entry) { return indegree[entry.key] === 0; }).map(function (entry) { return entry.key; });
+    queue.forEach(function (key) { layer[key] = 0; });
+    var guard = 0;
+    while (queue.length > 0 && guard < 2000) {
+      guard += 1;
+      var key = queue.shift();
+      (outgoing[key] || []).forEach(function (next) {
+        var current = layer[next] === undefined ? 0 : layer[next];
+        layer[next] = Math.max(current, layer[key] + 1);
+        indegree[next] -= 1;
+        if (indegree[next] === 0) queue.push(next);
+      });
+    }
+    var byLayer = {};
+    graph.nodes.forEach(function (entry) {
+      var l = layer[entry.key] === undefined ? 0 : layer[entry.key];
+      (byLayer[l] = byLayer[l] || []).push(entry.key);
+    });
+    var radius = 28;
+    var gapX = 210;
+    var gapY = 130;
+    var padX = 80;
+    var padY = 70;
+    var pos = {};
+    var maxRows = 1;
+    var layerKeys = Object.keys(byLayer).map(Number).sort(function (a, b) { return a - b; });
+    layerKeys.forEach(function (l) {
+      maxRows = Math.max(maxRows, byLayer[l].length);
+      byLayer[l].forEach(function (key, index) {
+        pos[key] = { x: padX + l * gapX, y: padY + index * gapY };
+      });
+    });
+    var width = padX * 2 + (layerKeys.length - 1) * gapX + 140;
+    var height = padY * 2 + (maxRows - 1) * gapY + 80;
+    var svg = '<svg class="pathSvg" viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="xMinYMin meet">'
+      + '<defs><marker id="pathArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#7a6148"></path></marker></defs>';
+    graph.edges.forEach(function (edge) {
+      var a = pos[edge.from];
+      var b = pos[edge.to];
+      if (!a || !b) return;
+      svg += '<line class="pathEdge" x1="' + (a.x + radius) + '" y1="' + a.y + '" x2="' + (b.x - radius - 2) + '" y2="' + b.y + '" marker-end="url(#pathArrow)"></line>';
+    });
+    graph.nodes.forEach(function (entry) {
+      var point = pos[entry.key];
+      if (!point) return;
+      var title = state.titles[entry.node_id] || entry.node_id;
+      var short = title.length > 9 ? title.slice(0, 9) + "…" : title;
+      svg += '<g class="pathNode" data-action="open-node" data-id="' + esc(entry.node_id) + '">'
+        + '<circle cx="' + point.x + '" cy="' + point.y + '" r="' + radius + '"></circle>'
+        + '<text x="' + point.x + '" y="' + (point.y + radius + 18) + '" text-anchor="middle">' + esc(short) + '</text></g>';
+      svg += '<text class="pathTool" data-action="insert-step" data-key="' + esc(entry.key) + '" data-dir="before" x="' + (point.x - radius - 8) + '" y="' + (point.y - radius - 10) + '">前+</text>'
+        + '<text class="pathTool" data-action="insert-step" data-key="' + esc(entry.key) + '" data-dir="after" x="' + (point.x + radius - 18) + '" y="' + (point.y - radius - 10) + '">后+</text>'
+        + '<text class="pathTool danger" data-action="remove-step" data-key="' + esc(entry.key) + '" x="' + (point.x - 6) + '" y="' + (point.y + radius + 42) + '">删</text>';
+    });
+    svg += '</svg>';
+    box.innerHTML = svg;
   }
   function renderPathEditor() {
     var editor = state.pathEditor;
     var view = $("pathView");
-    // Step rows render titles from the node cache; the favorites list carries every live title.
     state.nodes.forEach(function (node) { state.titles[node.id] = node.title; });
     var html = '<div class="pvHead"><h3>' + esc(editor.name || "未命名路径") + '</h3>'
       + '<span class="tag ' + (state.pathDirty ? "warn" : "ok") + '">' + (state.pathDirty ? "未保存" : "已保存") + '</span>'
@@ -862,19 +968,13 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
       + '<input id="pathSummaryInput" value="' + esc(editor.summary) + '" placeholder="路径摘要（检索时读它）">'
       + '</div>';
     html += '<div id="pathCheck" class="checkBox" hidden></div>';
-    html += '<ol class="pvSteps">';
-    if (editor.steps.length === 0) {
-      html += '<li class="pvStep is-empty"><button class="btn" data-action="insert-step" data-index="0" data-dir="before">+ 添加第一个节点</button></li>';
-    } else {
-      editor.steps.forEach(function (nodeId, index) { html += stepHtml(nodeId, index); });
-      html += '<li class="pvStep"><button class="btn" data-action="insert-step" data-index="' + (editor.steps.length - 1) + '" data-dir="after">+ 在末尾添加</button></li>';
-    }
-    html += '</ol>';
+    html += '<div id="pathCanvas" class="pathCanvas"></div>';
     view.innerHTML = html;
     view.hidden = false;
     $("emptyHint").hidden = true;
     $("pathNameInput").addEventListener("input", function () { state.pathDirty = true; markPathHead(); });
     $("pathSummaryInput").addEventListener("input", function () { state.pathDirty = true; markPathHead(); });
+    renderPathCanvas();
   }
   function markPathHead() {
     var tag = document.querySelector("#pathView .pvHead .tag");
@@ -945,23 +1045,28 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
       ? '<button class="btn small" data-action="insert-more">加载更多（还有 ' + rest + ' 个）</button>'
       : ""));
   }
-  function insertStep(index, direction) {
-    state.insert = { index: Number(index), direction: direction };
+  function nextPathKey(nodeId) { return "k" + Math.random().toString(36).slice(2, 8) + "-" + nodeId; }
+  function insertNodeAt(anchorKey, direction) {
+    state.insert = { anchor: anchorKey, direction: direction };
     var body = '<div class="insertCols">'
       + '<div class="insertCol"><h4>本路径内节点</h4><div id="insertLocal" class="insertList"></div></div>'
       + '<div class="insertCol"><h4>搜索节点</h4><input id="insertQuery" placeholder="关键词（留空显示全部节点）"><button class="btn small" data-action="insert-search">搜索</button><div id="insertResults" class="insertList"></div></div>'
       + '<div class="insertCol"><h4>收藏节点</h4><div id="insertFavorites" class="insertList"></div></div>'
       + '</div>'
       + '<div class="insertFoot"><span id="insertPicked" class="muted">选一个节点</span><button class="btn primary" data-action="insert-apply" disabled id="insertApplyBtn">插入</button></div>';
-    showModal("插入节点（" + (direction === "before" ? "前面" : "后面") + "）", body);
-    var local = state.pathEditor.steps.map(function (id) { return { id: id, title: state.titles[id] || id }; });
-    $("insertLocal").innerHTML = local.length === 0 ? '<span class="muted">路径还没有节点。</span>' : local.map(function (entry) {
-      return '<button class="insertItem" data-pick-node="' + esc(entry.id) + '">' + esc(entry.title) + '</button>';
+    showModal("插入节点（" + (direction === "before" ? "作为上一步" : "作为下一步") + "）", body);
+    var seen = {};
+    var local = (state.pathEditor.graph.nodes || []).map(function (entry) { return entry.node_id; }).filter(function (nodeId) {
+      if (seen[nodeId]) return false;
+      seen[nodeId] = true;
+      return true;
+    });
+    $("insertLocal").innerHTML = local.length === 0 ? '<span class="muted">路径还没有节点。</span>' : local.map(function (nodeId) {
+      return '<button class="insertItem" data-pick-node="' + esc(nodeId) + '">' + esc(state.titles[nodeId] || nodeId) + '</button>';
     }).join("");
     $("insertFavorites").innerHTML = state.nodes.length === 0 ? '<span class="muted">还没有节点。</span>' : state.nodes.map(function (node) {
       return '<button class="insertItem" data-pick-node="' + esc(node.id) + '">' + esc(node.title || "未命名节点") + '</button>';
     }).join("");
-    // The search column starts with the whole library and grows ten rows per scroll to the bottom.
     insertState.nodes = state.nodes.slice();
     insertState.shown = 10;
     renderInsertAll();
@@ -1009,37 +1114,51 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
   function applyInsert() {
     var insert = state.insert;
     if (!insert || !insert.picked) return;
-    var steps = state.pathEditor.steps;
-    if (steps.indexOf(insert.picked) !== -1) { toast("这个节点已经在路径里，重复插入会形成环。", "bad"); return; }
-    var at = insert.direction === "before" ? insert.index : insert.index + 1;
-    steps.splice(at, 0, insert.picked);
+    var editor = state.pathEditor;
+    var graph = editor.graph;
+    var key = nextPathKey(insert.picked);
+    var nextGraph = {
+      nodes: graph.nodes.concat([{ key: key, node_id: insert.picked }]),
+      edges: graph.edges.slice(),
+    };
+    if (insert.anchor) {
+      if (insert.direction === "before") nextGraph.edges.push({ from: key, to: insert.anchor });
+      else nextGraph.edges.push({ from: insert.anchor, to: key });
+    }
+    // Same node twice is fine; a real cycle is not. The check is on the topology, not the id.
+    if (pathGraphHasCycle(nextGraph)) { toast("这样连接会形成环，已拒绝。", "bad"); return; }
+    editor.graph = nextGraph;
     state.pathDirty = true;
     closeModal();
     renderPathEditor();
     toast("已插入「" + (state.titles[insert.picked] || insert.picked) + "」。");
   }
-  function removeStep(index) {
-    state.pathEditor.steps.splice(Number(index), 1);
+  function removeStep(key) {
+    var editor = state.pathEditor;
+    var graph = editor.graph;
+    editor.graph = {
+      nodes: graph.nodes.filter(function (entry) { return entry.key !== key; }),
+      edges: graph.edges.filter(function (edge) { return edge.from !== key && edge.to !== key; }),
+    };
     state.pathDirty = true;
     renderPathEditor();
   }
   function savePathEditor() {
     var editor = state.pathEditor;
-    if (!editor) return;
+    if (!editor) return Promise.resolve(false);
     editor.name = $("pathNameInput").value.trim() || "未命名路径";
     editor.summary = $("pathSummaryInput").value.trim();
-    if (editor.steps.length === 0) { toast("路径至少需要一个节点。", "warn"); return; }
-    var body = { name: editor.name, summary: editor.summary, node_sequence: editor.steps };
+    if (!editor.graph || editor.graph.nodes.length === 0) { toast("路径至少需要一个节点。", "warn"); return Promise.resolve(false); }
+    if (pathGraphHasCycle(editor.graph)) { toast("路径里有环，先解开再保存。", "bad"); return Promise.resolve(false); }
+    var body = { name: editor.name, summary: editor.summary, graph: editor.graph };
     var request = editor.pathId == null
       ? api("/api/paths", { method: "POST", body: body })
       : api("/api/paths/" + encodeURIComponent(editor.pathId), { method: "PUT", body: body });
     return request.then(function (data) {
-      editor.pathId = data.path.id;
       state.pathDirty = false;
       toast("路径已保存。");
       loadFavorites();
-      renderPathEditor();
-      return true;
+      return openPath(data.path.id).then(function () { return true; });
     }).catch(function (error) { toast(error.message, "bad"); return false; });
   }
   function checkPathEditor() {
@@ -1048,33 +1167,25 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
     if (!editor || !box) return;
     function showCheck(result) {
       if (!result.issues || result.issues.length === 0) {
-        box.innerHTML = '<div class="checkLine ok">检查通过：' + editor.steps.length + ' 个步骤，节点都在。</div>';
+        box.innerHTML = '<div class="checkLine ok">检查通过：' + (editor.graph.nodes.length || 0) + ' 个节点，连线没问题。</div>';
       } else {
         box.innerHTML = '<div class="checkLine bad">发现 ' + result.issues.length + ' 个问题：</div><ul class="checkList">'
           + result.issues.map(function (issue) { return '<li>' + esc(issue.message) + '</li>'; }).join("") + '</ul>';
       }
       box.hidden = false;
     }
-    if (editor.steps.length === 0) {
+    if (!editor.graph || editor.graph.nodes.length === 0) {
       showCheck({ issues: [{ message: "路径里还没有节点。" }] });
       return;
     }
-    var dup = {};
-    var repeated = null;
-    editor.steps.forEach(function (id) { if (dup[id]) repeated = id; dup[id] = true; });
-    if (repeated) {
-      showCheck({ issues: [{ message: "节点「" + (state.titles[repeated] || repeated) + "」重复出现，形成环。" }] });
+    if (pathGraphHasCycle(editor.graph)) {
+      showCheck({ issues: [{ message: "路径里有环：沿箭头能绕回来。" }] });
       return;
     }
     if (editor.pathId != null) {
       api("/api/paths/" + encodeURIComponent(editor.pathId) + "/check").then(function (data) { showCheck(data.check); }).catch(function (error) { toast(error.message, "bad"); });
     } else {
-      var missing = editor.steps.filter(function (id) { return state.titles[id] === undefined && !state.nodes.some(function (node) { return node.id === id; }); });
-      if (missing.length > 0) {
-        showCheck({ issues: missing.map(function (id) { return { message: "节点 " + id + " 不存在。" }; }) });
-      } else {
-        showCheck({ issues: [] });
-      }
+      showCheck({ issues: [] });
     }
   }
 
@@ -1224,8 +1335,9 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
     if (action === "close-path-editor") { closePathEditorGuarded(); return; }
     if (action === "save-path-editor") { savePathEditor(); return; }
     if (action === "check-path-editor") { checkPathEditor(); return; }
-    if (action === "insert-step") { event.preventDefault(); insertStep(el.getAttribute("data-index"), el.getAttribute("data-dir")); return; }
-    if (action === "remove-step") { event.preventDefault(); removeStep(el.getAttribute("data-index")); return; }
+    if (action === "insert-step") { event.preventDefault(); insertNodeAt(el.getAttribute("data-key"), el.getAttribute("data-dir")); return; }
+    if (action === "insert-root") { event.preventDefault(); insertNodeAt(null, "after"); return; }
+    if (action === "remove-step") { event.preventDefault(); removeStep(el.getAttribute("data-key")); return; }
     if (action === "insert-search") { event.preventDefault(); insertSearch(); return; }
     if (action === "insert-more") { event.preventDefault(); insertMore(); return; }
     if (action === "insert-apply") { event.preventDefault(); applyInsert(); return; }

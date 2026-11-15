@@ -107,10 +107,11 @@ describe('knowledge graph HTTP surface', () => {
     assert.match(text, /data-action="check-path-editor"/)
     assert.match(text, /路径至少需要一个节点/)
 
-    // Inserting a step is a path-only affordance with three sources and a cycle guard.
-    assert.match(text, /function insertStep/)
+    // Inserting a node is a path-only affordance with three sources and a topology-aware guard.
+    assert.match(text, /function insertNodeAt/)
+    assert.match(text, /function pathGraphHasCycle/)
     assert.match(text, /本路径内节点/)
-    assert.match(text, /重复插入会形成环/)
+    assert.match(text, /这样连接会形成环/)
     assert.match(text, /function applyInsert/)
 
     // The node side edits content only: no edge editing, no family-tree copy.
@@ -131,7 +132,8 @@ describe('knowledge graph HTTP surface', () => {
     assert.match(text, /insertResults/)
     assert.match(text, /insertFavorites/)
     assert.match(text, /data-pick-node/)
-    assert.match(text, /steps\.indexOf\(insert\.picked\)/)
+    assert.match(text, /pathGraphHasCycle\(nextGraph\)/)
+    assert.match(text, /id="pathCanvas"/)
     // The node side never posts edges any more; edges are library data, not an editor surface.
     assert.doesNotMatch(text, /\/api\/edges/)
 
