@@ -93,7 +93,7 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
   main { flex: 1; display: flex; min-height: 0; }
   #side {
     width: 292px; flex: 0 0 292px; background: var(--panel); border-right: 1px solid var(--line);
-    display: flex; flex-direction: column; min-height: 0;
+    display: flex; flex-direction: column; min-height: 0; overflow-y: auto;
   }
   .tabs { display: flex; border-bottom: 1px solid var(--line); }
   .tabs button { flex: 1; background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 11px 6px; color: var(--muted); }
@@ -388,6 +388,11 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
   .resultList { display: grid; gap: 5px; }
   .resultItem { display: grid; gap: 2px; text-align: left; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line); background: #fffaf0; color: var(--text); }
   .resultItem:hover { border-color: var(--accent2); }
+  /* The favorites lists scroll on their own, so a growing library never gets clipped. */
+  #nodeFavorites, #pathFavorites { max-height: 34vh; overflow-y: auto; padding-right: 4px; }
+  #nodeFavorites::-webkit-scrollbar, #pathFavorites::-webkit-scrollbar, #side::-webkit-scrollbar { width: 8px; }
+  #nodeFavorites::-webkit-scrollbar-thumb, #pathFavorites::-webkit-scrollbar-thumb, #side::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 999px; }
+  #nodeFavorites::-webkit-scrollbar-track, #pathFavorites::-webkit-scrollbar-track, #side::-webkit-scrollbar-track { background: transparent; }
   .searchTrigger { width: 100%; text-align: left; padding: 10px 13px; border-radius: 8px; border: 1px solid var(--line); background: #fffaf0; color: var(--muted); font-weight: 500; cursor: pointer; }
   .searchTrigger:hover { border-color: var(--accent2); color: var(--text); }
   .pickerQuery { width: 100%; padding: 10px 13px; }
