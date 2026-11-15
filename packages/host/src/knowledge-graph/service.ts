@@ -7,6 +7,8 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import {
   createExecutionRun,
   judgeStep,
@@ -33,6 +35,7 @@ import {
   type GraphPath,
   type GraphSettings,
   type GraphSnapshot,
+  type NodeScreenshot,
   type NodeStatus,
   type Neighborhood,
   type PathGraph,
@@ -202,6 +205,30 @@ export interface ScreenshotInput {
 }
 
 const MAX_SCREENSHOT_BYTES = 8 * 1024 * 1024
+
+/** Require an existing, empty target folder for an export. */
+async function assertEmptyDirectory(dir: string): Promise<void> {
+  const info = await stat(dir).catch(() => undefined)
+  if (info === undefined || !info.isDirectory()) {
+    throw new GraphError('export-dir-invalid', '请选择一个已经存在的文件夹。', 400)
+  }
+  const entries = await readdir(dir)
+  if (entries.length > 0) {
+    throw new GraphError('export-dir-not-empty', '目标文件夹不是空的；请选择一个空文件夹。', 400)
+  }
+}
+
+/** Read one JSON file, or undefined when it is missing or unparseable. */
+async function readJsonFile(file: string): Promise<Record<string, unknown> | undefined> {
+  const text = await readFile(file, 'utf8').catch(() => undefined)
+  if (text === undefined) return undefined
+  try {
+    const parsed = JSON.parse(text) as unknown
+    return typeof parsed === 'object' && parsed !== null ? parsed as Record<string, unknown> : undefined
+  } catch {
+    return undefined
+  }
+}
 
 /** The service owns one library directory and one in-memory run table. */
 export class KnowledgeGraphService {
@@ -745,6 +772,169 @@ export class KnowledgeGraphService {
         node_sequence: [...source.node_sequence],
         ...graph === undefined ? {} : { graph },
       }
+      const saved: GraphPath = { ...path, embedding: embedText(pathSearchText(path, snapshot.nodes)) }
+      await this.store.savePath(saved)
+      ;(snapshot.paths as GraphPath[]).push(saved)
+      await this.store.commit(snapshot, settings)
+      return saved
+    })
+  }
+
+  /** Export one node and its screenshots into an empty folder. */
+  async exportNode(nodeId: string, dir: string): Promise<{ dir: string; screenshots: number }> {
+    const { snapshot } = await this.loaded()
+    const node = snapshot.nodes.get(nodeId)
+    if (node === undefined) throw new GraphError('node-missing', '节点不存在。', 404)
+    if (!isNodePresent(node)) throw new GraphError('node-removed', '已删除的节点不能导出。', 409)
+    await assertEmptyDirectory(dir)
+    await mkdir(join(dir, 'screenshots'), { recursive: true })
+    const screenshots: NodeScreenshot[] = []
+    for (const shot of node.screenshots) {
+      const bytes = await this.store.readScreenshot(nodeId, shot.file)
+      if (bytes === undefined) continue
+      await writeFile(join(dir, 'screenshots', shot.file), bytes)
+      screenshots.push({ ...shot })
+    }
+    await writeFile(join(dir, 'node.json'), JSON.stringify({ ...node, embedding: null, screenshots }, null, 2), 'utf8')
+    await writeFile(join(dir, 'manifest.json'), JSON.stringify({ format: 'dsh-agi.node', version: 1, exported_at: new Date().toISOString() }, null, 2), 'utf8')
+    return { dir, screenshots: screenshots.length }
+  }
+
+  /** Export one path plus every node it references into an empty folder. */
+  async exportPath(pathId: string, dir: string): Promise<{ dir: string; nodes: number }> {
+    const { snapshot } = await this.loaded()
+    const path = snapshot.paths.find((item) => item.id === pathId)
+    if (path === undefined) throw new GraphError('path-missing', '路径不存在。', 404)
+    await assertEmptyDirectory(dir)
+    await mkdir(join(dir, 'nodes'), { recursive: true })
+    const ids = new Set<string>(path.node_sequence)
+    for (const entry of path.graph?.nodes ?? []) ids.add(entry.node_id)
+    let count = 0
+    for (const nodeId of ids) {
+      const node = snapshot.nodes.get(nodeId)
+      if (node === undefined) continue
+      await writeFile(join(dir, 'nodes', `${nodeId}.json`), JSON.stringify({ ...node, embedding: null }, null, 2), 'utf8')
+      for (const shot of node.screenshots) {
+        const bytes = await this.store.readScreenshot(nodeId, shot.file)
+        if (bytes === undefined) continue
+        await mkdir(join(dir, 'screenshots', nodeId), { recursive: true })
+        await writeFile(join(dir, 'screenshots', nodeId, shot.file), bytes)
+      }
+      count += 1
+    }
+    await writeFile(join(dir, 'path.json'), JSON.stringify({ ...path, embedding: null }, null, 2), 'utf8')
+    await writeFile(join(dir, 'manifest.json'), JSON.stringify({ format: 'dsh-agi.path', version: 1, exported_at: new Date().toISOString() }, null, 2), 'utf8')
+    return { dir, nodes: count }
+  }
+
+  /** Rebuild one node from an exported folder; a colliding id becomes a fresh id. */
+  private async importNodeRecord(raw: Record<string, unknown>, shotDir: string, snapshot: GraphSnapshot): Promise<GraphNode> {
+    const title = typeof raw.title === 'string' ? raw.title.trim() : ''
+    if (title === '') throw new GraphError('import-invalid', 'node.json 缺少标题。', 400)
+    const description = typeof raw.description === 'string' ? raw.description : ''
+    const originalId = typeof raw.id === 'string' && raw.id !== '' ? raw.id : `node-${randomUUID().slice(0, 8)}`
+    const id = snapshot.nodes.has(originalId) ? `node-${randomUUID().slice(0, 8)}` : originalId
+    const shotsRaw = Array.isArray(raw.screenshots) ? raw.screenshots : []
+    const screenshots: NodeScreenshot[] = []
+    for (const item of shotsRaw) {
+      if (typeof item !== 'object' || item === null) continue
+      const shot = item as Record<string, unknown>
+      if (typeof shot.file !== 'string' || typeof shot.caption !== 'string') continue
+      const bytes = await readFile(join(shotDir, shot.file)).catch(() => undefined)
+      if (bytes === undefined) continue
+      await this.store.writeScreenshot(id, shot.file, bytes)
+      screenshots.push({
+        id: `shot-${randomUUID().slice(0, 8)}`,
+        file: shot.file,
+        caption: shot.caption,
+        ...typeof shot.name === 'string' && shot.name !== '' ? { name: shot.name } : {},
+        ...shot.source === 'ai' ? { source: 'ai' as const } : {},
+      })
+    }
+    const node: GraphNode = {
+      id,
+      title,
+      description,
+      embedding: null,
+      status: 'active',
+      created_at: new Date().toISOString(),
+      created_by: 'import',
+      derived_from: typeof raw.derived_from === 'string' ? raw.derived_from : null,
+      screenshots,
+      ...typeof raw.ai_notes === 'string' && raw.ai_notes !== '' ? { ai_notes: raw.ai_notes } : {},
+      ...typeof raw.favorite === 'boolean' ? { favorite: raw.favorite } : {},
+    }
+    return { ...node, embedding: embedText(nodeSearchText(node)) }
+  }
+
+  /** Import one node folder into the library. */
+  async importNode(dir: string): Promise<GraphNode> {
+    const record = await readJsonFile(join(dir, 'node.json'))
+    if (record === undefined) throw new GraphError('import-invalid', '文件夹里没有可读的 node.json。', 400)
+    return this.locked(async () => {
+      const { snapshot, settings } = await this.loaded()
+      const node = await this.importNodeRecord(record, join(dir, 'screenshots'), snapshot)
+      await this.store.saveNode(node)
+      ;(snapshot.nodes as Map<string, GraphNode>).set(node.id, node)
+      await this.store.commit(snapshot, settings)
+      return node
+    })
+  }
+
+  /** Import one path folder, restoring the nodes it references when they are missing. */
+  async importPath(dir: string): Promise<GraphPath> {
+    const record = await readJsonFile(join(dir, 'path.json'))
+    if (record === undefined) throw new GraphError('import-invalid', '文件夹里没有可读的 path.json。', 400)
+    return this.locked(async () => {
+      const { snapshot, settings } = await this.loaded()
+      const sequence = Array.isArray(record.node_sequence)
+        ? record.node_sequence.filter((item): item is string => typeof item === 'string')
+        : []
+      const ids = new Set<string>(sequence)
+      const graphRaw = typeof record.graph === 'object' && record.graph !== null ? record.graph as Record<string, unknown> : undefined
+      if (graphRaw !== undefined && Array.isArray(graphRaw.nodes)) {
+        for (const item of graphRaw.nodes) {
+          if (typeof item !== 'object' || item === null) continue
+          const entry = item as Record<string, unknown>
+          if (typeof entry.node_id === 'string') ids.add(entry.node_id)
+        }
+      }
+      for (const nodeId of ids) {
+        if (snapshot.nodes.has(nodeId)) continue
+        const raw = await readJsonFile(join(dir, 'nodes', `${nodeId}.json`))
+        if (raw === undefined) continue
+        const node = await this.importNodeRecord(raw, join(dir, 'screenshots', nodeId), snapshot)
+        await this.store.saveNode(node)
+        ;(snapshot.nodes as Map<string, GraphNode>).set(node.id, node)
+      }
+      const graph = graphRaw === undefined
+        ? undefined
+        : {
+            nodes: (Array.isArray(graphRaw.nodes) ? graphRaw.nodes : []).flatMap((item) => {
+              if (typeof item !== 'object' || item === null) return []
+              const entry = item as Record<string, unknown>
+              return typeof entry.key === 'string' && typeof entry.node_id === 'string' ? [{ key: entry.key, node_id: entry.node_id }] : []
+            }),
+            edges: (Array.isArray(graphRaw.edges) ? graphRaw.edges : []).flatMap((item) => {
+              if (typeof item !== 'object' || item === null) return []
+              const entry = item as Record<string, unknown>
+              return typeof entry.from === 'string' && typeof entry.to === 'string' ? [{ from: entry.from, to: entry.to }] : []
+            }),
+          }
+      const pathId = typeof record.id === 'string' ? record.id : `path-${randomUUID().slice(0, 8)}`
+      const path: GraphPath = {
+        id: snapshot.paths.some((item) => item.id === pathId) ? `path-${randomUUID().slice(0, 8)}` : pathId,
+        name: typeof record.name === 'string' ? record.name : '导入的路径',
+        summary: typeof record.summary === 'string' ? record.summary : '',
+        embedding: null,
+        start_node: typeof record.start_node === 'string' ? record.start_node : (sequence[0] ?? ''),
+        end_node: typeof record.end_node === 'string' ? record.end_node : (sequence[sequence.length - 1] ?? ''),
+        node_sequence: sequence,
+        ...graph === undefined ? {} : { graph },
+      }
+      const hard = pathProblems(snapshot.nodes, snapshot.edges, path)
+        .filter((problem) => problem.code === 'cycle' || problem.code === 'missing-node' || problem.code === 'broken-edge')
+      if (hard.length > 0) throw new GraphError('import-invalid', `导入失败：${hard.map((problem) => problem.message).join('；')}`, 409)
       const saved: GraphPath = { ...path, embedding: embedText(pathSearchText(path, snapshot.nodes)) }
       await this.store.savePath(saved)
       ;(snapshot.paths as GraphPath[]).push(saved)

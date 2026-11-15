@@ -209,6 +209,20 @@ async function dispatch(options: GraphRequestOptions): Promise<void> {
   }
 
   // Node detail and actions.
+  if (method === 'POST' && parts[1] === 'nodes' && parts[2] === 'import') {
+    const body = asRecord(await readJson(req)) ?? {}
+    const dir = stringField(body, 'dir') ?? ''
+    sendJson(res, 200, { ok: true, node: publicNode(await service.importNode(dir)) })
+    return
+  }
+
+  if (method === 'POST' && parts[1] === 'paths' && parts[2] === 'import') {
+    const body = asRecord(await readJson(req)) ?? {}
+    const dir = stringField(body, 'dir') ?? ''
+    sendJson(res, 200, { ok: true, path: publicPath(await service.importPath(dir)) })
+    return
+  }
+
   if (parts[1] === 'nodes' && parts.length >= 3) {
     const id = at(2)
     if (method === 'GET' && parts.length === 3) {
@@ -227,6 +241,11 @@ async function dispatch(options: GraphRequestOptions): Promise<void> {
     }
     if (method === 'POST' && parts[3] === 'copy') {
       sendJson(res, 200, { ok: true, node: publicNode(await service.copyNode(id, operatorOf(req, url))) })
+      return
+    }
+    if (method === 'POST' && parts[3] === 'export') {
+      const body = asRecord(await readJson(req)) ?? {}
+      sendJson(res, 200, { ok: true, ...(await service.exportNode(id, stringField(body, 'dir') ?? '')) })
       return
     }
     if (method === 'POST' && parts[3] === 'favorite') {
@@ -340,6 +359,11 @@ async function dispatch(options: GraphRequestOptions): Promise<void> {
     }
     if (method === 'POST' && parts[3] === 'copy') {
       sendJson(res, 200, { ok: true, path: publicPath(await service.copyPath(id, operatorOf(req, url))) })
+      return
+    }
+    if (method === 'POST' && parts[3] === 'export') {
+      const body = asRecord(await readJson(req)) ?? {}
+      sendJson(res, 200, { ok: true, ...(await service.exportPath(id, stringField(body, 'dir') ?? '')) })
       return
     }
     if (method === 'PUT') {

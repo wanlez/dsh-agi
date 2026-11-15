@@ -453,6 +453,8 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
   <div class="topActions">
     <span class="dirtyFlag" id="dirtyFlag" hidden>● 未保存</span>
     <button class="btn" data-action="open-stats">统计看板</button>
+    <button class="btn" data-action="import-node">导入节点</button>
+    <button class="btn" data-action="import-path">导入路径</button>
     <button class="btn" data-action="new-path">+ 新建路径</button>
     <button class="btn primary" id="newBtn" data-action="new-node">+ 新建节点</button>
   </div>
@@ -708,6 +710,7 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
     html += '</div>';
     html += '<div class="block"><h3>节点操作</h3><div class="actionGrid">';
     html += '<button class="btn wide" data-action="copy-node" data-id="' + esc(node.id) + '">复制节点</button>';
+    html += '<button class="btn wide" data-action="export-node" data-id="' + esc(node.id) + '">导出节点</button>';
     if (deleted) {
       html += '<button class="btn primary wide" data-action="restore-node" data-id="' + esc(node.id) + '">恢复节点</button>';
     } else {
@@ -817,6 +820,21 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
       if (note) note.textContent = "找到 " + rows.length + " 条";
     }).catch(function (error) { $("pickerList").innerHTML = '<span class="muted">搜索失败：' + esc(error.message) + '</span>'; });
   }
+  function pickDirectory() {
+    return fetch("/.dsh-agi/workspace/pick", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    }).then(function (response) {
+      return response.text().then(function (text) {
+        var data = null;
+        try { data = text ? JSON.parse(text) : null; } catch (error) { data = null; }
+        if (!response.ok) throw new Error((data && data.error && data.error.message) || ("请求失败（" + response.status + "）"));
+        return data && typeof data.path === "string" && data.path !== "" ? data.path : null;
+      });
+    });
+  }
+
   function loadFavorites() {
     return Promise.all([api("/api/nodes?status=active"), api("/api/paths")]).then(function (data) {
       state.nodes = (data[0].nodes || []).filter(function (node) { return node.favorite !== false; });
@@ -964,6 +982,7 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
       + '<span class="tag ' + (state.pathDirty ? "warn" : "ok") + '">' + (state.pathDirty ? "未保存" : "已保存") + '</span>'
       + '<span class="grow"></span>'
       + (editor.pathId == null ? "" : '<button class="btn small" data-action="copy-path">复制路径</button>')
+      + (editor.pathId == null ? "" : '<button class="btn small" data-action="export-path">导出路径</button>')
       + (editor.pathId == null ? "" : '<button class="starButton' + (editor.favorite === false ? "" : " is-on") + '" data-action="toggle-path-favorite" title="' + (editor.favorite === false ? "未收藏，点击收藏" : "已收藏，点击取消收藏") + '">' + (editor.favorite === false ? "☆" : "★") + '</button>')
       + '<button class="btn small" data-action="check-path-editor">检查</button>'
       + '<button class="btn small primary" data-action="save-path-editor">保存</button>'
@@ -1382,6 +1401,53 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
         toast("已恢复。");
         loadFavorites();
         return openDetail(id);
+      }).catch(function (error) { toast(error.message, "bad"); });
+      return;
+    }
+    if (action === "import-node") {
+      event.preventDefault();
+      pickDirectory().then(function (dir) {
+        if (dir === null) return;
+        return api("/api/nodes/import", { method: "POST", body: { dir: dir } }).then(function (data) {
+          toast("节点已导入。");
+          loadFavorites();
+          return requestOpenDetail(data.node.id);
+        });
+      }).catch(function (error) { toast(error.message, "bad"); });
+      return;
+    }
+    if (action === "import-path") {
+      event.preventDefault();
+      pickDirectory().then(function (dir) {
+        if (dir === null) return;
+        return api("/api/paths/import", { method: "POST", body: { dir: dir } }).then(function (data) {
+          toast("路径已导入。");
+          loadFavorites();
+          return openPath(data.path.id);
+        });
+      }).catch(function (error) { toast(error.message, "bad"); });
+      return;
+    }
+    if (action === "export-node") {
+      event.preventDefault();
+      pickDirectory().then(function (dir) {
+        if (dir === null) return;
+        return api("/api/nodes/" + encodeURIComponent(id) + "/export", { method: "POST", body: { dir: dir } }).then(function (data) {
+          toast("已导出节点（截图 " + data.screenshots + " 张）。");
+        });
+      }).catch(function (error) { toast(error.message, "bad"); });
+      return;
+    }
+    if (action === "export-path") {
+      event.preventDefault();
+      var exportEditor = state.pathEditor;
+      if (!exportEditor || exportEditor.pathId == null) return;
+      if (state.pathDirty) { toast("先保存路径再导出。", "warn"); return; }
+      pickDirectory().then(function (dir) {
+        if (dir === null) return;
+        return api("/api/paths/" + encodeURIComponent(exportEditor.pathId) + "/export", { method: "POST", body: { dir: dir } }).then(function (data) {
+          toast("已导出路径（含 " + data.nodes + " 个节点）。");
+        });
       }).catch(function (error) { toast(error.message, "bad"); });
       return;
     }
