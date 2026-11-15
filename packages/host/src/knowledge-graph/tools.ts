@@ -90,8 +90,9 @@ export function registerGraphTools(ctx: GraphToolContext, resolve: () => Knowled
     name: 'knowledge_graph_search',
     description:
       'Search the local experience library for existing nodes and saved paths. Call this first for any '
-      + 'create-node or create-path request: the operator may already have a node for that action, and '
-      + 'reusing it is always better than creating a duplicate. Returns node ids (pass them to the other '
+      + 'create-node or create-path request: show the candidates to the operator and let THEM decide whether '
+      + 'an existing node is a reuse or whether a new one is needed. Never pick a similar node yourself and '
+      + 'treat it as the same action — the operator always decides. Returns node ids (pass them to the other '
       + 'tools) and path summaries.',
     parameters: schema({
       query: { type: 'string', description: 'Keywords or a one-sentence description of the action or flow.' },
@@ -174,7 +175,9 @@ export function registerGraphTools(ctx: GraphToolContext, resolve: () => Knowled
       + 'short description (they know the real action; you do not). If the operator only said "帮我创建一个节点，内容：xxx", '
       + 'confirm the title in one short question, and tell them screenshots can be added later in the library editor. '
       + 'This tool searches for a near-duplicate first and refuses to create when one exists unless '
-      + 'confirm_duplicate=true — reuse the existing node instead of making a second node for the same action.',
+      + 'confirm_duplicate=true. The operator decides: list the candidates and ask clearly whether to reuse '
+      + 'an existing node or create a new one; call with confirm_duplicate=true only after they explicitly '
+      + 'said to create a new node.',
     parameters: schema({
       title: { type: 'string', description: 'Short action title, e.g. 进入天翼云电脑.' },
       description: { type: 'string', description: 'What the operator does in this step, in their own words.' },
@@ -308,11 +311,11 @@ export function registerGraphTools(ctx: GraphToolContext, resolve: () => Knowled
       + 'The operator\'s title/description and their screenshots are read-only here. Call it only when you '
       + 'actually learned something reliable this run (a pit, a better prompt, the target screen you matched); '
       + 'skip when the node is already complete, and never rewrite the same notes again. Keep ai_notes short: '
-      + 'at most 3 bullet points under 300 characters, no essays. The operator reads their own text first as '
+      + 'at most 3 bullet points under 600 characters, no essays. The operator reads their own text first as '
       + 'the base, then follows your notes as the refined guidance.',
     parameters: schema({
       node_id: { type: 'string', description: 'Node id.' },
-      ai_notes: { type: 'string', description: 'New supplement as short bullet points (≤300 chars). Omit when only adding a screenshot.' },
+      ai_notes: { type: 'string', description: 'New supplement as short bullet points (≤600 chars). Omit when only adding a screenshot.' },
       screenshot_paths: { type: 'array', items: { type: 'string' }, description: 'Local image paths you matched to this step this run.' },
       screenshot_captions: { type: 'array', items: { type: 'string' }, description: 'One caption per screenshot, same order.' },
     }, ['node_id']),
@@ -326,8 +329,8 @@ export function registerGraphTools(ctx: GraphToolContext, resolve: () => Knowled
       if (notes === '' && paths.length === 0) {
         return { updated: false, reason: '没有新的内容可写；不要为了更新而更新。' }
       }
-      if (notes !== '' && notes.length > 300) {
-        throw new GraphError('ai-notes-too-long', 'AI 补充太长：压缩到 300 字以内（最多 3 条要点）。', 400)
+      if (notes !== '' && notes.length > 600) {
+        throw new GraphError('ai-notes-too-long', 'AI 补充太长：压缩到 600 字以内（最多 3 条要点）。', 400)
       }
       const detail = await service.nodeDetail(nodeId)
       if (notes !== '' && notes !== (detail.node.ai_notes ?? '')) {

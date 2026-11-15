@@ -52,13 +52,13 @@ Markdown 笔记会过期、会被跳过。`dsh-agi` 维护一个你真能长期�
 
 | 工具 | 作用 |
 |---|---|
-| `knowledge_graph_search` | 创建前先找已有节点/路径——复用永远优于重复。 |
+| `knowledge_graph_search` | 创建前先找已有节点/路径，候选原样交给操作者决定复用还是新建。 |
 | `knowledge_graph_get_node` | 读节点，含 AI 补充、以及每张截图是人的还是 AI 的。 |
-| `knowledge_graph_create_node` | 建节点；同名时**拒绝**，除非操作者确认；支持把同一条消息里附带的截图一起存进去。 |
+| `knowledge_graph_create_node` | 建节点；同名时**拒绝**，除非操作者明确说要新建；支持把同一条消息里附带的截图一起存进去。 |
 | `knowledge_graph_create_path` | **只有在明确确认之后**才保存路径；拒绝环和缺失节点，保存后自动检查。 |
 | `knowledge_graph_check_path` | 跑静态检查，逐条报告问题。 |
 | `knowledge_graph_update_node` | 修人写的标题/说明——措辞仍归操作者。 |
-| `knowledge_graph_learn_node` | 真实执行后**只**更新 AI 部分：`ai_notes`（限 300 字、最多 3 条要点）和 AI 截图；没有新东西就跳过。 |
+| `knowledge_graph_learn_node` | 真实执行后**只**更新 AI 部分：`ai_notes`（限 600 字、最多 3 条要点）和 AI 截图；没有新东西就跳过。 |
 
 安全顺序被实现了两遍：代码拒绝未确认的写入，提示词则规定流程——先搜索、逐节点和操作者确认、最后检查并报告。创建路径时还会先明确提醒「路径创建较复杂，请务必打开经验库核对每个细节」，让操作者始终在环里，而不是被惊喜。
 

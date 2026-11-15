@@ -52,13 +52,13 @@ The input box can drive the library through seven tools:
 
 | Tool | What it does |
 |---|---|
-| `knowledge_graph_search` | Finds existing nodes and paths before anything is created — reuse beats duplicates. |
+| `knowledge_graph_search` | Finds existing nodes and paths before anything is created — the operator decides whether to reuse one or create something new. |
 | `knowledge_graph_get_node` | Reads a node, including its AI supplement and which screenshots are human vs AI. |
-| `knowledge_graph_create_node` | Creates a node; refuses a duplicate title unless the operator confirms, and can store screenshots attached in the same message. |
+| `knowledge_graph_create_node` | Creates a node; refuses a duplicate title unless the operator explicitly confirms creating a new one, and can store screenshots attached in the same message. |
 | `knowledge_graph_create_path` | Saves an ordered path **only after explicit confirmation**; rejects cycles and missing nodes, and checks the saved path afterwards. |
 | `knowledge_graph_check_path` | Runs the static check and reports every finding. |
 | `knowledge_graph_update_node` | Fixes a human title or description — wording stays the operator's. |
-| `knowledge_graph_learn_node` | After a real run, updates **only** the AI part: `ai_notes` (capped at 300 characters, 3 bullets) and AI screenshots. Skips when nothing new was learned. |
+| `knowledge_graph_learn_node` | After a real run, updates **only** the AI part: `ai_notes` (capped at 600 characters, 3 bullets) and AI screenshots. Skips when nothing new was learned. |
 
 The safety order is enforced twice: the code refuses an unconfirmed write, and a per-step prompt states the procedure — search first, confirm every step with the operator, then check and report. Creating a path also starts with the explicit warning *"路径创建较复杂，请务必打开经验库核对每个细节"*, so the operator is expected in the loop, not surprised by it.
 
