@@ -778,11 +778,41 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
     $("pathView").innerHTML = "";
     $("emptyHint").hidden = false;
   }
+  var insertState = { nodes: [], shown: 10 };
+  function renderInsertAll() {
+    var box = $("insertResults");
+    if (!box) return;
+    if (insertState.nodes.length === 0) { box.innerHTML = '<span class="muted">还没有节点。</span>'; return; }
+    var html = insertState.nodes.slice(0, insertState.shown).map(function (node) {
+      return '<button class="insertItem" data-pick-node="' + esc(node.id) + '">' + esc(node.title || "未命名节点") + '</button>';
+    }).join("");
+    if (insertState.nodes.length > insertState.shown) {
+      html += '<button class="btn small" data-action="insert-more">加载更多（还有 ' + (insertState.nodes.length - insertState.shown) + ' 个）</button>';
+    }
+    box.innerHTML = html;
+  }
+  function insertMore() {
+    if (insertState.shown >= insertState.nodes.length) return;
+    var box = $("insertResults");
+    if (!box) return;
+    // Append instead of re-rendering: a scroll-triggered load must keep the current scroll position.
+    var from = insertState.shown;
+    insertState.shown = Math.min(insertState.nodes.length, insertState.shown + 10);
+    var rows = insertState.nodes.slice(from, insertState.shown).map(function (node) {
+      return '<button class="insertItem" data-pick-node="' + esc(node.id) + '">' + esc(node.title || "未命名节点") + '</button>';
+    }).join("");
+    var more = box.querySelector('[data-action="insert-more"]');
+    if (more) more.remove();
+    var rest = insertState.nodes.length - insertState.shown;
+    box.insertAdjacentHTML("beforeend", rows + (rest > 0
+      ? '<button class="btn small" data-action="insert-more">加载更多（还有 ' + rest + ' 个）</button>'
+      : ""));
+  }
   function insertStep(index, direction) {
     state.insert = { index: Number(index), direction: direction };
     var body = '<div class="insertCols">'
       + '<div class="insertCol"><h4>本路径内节点</h4><div id="insertLocal" class="insertList"></div></div>'
-      + '<div class="insertCol"><h4>搜索节点</h4><input id="insertQuery" placeholder="关键词"><button class="btn small" data-action="insert-search">搜索</button><div id="insertResults" class="insertList"></div></div>'
+      + '<div class="insertCol"><h4>搜索节点</h4><input id="insertQuery" placeholder="关键词（留空显示全部节点）"><button class="btn small" data-action="insert-search">搜索</button><div id="insertResults" class="insertList"></div></div>'
       + '<div class="insertCol"><h4>收藏节点</h4><div id="insertFavorites" class="insertList"></div></div>'
       + '</div>'
       + '<div class="insertFoot"><span id="insertPicked" class="muted">选一个节点</span><button class="btn primary" data-action="insert-apply" disabled id="insertApplyBtn">插入</button></div>';
@@ -794,6 +824,16 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
     $("insertFavorites").innerHTML = state.nodes.length === 0 ? '<span class="muted">还没有节点。</span>' : state.nodes.map(function (node) {
       return '<button class="insertItem" data-pick-node="' + esc(node.id) + '">' + esc(node.title || "未命名节点") + '</button>';
     }).join("");
+    // The search column starts with the whole library and grows ten rows per scroll to the bottom.
+    insertState.nodes = state.nodes.slice();
+    insertState.shown = 10;
+    renderInsertAll();
+    $("insertResults").addEventListener("scroll", function () {
+      if (this.scrollTop + this.clientHeight >= this.scrollHeight - 24) insertMore();
+    });
+    $("insertQuery").addEventListener("input", function () {
+      if (this.value.trim() === "") renderInsertAll();
+    });
     bindInsertPicker();
   }
   function bindInsertPicker() {
@@ -813,9 +853,10 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
   }
   function insertSearch() {
     var query = $("insertQuery").value.trim();
-    if (!query) return;
+    if (!query) { renderInsertAll(); return; }
     $("insertResults").innerHTML = '<span class="muted">搜索中…</span>';
-    api("/api/search?q=" + encodeURIComponent(query) + "&threshold=" + encodeURIComponent(String(state.settings.searchThreshold == null ? 0.6 : state.settings.searchThreshold))).then(function (data) {
+    // threshold 0: any node can be found, even with a weak match.
+    api("/api/search?q=" + encodeURIComponent(query) + "&threshold=0").then(function (data) {
       var seen = {};
       var rows = [];
       (data.candidates || []).concat(data.keyword || []).forEach(function (candidate) {
@@ -965,6 +1006,7 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
     if (action === "insert-step") { event.preventDefault(); insertStep(el.getAttribute("data-index"), el.getAttribute("data-dir")); return; }
     if (action === "remove-step") { event.preventDefault(); removeStep(el.getAttribute("data-index")); return; }
     if (action === "insert-search") { event.preventDefault(); insertSearch(); return; }
+    if (action === "insert-more") { event.preventDefault(); insertMore(); return; }
     if (action === "insert-apply") { event.preventDefault(); applyInsert(); return; }
     if (action === "save-node") {
       event.preventDefault();
