@@ -122,11 +122,16 @@ export function apply(ctx: OrbContext, config: { autoStart?: boolean } = {}): vo
     void new KnowledgeGraphStore(graphDir).init().catch(() => undefined)
   }
   // The input box reaches the library through these tools. They resolve the active library
-  // directory per call, so a folder switch in the editor reaches them too.
-  if (ctx.tools !== undefined) {
-    const graphTools = ctx.tools
-    const graphService = (): KnowledgeGraphService => new KnowledgeGraphService(new KnowledgeGraphStore(knowledgeGraphDirFor(store.dir)))
-    registerGraphTools({ tools: graphTools }, graphService)
+  // directory per call, so a folder switch in the editor reaches them too. A registry that is
+  // absent or rejects a definition must never take the whole ball down with it.
+  try {
+    const registry = ctx.tools
+    if (registry !== undefined && typeof registry.register === 'function') {
+      const graphService = (): KnowledgeGraphService => new KnowledgeGraphService(new KnowledgeGraphStore(knowledgeGraphDirFor(store.dir)))
+      registerGraphTools({ tools: registry }, graphService)
+    }
+  } catch (error) {
+    console.error(`dsh-agi: knowledge-graph tools failed to register: ${error instanceof Error ? error.message : String(error)}`)
   }
   // pnpm appends a `name@version` rule for every young release it installs and reads
   // only the first rule per package name, so a profile that installed this plugin
