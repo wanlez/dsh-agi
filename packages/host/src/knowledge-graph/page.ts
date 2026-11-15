@@ -412,6 +412,9 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
   .pathTool { font-size: 12px; fill: var(--accent); cursor: pointer; font-weight: 600; }
   .pathTool.danger { fill: var(--danger); }
   .pathTool:hover { text-decoration: underline; }
+  .starButton { background: transparent; border: 0; font-size: 20px; line-height: 1; color: #b8860b; cursor: pointer; padding: 2px 6px; }
+  .starButton:hover { transform: scale(1.1); }
+  .insertNote { font-size: 11.5px; color: var(--muted); margin-bottom: 6px; line-height: 1.5; }
   .riTitle { font-weight: 600; font-size: 13px; }
   .riMeta { font-size: 11px; color: var(--muted); }
   .riDesc { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -656,10 +659,12 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
     var node = detail.node;
     var deleted = node.status === "deleted";
     state.titles[node.id] = node.title;
+    var favorited = node.favorite !== false;
     var drawer = $("detail");
     var html = '<div id="detailResize" title="拖动调整宽度"></div>';
     html += '<div class="row"><h2 class="grow">' + esc(node.title || "未命名节点") + '</h2>'
       + '<span class="tag ' + (deleted ? "bad" : "ok") + '" title="正常：可搜索、可被路径引用；删除是软删除，可恢复">' + esc(statusLabel(node.status)) + '</span>'
+      + '<button class="starButton' + (favorited ? " is-on" : "") + '" data-action="toggle-node-favorite" data-id="' + esc(node.id) + '" title="' + (favorited ? "已收藏，点击取消收藏" : "未收藏，点击收藏") + '">' + (favorited ? "★" : "☆") + '</button>'
       + '<button class="btn ghost" data-action="close-detail">关闭</button></div>';
     html += '<div class="meta">创建人 ' + esc(node.created_by) + ' · ' + esc(formatTs(node.created_at)) + '</div>';
     html += '<div class="field"><label>标题</label><input id="detailTitle" value="' + esc(node.title) + '"></div>';
@@ -702,8 +707,7 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
     });
     html += '</div>';
     html += '<div class="block"><h3>节点操作</h3><div class="actionGrid">';
-    var favorited = node.favorite !== false;
-    html += '<button class="btn wide" data-action="toggle-node-favorite" data-id="' + esc(node.id) + '">' + (favorited ? "取消收藏" : "收藏节点") + '</button>';
+    html += '<button class="btn wide" data-action="copy-node" data-id="' + esc(node.id) + '">复制节点</button>';
     if (deleted) {
       html += '<button class="btn primary wide" data-action="restore-node" data-id="' + esc(node.id) + '">恢复节点</button>';
     } else {
@@ -959,7 +963,8 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
     var html = '<div class="pvHead"><h3>' + esc(editor.name || "未命名路径") + '</h3>'
       + '<span class="tag ' + (state.pathDirty ? "warn" : "ok") + '">' + (state.pathDirty ? "未保存" : "已保存") + '</span>'
       + '<span class="grow"></span>'
-      + (editor.pathId == null ? "" : '<button class="btn small' + (editor.favorite === false ? "" : " danger") + '" data-action="toggle-path-favorite">' + (editor.favorite === false ? "收藏路径" : "取消收藏") + '</button>')
+      + (editor.pathId == null ? "" : '<button class="btn small" data-action="copy-path">复制路径</button>')
+      + (editor.pathId == null ? "" : '<button class="starButton' + (editor.favorite === false ? "" : " is-on") + '" data-action="toggle-path-favorite" title="' + (editor.favorite === false ? "未收藏，点击收藏" : "已收藏，点击取消收藏") + '">' + (editor.favorite === false ? "☆" : "★") + '</button>')
       + '<button class="btn small" data-action="check-path-editor">检查</button>'
       + '<button class="btn small primary" data-action="save-path-editor">保存</button>'
       + '<button class="btn small ghost" data-action="close-path-editor">关闭</button></div>';
@@ -1049,20 +1054,19 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
   function insertNodeAt(anchorKey, direction) {
     state.insert = { anchor: anchorKey, direction: direction };
     var body = '<div class="insertCols">'
-      + '<div class="insertCol"><h4>本路径内节点</h4><div id="insertLocal" class="insertList"></div></div>'
-      + '<div class="insertCol"><h4>搜索节点</h4><input id="insertQuery" placeholder="关键词（留空显示全部节点）"><button class="btn small" data-action="insert-search">搜索</button><div id="insertResults" class="insertList"></div></div>'
-      + '<div class="insertCol"><h4>收藏节点</h4><div id="insertFavorites" class="insertList"></div></div>'
+      + '<div class="insertCol"><h4>本路径内节点</h4><div class="insertNote">选这里的节点＝把新连线连到这个已有位置，不会重复加节点。</div><div id="insertLocal" class="insertList"></div></div>'
+      + '<div class="insertCol"><h4>搜索节点</h4><input id="insertQuery" placeholder="关键词（留空显示全部节点）"><button class="btn small" data-action="insert-search">搜索</button><div class="insertNote">要加一个还没创建的节点，请先在面板新建节点，再回来这里搜索。</div><div id="insertResults" class="insertList"></div></div>'
+      + '<div class="insertCol"><h4>收藏节点</h4><div class="insertNote">选库里的节点＝在当前路径里新建一个位置并连线，节点本身不会被复制。</div><div id="insertFavorites" class="insertList"></div></div>'
       + '</div>'
       + '<div class="insertFoot"><span id="insertPicked" class="muted">选一个节点</span><button class="btn primary" data-action="insert-apply" disabled id="insertApplyBtn">插入</button></div>';
     showModal("插入节点（" + (direction === "before" ? "作为上一步" : "作为下一步") + "）", body);
-    var seen = {};
-    var local = (state.pathEditor.graph.nodes || []).map(function (entry) { return entry.node_id; }).filter(function (nodeId) {
-      if (seen[nodeId]) return false;
-      seen[nodeId] = true;
-      return true;
+    var local = (state.pathEditor.graph.nodes || []).map(function (entry, index) {
+      return { key: entry.key, node_id: entry.node_id, index: index };
     });
-    $("insertLocal").innerHTML = local.length === 0 ? '<span class="muted">路径还没有节点。</span>' : local.map(function (nodeId) {
-      return '<button class="insertItem" data-pick-node="' + esc(nodeId) + '">' + esc(state.titles[nodeId] || nodeId) + '</button>';
+    $("insertLocal").innerHTML = local.length === 0 ? '<span class="muted">路径还没有节点。</span>' : local.map(function (entry) {
+      return '<button class="insertItem" data-pick-node="' + esc(entry.node_id) + '" data-pick-instance="' + esc(entry.key) + '">'
+        + '<span class="riTitle">' + esc(state.titles[entry.node_id] || entry.node_id) + '</span>'
+        + '<span class="riMeta">路径里第 ' + (entry.index + 1) + ' 个位置</span></button>';
     }).join("");
     $("insertFavorites").innerHTML = state.nodes.length === 0 ? '<span class="muted">还没有节点。</span>' : state.nodes.map(function (node) {
       return '<button class="insertItem" data-pick-node="' + esc(node.id) + '">' + esc(node.title || "未命名节点") + '</button>';
@@ -1089,7 +1093,14 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
       root.querySelectorAll(".insertItem.picked").forEach(function (item) { item.classList.remove("picked"); });
       pick.classList.add("picked");
       state.insert.picked = pick.getAttribute("data-pick-node");
-      $("insertPicked").textContent = "已选：" + (state.titles[state.insert.picked] || state.insert.picked);
+      state.insert.pickedInstance = pick.getAttribute("data-pick-instance");
+      var pickedTitle = state.titles[state.insert.picked] || state.insert.picked;
+      if (state.insert.pickedInstance) {
+        var index = (state.pathEditor.graph.nodes || []).findIndex(function (entry) { return entry.key === state.insert.pickedInstance; });
+        $("insertPicked").textContent = "已选：路径里第 " + (index + 1) + " 个位置（" + pickedTitle + "）";
+      } else {
+        $("insertPicked").textContent = "已选：" + pickedTitle;
+      }
       $("insertApplyBtn").disabled = false;
     });
   }
@@ -1113,17 +1124,24 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
   }
   function applyInsert() {
     var insert = state.insert;
-    if (!insert || !insert.picked) return;
+    if (!insert) return;
     var editor = state.pathEditor;
     var graph = editor.graph;
-    var key = nextPathKey(insert.picked);
-    var nextGraph = {
-      nodes: graph.nodes.concat([{ key: key, node_id: insert.picked }]),
-      edges: graph.edges.slice(),
-    };
-    if (insert.anchor) {
-      if (insert.direction === "before") nextGraph.edges.push({ from: key, to: insert.anchor });
-      else nextGraph.edges.push({ from: insert.anchor, to: key });
+    var nextGraph = { nodes: graph.nodes.slice(), edges: graph.edges.slice() };
+    if (insert.pickedInstance) {
+      // Already in the path: this only adds an edge to that exact position.
+      if (!insert.anchor) { toast("先选一个锚点位置。", "warn"); return; }
+      if (insert.anchor === insert.pickedInstance) { toast("不能连到自己。", "bad"); return; }
+      if (insert.direction === "before") nextGraph.edges.push({ from: insert.pickedInstance, to: insert.anchor });
+      else nextGraph.edges.push({ from: insert.anchor, to: insert.pickedInstance });
+    } else {
+      if (!insert.picked) return;
+      var key = nextPathKey(insert.picked);
+      nextGraph.nodes.push({ key: key, node_id: insert.picked });
+      if (insert.anchor) {
+        if (insert.direction === "before") nextGraph.edges.push({ from: key, to: insert.anchor });
+        else nextGraph.edges.push({ from: insert.anchor, to: key });
+      }
     }
     // Same node twice is fine; a real cycle is not. The check is on the topology, not the id.
     if (pathGraphHasCycle(nextGraph)) { toast("这样连接会形成环，已拒绝。", "bad"); return; }
@@ -1131,7 +1149,7 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
     state.pathDirty = true;
     closeModal();
     renderPathEditor();
-    toast("已插入「" + (state.titles[insert.picked] || insert.picked) + "」。");
+    toast(insert.pickedInstance ? "已连到路径里的已有位置。" : "已插入「" + (state.titles[insert.picked] || insert.picked) + "」。");
   }
   function removeStep(key) {
     var editor = state.pathEditor;
@@ -1364,6 +1382,26 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
         toast("已恢复。");
         loadFavorites();
         return openDetail(id);
+      }).catch(function (error) { toast(error.message, "bad"); });
+      return;
+    }
+    if (action === "copy-node") {
+      event.preventDefault();
+      api("/api/nodes/" + encodeURIComponent(id) + "/copy", { method: "POST", body: {} }).then(function (data) {
+        toast("副本已创建。");
+        loadFavorites();
+        return openDetail(data.node.id);
+      }).catch(function (error) { toast(error.message, "bad"); });
+      return;
+    }
+    if (action === "copy-path") {
+      event.preventDefault();
+      var copyEditor = state.pathEditor;
+      if (!copyEditor || copyEditor.pathId == null) return;
+      api("/api/paths/" + encodeURIComponent(copyEditor.pathId) + "/copy", { method: "POST", body: {} }).then(function (data) {
+        toast("路径副本已创建。");
+        loadFavorites();
+        return openPath(data.path.id);
       }).catch(function (error) { toast(error.message, "bad"); });
       return;
     }

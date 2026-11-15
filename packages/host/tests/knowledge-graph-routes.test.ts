@@ -81,7 +81,8 @@ describe('knowledge graph HTTP surface', () => {
     assert.match(text, /没有路径引用它/)
     // Paths carry their own favorite toggle; the node copy affordance was removed.
     assert.match(text, /data-action="toggle-path-favorite"/)
-    assert.doesNotMatch(text, /复制节点/)
+    // The node copy affordance is back (copies are independent), alongside the favorite star.
+    assert.match(text, /复制节点/)
     assert.match(text, /删除节点/)
   })
 

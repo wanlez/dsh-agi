@@ -338,6 +338,10 @@ async function dispatch(options: GraphRequestOptions): Promise<void> {
       sendJson(res, 200, { ok: true, path: publicPath(await service.setPathFavorite(id, body.favorite === true)) })
       return
     }
+    if (method === 'POST' && parts[3] === 'copy') {
+      sendJson(res, 200, { ok: true, path: publicPath(await service.copyPath(id, operatorOf(req, url))) })
+      return
+    }
     if (method === 'PUT') {
       const body = asRecord(await readJson(req)) ?? {}
       const sequence = Array.isArray(body.node_sequence)

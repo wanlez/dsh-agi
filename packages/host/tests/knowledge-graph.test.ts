@@ -119,7 +119,7 @@ describe('knowledge graph invariants', () => {
 
     const copy = await service.copyNode(source.id, 'tester')
     assert.equal(copy.derived_from, source.id)
-    assert.match(copy.title, /副本/)
+    assert.match(copy.title, /复制版/)
     assert.equal(copy.screenshots.length, 1)
     const copyRaw = JSON.parse(readFileSync(join(dir, 'nodes', `${copy.id}.json`), 'utf8')) as Record<string, unknown>
     assert.equal('io' in copyRaw, false, 'a copy never writes an io field')

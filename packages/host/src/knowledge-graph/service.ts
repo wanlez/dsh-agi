@@ -498,18 +498,21 @@ export class KnowledgeGraphService {
       if (source === undefined) throw new GraphError('node-missing', '要复制的节点不存在。', 404)
       if (!isNodePresent(source)) throw new GraphError('node-removed', '已删除的节点不能复制。', 409)
       const now = new Date().toISOString()
+      const stamp = now.slice(0, 16).replace('T', '-').replace(':', '')
       const id = `node-${randomUUID().slice(0, 8)}`
       const screenshots = source.screenshots.map((shot) => ({
         id: `shot-${randomUUID().slice(0, 8)}`,
         file: shot.file,
         caption: shot.caption,
+        ...shot.name === undefined ? {} : { name: shot.name },
+        ...shot.source === undefined ? {} : { source: shot.source },
       }))
       for (const shot of screenshots) {
         await this.store.copyScreenshot(source.id, shot.file, id, shot.file)
       }
       const node: GraphNode = {
         id,
-        title: `${source.title}（副本）`,
+        title: `${source.title}_复制版_${stamp}`,
         description: source.description,
         embedding: null,
         status: 'active',
@@ -517,6 +520,8 @@ export class KnowledgeGraphService {
         created_by: operator.slice(0, 80),
         derived_from: source.id,
         screenshots,
+        ...source.ai_notes === undefined ? {} : { ai_notes: source.ai_notes, ai_updated_at: now },
+        ...source.favorite === undefined ? {} : { favorite: source.favorite },
       }
       const saved: GraphNode = { ...node, embedding: embedText(nodeSearchText(node)) }
       await this.store.saveNode(saved)
@@ -717,8 +722,38 @@ export class KnowledgeGraphService {
     })
   }
 
-  /** Toggle the favorites flag for one path; the path file and its nodes stay untouched. */
-  async setPathFavorite(pathId: string, favorite: boolean): Promise<GraphPath> {
+  /** Duplicate one saved path as an independent copy; names get a copy stamp, ids are new. */
+  async copyPath(pathId: string, operator = 'human'): Promise<GraphPath> {
+    return this.locked(async () => {
+      const { snapshot, settings } = await this.loaded()
+      const source = snapshot.paths.find((path) => path.id === pathId)
+      if (source === undefined) throw new GraphError('path-missing', '要复制的路径不存在。', 404)
+      const stamp = new Date().toISOString().slice(0, 16).replace('T', '-').replace(':', '')
+      const graph = source.graph === undefined
+        ? undefined
+        : {
+            nodes: source.graph.nodes.map((entry) => ({ key: entry.key, node_id: entry.node_id })),
+            edges: source.graph.edges.map((edge) => ({ from: edge.from, to: edge.to })),
+          }
+      const path: GraphPath = {
+        id: `path-${randomUUID().slice(0, 8)}`,
+        name: `${source.name}_复制版_${stamp}`,
+        summary: source.summary,
+        embedding: null,
+        start_node: source.start_node,
+        end_node: source.end_node,
+        node_sequence: [...source.node_sequence],
+        ...graph === undefined ? {} : { graph },
+      }
+      const saved: GraphPath = { ...path, embedding: embedText(pathSearchText(path, snapshot.nodes)) }
+      await this.store.savePath(saved)
+      ;(snapshot.paths as GraphPath[]).push(saved)
+      await this.store.commit(snapshot, settings)
+      return saved
+    })
+  }
+
+  /** Toggle the favorites flag for one path; the path file and its nodes stay untouched. */  async setPathFavorite(pathId: string, favorite: boolean): Promise<GraphPath> {
     return this.locked(async () => {
       const { snapshot, settings } = await this.loaded()
       const index = snapshot.paths.findIndex((path) => path.id === pathId)
