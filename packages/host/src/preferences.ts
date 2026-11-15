@@ -18,6 +18,12 @@ import { isAvatarPresetId } from './avatar-presets.ts'
 /** The ball's current job: answer from the library, or also operate the desktop. */
 export type PluginMode = 'operate' | 'knowledge'
 
+/**
+ * Which conversation the ball drives. `isolated` keeps a ball-owned `computer-use`
+ * conversation; `shared` follows the conversation the main window touched last.
+ */
+export type SessionMode = 'isolated' | 'shared'
+
 const PERMISSION_FILE = 'agi-permission.json'
 const MODELS_FILE = 'agi-agent-models.json'
 const MILLIFRACTION_FILE = 'millifraction-coordinates.json'
@@ -32,6 +38,7 @@ const WORKSPACE_FILE = 'agi-workspace.json'
 const VOICE_FILE = 'agi-voice.json'
 const WHATS_NEW_FILE = 'agi-whats-new.json'
 const SAFE_MODE_FILE = 'agi-safe-mode.json'
+const SESSION_MODE_FILE = 'agi-session-mode.json'
 const MODE_FILE = 'agi-mode.json'
 
 /** Retention choices shown in the settings select; 0 means forever. */
@@ -175,6 +182,15 @@ export function isPermissionPreset(value: unknown): value is PermissionPreset {
   return typeof value === 'string' && (PERMISSION_PRESETS as readonly string[]).includes(value)
 }
 
+/**
+ * True for the two modes the settings page can send.
+ * @param value - untrusted request or profile-file value.
+ * @returns whether it names a mode; anything else is an invalid choice.
+ */
+export function isSessionMode(value: unknown): value is SessionMode {
+  return value === 'isolated' || value === 'shared'
+}
+
 export function isAgentModelSelection(value: unknown): value is AgentModelSelection {
   return parseSelection(value) !== undefined
 }
@@ -194,6 +210,7 @@ export class ProfileStore {
   private selectionValue: boolean
   private selectionLanguage: 'zh' | 'en'
   private safeModeValue: boolean
+  private sessionModeValue: SessionMode
   private modeValue: PluginMode
   private ballValue: boolean
   private updateValue: UpdateRecord
@@ -212,6 +229,7 @@ export class ProfileStore {
     this.selectionValue = selection.enabled
     this.selectionLanguage = selection.language
     this.safeModeValue = readSafeMode(dir)
+    this.sessionModeValue = readSessionMode(dir)
     this.modeValue = readMode(dir)
     this.ballValue = readBall(dir)
     this.updateValue = readUpdate(dir)
@@ -328,6 +346,20 @@ export class ProfileStore {
   setSafeMode(enabled: boolean): void {
     this.safeModeValue = enabled
     writeJson(join(this.dir, SAFE_MODE_FILE), { enabled })
+  }
+
+  /**
+   * Where the ball's conversation comes from. Isolated unless the profile says otherwise:
+   * a shared session hands the ball the main window's agent, tools and model.
+   */
+  sessionMode(): SessionMode {
+    return this.sessionModeValue
+  }
+
+  /** Persist the mode. It is read when the next conversation is elected, not per prompt. */
+  setSessionMode(mode: SessionMode): void {
+    this.sessionModeValue = mode
+    writeJson(join(this.dir, SESSION_MODE_FILE), { mode })
   }
 
   /** 'knowledge' answers from the experience library only; 'operate' allows Computer Use. */
@@ -560,6 +592,12 @@ function readMode(dir: string): PluginMode {
 function readSafeMode(dir: string): boolean {
   const enabled = record(readJson(join(dir, SAFE_MODE_FILE)))?.enabled
   return typeof enabled === 'boolean' ? enabled : false
+}
+
+/** A missing or malformed file means isolation: the ball never takes a window's conversation. */
+function readSessionMode(dir: string): SessionMode {
+  const mode = record(readJson(join(dir, SESSION_MODE_FILE)))?.mode
+  return isSessionMode(mode) ? mode : 'isolated'
 }
 
 function readBall(dir: string): boolean {

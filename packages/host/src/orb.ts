@@ -44,6 +44,7 @@ import {
   type PermissionPreset,
   type PluginMode,
   type ProfileStore,
+  type SessionMode,
   type WorkspaceState,
 } from './preferences.ts'
 import { tokensMatch } from './routes.ts'
@@ -432,6 +433,8 @@ export class OrbRuntime {
   private sessionId: string | undefined
   private sessionError: string | undefined
   private creating: Promise<string> | undefined
+  /** Mode the current conversation was elected under; another one re-elects on the next start. */
+  private adoptedSessionMode: SessionMode | undefined
   private watermark = 0
   private missingLogged = false
   private timer: ReturnType<typeof setInterval> | undefined
@@ -772,6 +775,16 @@ export class OrbRuntime {
     }
     console.error(`dsh-agi: helper socket 127.0.0.1:${this.port}`)
     this.startPolls()
+    // The mode picks the conversation. A start after the operator switched it must elect a
+    // conversation again instead of resuming the one the previous mode had picked. The panel
+    // state goes with it: the fresh helper page must not compare its event sequence with the
+    // old conversation's watermark.
+    if (this.sessionId !== undefined
+      && this.adoptedSessionMode !== undefined
+      && this.adoptedSessionMode !== this.store.sessionMode()) {
+      this.sessionId = undefined
+      this.resetTranscript()
+    }
     const sessionTask = this.ensureSession().catch((error: unknown) => {
       this.sessionError = error instanceof Error ? error.message : String(error)
       console.error(`dsh-agi: session setup failed: ${this.sessionError}`)
@@ -1133,6 +1146,14 @@ export class OrbRuntime {
   }
 
   private async createSession(): Promise<string> {
+    // Shared mode follows the conversation the main window touched last. That is the closest
+    // available stand-in for "the one it has open": the main window does not persist its
+    // selection. A Host whose session list cannot be read falls back to the isolated rule
+    // instead of failing the start.
+    if (this.store.sessionMode() === 'shared') {
+      const recent = await this.mostRecentlyUpdatedSession()
+      if (recent !== undefined && await this.openConversation(recent)) return this.adopt(recent)
+    }
     const workspaceId = await this.workspaceId()
     const saved = await readSavedSession(this.sessionFile)
     // Isolated by default: only a conversation the ball created itself is reused. A conversation
@@ -1149,6 +1170,33 @@ export class OrbRuntime {
       agentPreset: BALL_AGENT_PRESET,
     })
     return this.adopt(session.sessionId)
+  }
+
+  /**
+   * The conversation the main window touched last, newest `updatedAt` first. A subagent
+   * conversation is skipped: its preset is not one the ball can drive, and following it would
+   * mount the wrong tools on the ball's own conversation.
+   *
+   * @returns the newest session id, or undefined when the list cannot be read.
+   */
+  private async mostRecentlyUpdatedSession(): Promise<string | undefined> {
+    try {
+      const rows = await this.listHistoryRows()
+      let newest: { readonly sessionId: string; readonly updatedAt: number } | undefined
+      for (const row of rows) {
+        if (typeof row.sessionId !== 'string' || !row.sessionId.startsWith('session-')) continue
+        if (row.origin === 'subagent' || row.parentSessionId !== undefined) continue
+        // The ball's own computer-use conversations are not the window's. Following one would
+        // make shared mode track the ball instead of the window it is supposed to mirror.
+        if (row.projections?.values?.agentPreset === BALL_AGENT_PRESET) continue
+        const updatedAt = typeof row.updatedAt === 'number' && Number.isFinite(row.updatedAt) ? row.updatedAt : 0
+        if (newest === undefined || updatedAt > newest.updatedAt) newest = { sessionId: row.sessionId, updatedAt }
+      }
+      return newest?.sessionId
+    } catch (error) {
+      console.error(`dsh-agi: could not read the recent sessions: ${error instanceof Error ? error.message : String(error)}`)
+      return undefined
+    }
   }
 
   /**
@@ -1217,13 +1265,17 @@ export class OrbRuntime {
   private async remember(sessionId: string): Promise<string> {
     this.sessionId = sessionId
     this.sessionError = undefined
+    this.adoptedSessionMode = this.store.sessionMode()
     // The panel shows this conversation from here on. Publishing it is what keeps every other ball
     // conversation — each still a live agent a completion notice can wake — off the screen and the
     // shell: they keep their text, search, question, and background tools, and lose the rest.
     publishScreenOwner(sessionId)
+    // A shared conversation belongs to the main window, so the record must not claim the ball
+    // preset: a later isolated start would then treat it as one of the ball's own.
+    const agentPreset = this.store.sessionMode() === 'shared' ? 'shared' : BALL_AGENT_PRESET
     try {
       await mkdir(dirname(this.sessionFile), { recursive: true })
-      await writeFile(this.sessionFile, `${JSON.stringify({ sessionId, agentPreset: BALL_AGENT_PRESET })}\n`)
+      await writeFile(this.sessionFile, `${JSON.stringify({ sessionId, agentPreset })}\n`)
     } catch (error) {
       console.error(`dsh-agi: could not save session id: ${error instanceof Error ? error.message : String(error)}`)
     }
@@ -1946,7 +1998,8 @@ export class OrbRuntime {
   async setMillifractionEnabled(enabled: boolean): Promise<void> {
     if (this.store.millifractionEnabled() === enabled) return
     this.store.setMillifractionEnabled(enabled)
-    if (this.sessionId) await this.newSession()
+    // The new encoding only reaches a conversation created after the switch, in either mode.
+    if (this.sessionId) await this.rotateSession()
     else await this.publishChrome()
   }
 
@@ -1982,6 +2035,16 @@ export class OrbRuntime {
     this.store.setSafeMode(enabled)
     this.syncSafeMode()
     this.broadcast({ type: 'safe-mode', enabled })
+    await this.publishChrome()
+  }
+
+  /**
+   * Isolated or shared ball conversation. The choice is read when the next conversation is
+   * elected — New Chat in shared mode, and the next ball start — so a running turn keeps the
+   * conversation it started on.
+   */
+  async setSessionMode(mode: SessionMode): Promise<void> {
+    this.store.setSessionMode(mode)
     await this.publishChrome()
   }
 
@@ -2141,7 +2204,8 @@ export class OrbRuntime {
     this.workspaceTask = undefined
     try {
       if (this.sessionId !== undefined) {
-        await this.newSession()
+        // A conversation in the old workspace cannot be reused: the switch needs a real one.
+        await this.rotateSession()
       } else {
         // The saved pointer would otherwise resume the old session on the next launch.
         await rm(this.sessionFile, { force: true })
@@ -2190,7 +2254,8 @@ export class OrbRuntime {
     try {
       if (sessionId === this.sessionId) {
         const previous = sessionId
-        await this.newSession()
+        // Replace the open conversation before it leaves for the trash.
+        await this.rotateSession()
         await this.history.deleteSession(previous)
       } else {
         await this.history.deleteSession(sessionId)
@@ -2545,6 +2610,24 @@ export class OrbRuntime {
   }
 
   private async newSession(): Promise<void> {
+    // New Chat never creates a conversation. `create` is what puts a new row in the session list
+    // and, on a Host that selects what it receives, what moves the main window — so in isolated
+    // mode it would reach across into the window's state, and in shared mode it would split the
+    // two surfaces apart. Clearing the panel is the whole gesture: the ball keeps the conversation
+    // it already owns (its computer-use one when isolated, the window's one when shared), and the
+    // next prompt continues it with a clean panel.
+    this.failQuestion('ask_user_question was aborted before the user answered', 'ASK_ABORTED')
+    this.forgetTranscript()
+    await this.publishChrome()
+  }
+
+  /**
+   * Abort a waiting question, then replace the conversation on screen with a freshly created
+   * ball conversation — or reuse the current one while it is still blank. Shared-mode New Chat
+   * uses this, and so does every settings change that is only meaningful in a new conversation
+   * (workspace, coordinate mode, deleting the open one). Isolated-mode New Chat must not.
+   */
+  private async rotateSession(): Promise<void> {
     this.failQuestion('ask_user_question was aborted before the user answered', 'ASK_ABORTED')
     // Aligned with the main window's reuseOrCreateBlank(): pressing New Chat inside a
     // conversation that has not started a turn keeps the user on it. Minting one on every press
@@ -2657,6 +2740,21 @@ export class OrbRuntime {
     this.broadcast({ type: 'reset' })
     this.broadcast({ type: 'turn', running: false })
     this.voice.clearSession()
+  }
+
+  /**
+   * Clear the panel without replaying the conversation it already holds. Isolated-mode New Chat
+   * keeps the same conversation, so the watermark jumps to the newest event already stored and
+   * the next drain only draws what happens after the click.
+   */
+  private forgetTranscript(): void {
+    this.resetTranscript()
+    try {
+      this.syncWatermark()
+    } catch (error) {
+      // Losing the skip can paint old history back, but it must never fail the click.
+      console.error(`dsh-agi: could not skip the replayed transcript: ${error instanceof Error ? error.message : String(error)}`)
+    }
   }
 
   private onSelectionAction(record: Record<string, unknown>): void {

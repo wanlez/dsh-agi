@@ -58,6 +58,11 @@ window.__ModuleLoader__.load({
       safeModeTitle: '安全模式',
       safeModeDescription: '开启后，你敲键盘、移动或点击鼠标都会立刻停止大肥鱼正在执行的任务（相当于按停止）。大肥鱼自己的点击和打字不会触发。',
       safeModeToggle: '检测到人工输入时停止',
+      sessionModeTitle: '球会话模式',
+      sessionModeDescription: '决定球在哪个会话里干活。隔离：球只用自己的 computer-use 会话，不碰主窗口；跟随：球使用主窗口最近活动过的会话。',
+      sessionModeIsolated: '隔离',
+      sessionModeShared: '跟随最近会话',
+      sessionModeHint: '重启球生效。隔离模式下，球点「新建会话」只清空球的面板，不会在主窗口新建或切换会话。',
       modeTitle: '工作模式',
       modeDescription: '知识库模式只检索经验库、直接回答方法论，不操作电脑；代操作模式可以使用 Computer Use。和悬浮球上的开关同步。',
       modeToggle: '知识库模式（关闭即代操作）',
@@ -330,6 +335,11 @@ window.__ModuleLoader__.load({
       safeModeTitle: 'Safe mode',
       safeModeDescription: 'While on, any key you press or any mouse move or click stops the running task (same as the stop button). Input injected by the ball itself is ignored.',
       safeModeToggle: 'Stop on real user input',
+      sessionModeTitle: 'Ball conversation',
+      sessionModeDescription: 'Which conversation the ball works in. Isolated: the ball keeps its own computer-use conversation and leaves the main window alone. Follow: the ball uses the conversation the main window touched last.',
+      sessionModeIsolated: 'Isolated',
+      sessionModeShared: 'Follow recent',
+      sessionModeHint: 'Restart the ball to apply. In isolated mode New Chat only clears the ball panel — it never creates or switches a main-window conversation.',
       modeTitle: 'Work mode',
       modeDescription: 'Knowledge mode only searches the experience library and answers with the method, without operating the desktop. Operate mode allows Computer Use. Synced with the switch on the ball.',
       modeToggle: 'Knowledge mode (off = operate)',
@@ -994,6 +1004,7 @@ window.__ModuleLoader__.load({
                 void mutate('/.dsh-agi/safe-mode', { enabled })
               }),
           }),
+          sessionModeCard(text, snap, disabled, mutate),
           h(IdleCard, { text, snap, mutate }),
           snap.tcc && snap.tcc.applicable ? tccCard(text, snap, disabled, mutate) : null),
         h(GraphLibraryCard, { text, snap, mutate }),
@@ -1017,6 +1028,39 @@ window.__ModuleLoader__.load({
       return h('div', { className: 'dsh-agi-set-head-control' },
         h('span', { className: 'dsh-agi-set-head-state' }, checked ? text.voiceOn : text.voiceOff),
         h(Toggle, { checked, label, disabled, onChange }))
+    }
+
+    /**
+     * The two ball session modes as one choice, in the same segmented vocabulary the voice
+     * panels use: the page already treats two fixed options as buttons, not a dropdown.
+     */
+    function sessionModeCard(text, snap, disabled, mutate) {
+      const current = snap.sessionMode === 'shared' ? 'shared' : 'isolated'
+      const option = (value, label) => h('button', {
+        key: value,
+        type: 'button',
+        role: 'radio',
+        className: `dsh-agi-set-voice-seg-item${value === current ? ' is-active' : ''}`,
+        'aria-checked': value === current ? 'true' : 'false',
+        disabled,
+        onClick: () => {
+          if (disabled || value === current) return
+          void mutate('/.dsh-agi/session-mode', { mode: value })
+        },
+      }, label)
+      return card({
+        icon: 'agent',
+        title: text.sessionModeTitle,
+        description: text.sessionModeDescription,
+        body: h('div', { className: 'dsh-agi-set-panel' },
+          h('div', { className: 'dsh-agi-set-voice-seg', role: 'radiogroup', 'aria-label': text.sessionModeTitle },
+            option('isolated', text.sessionModeIsolated),
+            option('shared', text.sessionModeShared)),
+          h('span', {
+            className: 'dsh-agi-set-voice-field-hint',
+            style: { display: 'block', marginTop: '8px' },
+          }, text.sessionModeHint)),
+      })
     }
 
     /**

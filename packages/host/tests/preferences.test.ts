@@ -39,6 +39,20 @@ describe('profile preferences', () => {
     assert.deepEqual(store.updateRecord(), { checkedAt: 0, latestVersion: '', notifiedVersion: '', autoCheck: true, lastError: '' })
   })
 
+  it('isolates the ball session until the profile asks it to follow the main window', () => {
+    const path = dir('session-mode')
+    const store = new ProfileStore(path)
+    assert.equal(store.sessionMode(), 'isolated', 'a fresh profile never takes a window conversation')
+    store.setSessionMode('shared')
+    assert.deepEqual(JSON.parse(readFileSync(join(path, 'agi-session-mode.json'), 'utf8')), { mode: 'shared' })
+    assert.equal(new ProfileStore(path).sessionMode(), 'shared')
+    // An unknown value is not a mode: isolation is the safe answer.
+    writeFileSync(join(path, 'agi-session-mode.json'), JSON.stringify({ mode: 'window' }))
+    assert.equal(new ProfileStore(path).sessionMode(), 'isolated')
+    writeFileSync(join(path, 'agi-session-mode.json'), '{')
+    assert.equal(new ProfileStore(path).sessionMode(), 'isolated')
+  })
+
   it('follows the shared fallback on both tracks until the ball picks one', () => {
     const path = dir('follow')
     const account = { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'max' }

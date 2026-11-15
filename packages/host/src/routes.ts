@@ -28,10 +28,12 @@ import {
 import {
   isAgentModelSelection,
   isHistoryRetentionDays,
+  isSessionMode,
   MAX_AVATAR_BYTES,
   sniffAvatarMime,
   type AgentModelSelection,
   type ProfileStore,
+  type SessionMode,
   type WorkspaceState,
 } from './preferences.ts'
 import { selectionRuntimeAvailable } from '@dsh-agi/native-selection'
@@ -101,6 +103,7 @@ export interface OrbControl {
   setMillifractionEnabled(enabled: boolean): Promise<void>
   setObservationFrameEnabled(enabled: boolean): Promise<void>
   setSafeMode(enabled: boolean): Promise<void>
+  setSessionMode(mode: SessionMode): Promise<void>
   setMode(mode: 'operate' | 'knowledge'): Promise<void>
   modeLocked?(): boolean
   setBallEnabled(enabled: boolean): Promise<void>
@@ -587,6 +590,16 @@ async function handle(deps: RouteDeps, req: IncomingMessage, res: ServerResponse
     sendJson(res, 200, await snapshot(deps))
     return
   }
+  if (method === 'POST' && path === `${PREFIX}/session-mode`) {
+    const mode = asRecord(await readJson(req))?.mode
+    if (!isSessionMode(mode)) {
+      sendJson(res, 400, { error: 'invalid-session-mode' })
+      return
+    }
+    await deps.control.setSessionMode(mode)
+    sendJson(res, 200, await snapshot(deps))
+    return
+  }
   if (method === 'POST' && path === `${PREFIX}/observation-frame`) {
     const enabled = booleanField(await readJson(req))
     if (enabled === undefined) {
@@ -709,6 +722,7 @@ async function snapshot(deps: RouteDeps, voice: VoiceSettings = deps.store.voice
   background: AgentModelSelection
   selectionEnabled: boolean
   safeMode: boolean
+  sessionMode: SessionMode
   mode: 'operate' | 'knowledge'
   modeLocked: boolean
   millifractionEnabled: boolean
@@ -744,6 +758,7 @@ async function snapshot(deps: RouteDeps, voice: VoiceSettings = deps.store.voice
     background: models.background,
     selectionEnabled: deps.store.selectionEnabled(),
     safeMode: deps.store.safeMode(),
+    sessionMode: deps.store.sessionMode(),
     mode: deps.store.mode(),
     modeLocked: deps.control.modeLocked?.() ?? false,
     millifractionEnabled: deps.store.millifractionEnabled(),

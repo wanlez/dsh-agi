@@ -209,6 +209,7 @@ function loadSection(hooks = {}) {
         snapshot.helperPhase = 'downloading'
       }
       if (options.method === 'POST' && path === '/.dsh-agi/millifraction') snapshot.millifractionEnabled = JSON.parse(options.body).enabled
+      if (options.method === 'POST' && path === '/.dsh-agi/session-mode') snapshot.sessionMode = JSON.parse(options.body).mode
       if (options.method === 'POST' && path === '/.dsh-agi/observation-frame') snapshot.observationFrameEnabled = JSON.parse(options.body).enabled
       if (options.method === 'POST' && path === '/.dsh-agi/overlay-model') snapshot.overlay = JSON.parse(options.body)
       if (options.method === 'POST' && path === '/.dsh-agi/avatar/preset') snapshot.avatarPresetId = JSON.parse(options.body).preset
@@ -1158,7 +1159,25 @@ describe('settings section', () => {
     assert.equal(titles[5], '千分比坐标', 'coordinate and frame cards stay below the voice panel')
     assert.equal(titles[6], '观察框彩带', 'the frame card follows the coordinate card')
     assert.equal(titles[7], '工作模式', 'the mode card keeps its place below the ball cards')
-    assert.equal(titles[9], '空闲后取消固定', 'idle unpin lives outside the voice card')
+    assert.equal(titles[8], '安全模式', 'safe mode follows the work mode')
+    assert.equal(titles[9], '球会话模式', 'the session mode choice sits next to safe mode')
+    assert.equal(titles[10], '空闲后取消固定', 'idle unpin lives outside the voice card')
+  })
+
+  it('switches the ball conversation between isolated and follow-recent', async () => {
+    const page = loadSection()
+    page.render()
+    await page.flush()
+    const group = () => find(page.render(), (node) => node.props?.role === 'radiogroup' && node.props?.['aria-label'] === '球会话模式')[0]
+    const radios = () => find(group(), (node) => node.props?.role === 'radio')
+    assert.equal(radios().length, 2, 'the card offers exactly the two modes')
+    assert.equal(radios()[0].props['aria-checked'], 'true', 'a profile without the setting is isolated')
+    assert.equal(radios()[1].props['aria-checked'], 'false')
+    radios()[1].props.onClick()
+    await settle()
+    assert.equal(page.snapshot.sessionMode, 'shared', 'the choice is saved through the host route')
+    assert.equal(radios()[1].props['aria-checked'], 'true', 'the answer from the host re-renders the choice')
+    assert.equal(radios()[0].props['aria-checked'], 'false')
   })
 
   it('shows one experience library card: the graph library folder', async () => {

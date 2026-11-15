@@ -16,7 +16,7 @@ This is a fork of [dsh-orb](https://github.com/mini-yifan/dsh-orb-cordis) (MIT, 
 | **Edited from the chat box** | A one-sentence request like "帮我创建一个节点，内容是 xxx" is enough: seven library tools search, create, check and confirm — with confirmation gates the code enforces, not just prompts. |
 | **Hardened desktop control** | Six independent safety mechanisms check that every click landed, that the frame is fresh, that the target is really the control it aimed at. |
 | **Safe mode** | Any real key or pointer event stops the task instantly; only input the ball injects itself is ignored. Stopping never ends the conversation. |
-| **Its own conversation** | The ball runs an isolated `computer-use` conversation, so it can drive the desktop and use the experience library while the main window keeps its own session. |
+| **Its own conversation** | The ball runs an isolated `computer-use` conversation by default, so it can drive the desktop and use the experience library while the main window keeps its own session; a setting switches it to follow the conversation the main window touched last. |
 
 ## The experience library
 
@@ -84,6 +84,12 @@ The observation frame (the glowing border drawn while the agent is in control) i
 ## Version notes
 
 Each release keeps its own section, newest first, so the delta between two versions is always readable.
+
+### 0.6.9
+
+- **Ball session mode (isolated / follow recent).** Settings → Floating ball → Ball conversation. The default, isolated, keeps the ball on its own `computer-use` conversation and only ever resumes one the ball created itself. "Follow recent" starts the ball on the conversation the main window touched last (the ball's own computer-use conversations are skipped). Restart the ball to apply a switch.
+- **New Chat never creates a conversation.** In either mode it only clears the ball's own panel: no `sessionController.create`, so the main window's current conversation and its session list stay untouched. The ball sees a fresh chat but keeps the conversation it already owns.
+- **Architecture limit.** The same session id is the same agent. If the main window is opened on the ball's conversation, both surfaces are one session and stay in sync; the plugin has no API to stop the GUI from opening a conversation, nor to switch the main window back. Isolated mode guarantees that the ball itself never touches a main-window conversation, not that the two can never share a screen.
 
 ### 0.6.8
 
