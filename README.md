@@ -87,8 +87,8 @@ Each release keeps its own section, newest first, so the delta between two versi
 
 ### 0.6.9
 
-- **Ball session mode (isolated / follow recent).** Settings → Floating ball → Ball conversation. The default, isolated, keeps the ball on its own `computer-use` conversation and only ever resumes one the ball created itself. "Follow recent" starts the ball on the conversation the main window touched last (the ball's own computer-use conversations are skipped). Restart the ball to apply a switch.
-- **New Chat never creates a conversation.** In either mode it only clears the ball's own panel: no `sessionController.create`, so the main window's current conversation and its session list stay untouched. The ball sees a fresh chat but keeps the conversation it already owns.
+- **Ball session mode (isolated / follow recent).** Settings → Floating ball → Ball conversation. The default, isolated, keeps the ball on its own `computer-use` conversations, created in a private workspace of its own. "Follow recent" starts the ball on the conversation the main window touched last (the ball's own computer-use conversations are skipped). Restart the ball to apply a switch.
+- **New Chat really creates a blank conversation, with the home the mode calls for.** Isolated mints a ball-owned `computer-use` conversation in the ball's private workspace (`~/.dsh/dsh-agi/workspace`), so it never appears in the window's workspace groups and never moves the window's current conversation; it shows up in the ball's history like any other conversation. "Follow recent" mints the new blank conversation in the same workspace as the window's conversation, so both surfaces see one new conversation.
 - **Architecture limit.** The same session id is the same agent. If the main window is opened on the ball's conversation, both surfaces are one session and stay in sync; the plugin has no API to stop the GUI from opening a conversation, nor to switch the main window back. Isolated mode guarantees that the ball itself never touches a main-window conversation, not that the two can never share a screen.
 
 ### 0.6.8

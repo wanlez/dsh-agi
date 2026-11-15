@@ -413,6 +413,7 @@ export class OrbRuntime {
   private generation = 0
   private replaying = false
   private workspaceTask: Promise<string> | undefined
+  private ballWorkspaceTask: Promise<string> | undefined
   private retry: ReturnType<typeof setTimeout> | undefined
   private opening = false
   private pendingStart = false
@@ -1166,7 +1167,7 @@ export class OrbRuntime {
     }
     await rm(this.sessionFile, { force: true })
     const session = await this.ctx.sessionController.create({
-      workspaceId,
+      workspaceId: await this.ballWorkspaceId(),
       agentPreset: BALL_AGENT_PRESET,
     })
     return this.adopt(session.sessionId)
@@ -1236,6 +1237,62 @@ export class OrbRuntime {
     await mkdir(workspace, { recursive: true })
     const created = await this.ctx.workspaceController.create({ path: workspace })
     return created.workspace.workspaceId
+  }
+
+  /**
+   * The ball's own workspace, kept outside every directory the main window uses. Isolated ball
+   * conversations therefore never appear inside the window's workspace groups, and the window's
+   * current conversation is never touched.
+   */
+  private ballWorkspaceId(): Promise<string> {
+    this.ballWorkspaceTask ??= this.createBallWorkspace().catch((error: unknown) => {
+      this.ballWorkspaceTask = undefined
+      throw error
+    })
+    return this.ballWorkspaceTask
+  }
+
+  private async createBallWorkspace(): Promise<string> {
+    const workspace = dshHomePath('dsh-agi', 'workspace')
+    await mkdir(workspace, { recursive: true })
+    const created = await this.ctx.workspaceController.create({ path: workspace })
+    return created.workspace.workspaceId
+  }
+
+  /**
+   * Workspace and preset of the conversation the window touched last, used by shared New Chat so
+   * the fresh conversation is born where the window's current one lives. A ball-owned
+   * computer-use conversation is skipped: shared mode mirrors the window, not the ball.
+   */
+  private async recentConversation(): Promise<{ workspaceId: string; agentPreset?: string } | undefined> {
+    try {
+      const rows = await this.listHistoryRows()
+      let newest: { sessionId: string; cwd?: string; preset?: string; updatedAt: number } | undefined
+      for (const row of rows) {
+        if (typeof row.sessionId !== 'string' || !row.sessionId.startsWith('session-')) continue
+        if (row.origin === 'subagent' || row.parentSessionId !== undefined) continue
+        if (row.projections?.values?.agentPreset === BALL_AGENT_PRESET) continue
+        const updatedAt = typeof row.updatedAt === 'number' && Number.isFinite(row.updatedAt) ? row.updatedAt : 0
+        if (newest === undefined || updatedAt > newest.updatedAt) {
+          newest = {
+            sessionId: row.sessionId,
+            ...typeof row.cwd === 'string' && row.cwd !== '' ? { cwd: row.cwd } : {},
+            ...row.projections?.values?.agentPreset === undefined ? {} : { preset: row.projections.values.agentPreset },
+            updatedAt,
+          }
+        }
+      }
+      if (newest === undefined) return undefined
+      const workspacePath = newest.cwd ?? this.store.workspaceDirectory()
+      const workspace = await this.ctx.workspaceController.create({ path: workspacePath })
+      return {
+        workspaceId: workspace.workspace.workspaceId,
+        ...newest.preset === undefined ? {} : { agentPreset: newest.preset },
+      }
+    } catch (error) {
+      console.error(`dsh-agi: could not read the recent conversation: ${error instanceof Error ? error.message : String(error)}`)
+      return undefined
+    }
   }
 
   private async adopt(sessionId: string): Promise<string> {
@@ -2609,16 +2666,36 @@ export class OrbRuntime {
     this.finishTurn()
   }
 
+  /**
+   * New Chat really creates a conversation, with the home the current mode calls for: isolated
+   * mode mints a ball-owned computer-use conversation in the ball's private workspace, so the
+   * window's workspaces and its current conversation stay untouched; shared mode mints a blank
+   * conversation in the same workspace as the window's conversation, so both surfaces see one
+   * new conversation.
+   */
   private async newSession(): Promise<void> {
-    // New Chat never creates a conversation. `create` is what puts a new row in the session list
-    // and, on a Host that selects what it receives, what moves the main window — so in isolated
-    // mode it would reach across into the window's state, and in shared mode it would split the
-    // two surfaces apart. Clearing the panel is the whole gesture: the ball keeps the conversation
-    // it already owns (its computer-use one when isolated, the window's one when shared), and the
-    // next prompt continues it with a clean panel.
-    this.failQuestion('ask_user_question was aborted before the user answered', 'ASK_ABORTED')
-    this.forgetTranscript()
+    await this.createConversation()
+    this.resetTranscript()
     await this.publishChrome()
+  }
+
+  /** Create the conversation the current mode's New Chat needs, then make it current. */
+  private async createConversation(): Promise<void> {
+    this.failQuestion('ask_user_question was aborted before the user answered', 'ASK_ABORTED')
+    if (this.store.sessionMode() === 'shared') {
+      const recent = await this.recentConversation()
+      const session = await this.ctx.sessionController.create({
+        workspaceId: recent?.workspaceId ?? await this.workspaceId(),
+        ...recent?.agentPreset === undefined ? {} : { agentPreset: recent.agentPreset },
+      })
+      await this.adopt(session.sessionId)
+      return
+    }
+    const session = await this.ctx.sessionController.create({
+      workspaceId: await this.ballWorkspaceId(),
+      agentPreset: BALL_AGENT_PRESET,
+    })
+    await this.adopt(session.sessionId)
   }
 
   /**
@@ -2628,20 +2705,15 @@ export class OrbRuntime {
    * (workspace, coordinate mode, deleting the open one). Isolated-mode New Chat must not.
    */
   private async rotateSession(): Promise<void> {
-    this.failQuestion('ask_user_question was aborted before the user answered', 'ASK_ABORTED')
-    // Aligned with the main window's reuseOrCreateBlank(): pressing New Chat inside a
-    // conversation that has not started a turn keeps the user on it. Minting one on every press
-    // is what filled profiles with empty "untitled" conversations nothing could open or delete.
+    // Aligned with the main window's reuseOrCreateBlank(): a conversation that has not started a
+    // turn is reused instead of minting one more blank row. Otherwise the create path is the one
+    // New Chat uses, so a settings change lands the ball in the mode's own kind of conversation.
     if (await this.currentIsBlank()) {
       this.resetTranscript()
       await this.publishChrome()
       return
     }
-    const session = await this.ctx.sessionController.create({
-      workspaceId: await this.workspaceId(),
-      agentPreset: 'computer-use',
-    })
-    await this.adopt(session.sessionId)
+    await this.createConversation()
     this.resetTranscript()
     await this.publishChrome()
   }
