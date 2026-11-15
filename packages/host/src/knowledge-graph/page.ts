@@ -388,6 +388,10 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
   .resultList { display: grid; gap: 5px; }
   .resultItem { display: grid; gap: 2px; text-align: left; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line); background: #fffaf0; color: var(--text); }
   .resultItem:hover { border-color: var(--accent2); }
+  .searchTrigger { width: 100%; text-align: left; padding: 10px 13px; border-radius: 8px; border: 1px solid var(--line); background: #fffaf0; color: var(--muted); font-weight: 500; cursor: pointer; }
+  .searchTrigger:hover { border-color: var(--accent2); color: var(--text); }
+  .pickerQuery { width: 100%; padding: 10px 13px; }
+  .pickerList { max-height: 60vh; }
   .riTitle { font-weight: 600; font-size: 13px; }
   .riMeta { font-size: 11px; color: var(--muted); }
   .riDesc { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -434,21 +438,13 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
   <aside id="side">
     <section class="sideBlock">
       <div class="blockHead">节点 <span class="grow"></span><span class="blockHint">查看 / 编辑</span></div>
-      <form id="nodeSearchForm" autocomplete="off" class="searchForm">
-        <input id="nodeSearchInput" placeholder="搜索节点关键词或描述" aria-label="搜索节点">
-        <button class="btn" type="submit">搜索</button>
-      </form>
-      <div id="nodeSearchResults" class="resultList"><span class="muted">输入关键词搜索节点。</span></div>
+      <button type="button" class="searchTrigger" data-action="open-node-picker">搜索节点关键词或描述</button>
       <div class="blockHead small">收藏节点 <span class="grow"></span><button class="btn small ghost" data-action="reload-favorites">刷新</button></div>
       <div id="nodeFavorites" class="resultList"><span class="muted">读取中…</span></div>
     </section>
     <section class="sideBlock">
       <div class="blockHead">路径 <span class="grow"></span><span class="blockHint">整条流程</span></div>
-      <form id="pathSearchForm" autocomplete="off" class="searchForm">
-        <input id="pathSearchInput" placeholder="搜索路径 / 整条流程" aria-label="搜索路径">
-        <button class="btn" type="submit">搜索</button>
-      </form>
-      <div id="pathSearchResults" class="resultList"><span class="muted">输入关键词搜索路径。</span></div>
+      <button type="button" class="searchTrigger" data-action="open-path-picker">搜索路径 / 整条流程</button>
       <div class="blockHead small">收藏路径 <span class="grow"></span><button class="btn small ghost" data-action="reload-favorites">刷新</button></div>
       <div id="pathFavorites" class="resultList"><span class="muted">读取中…</span></div>
     </section>
@@ -652,54 +648,75 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
     handle.addEventListener("pointercancel", stop);
   }
 
-  // ---------- search ----------
-  function renderNodeRow(node) {
-    var deleted = node.status === "deleted";
-    return '<button class="resultItem" data-action="open-node" data-id="' + esc(node.id) + '">'
-      + '<span class="riTitle">' + esc(node.title || "未命名节点") + '</span>'
-      + '<span class="riMeta">' + (deleted ? '<span class="tag bad">已删除</span>' : "<span class=\"tag ok\">在用</span>") + '</span>'
-      + '</button>';
+  // ---------- picker: one trigger per column, one real search dialog in the middle ----------
+  var pickerState = { kind: "node", items: [], shown: 10 };
+  function pickerRow(item) {
+    if (pickerState.kind === "node") {
+      return '<button class="insertItem" data-action="picker-open" data-kind="node" data-id="' + esc(item.id) + '">'
+        + '<span class="riTitle">' + esc(item.title || "未命名节点") + '</span></button>';
+    }
+    return '<button class="insertItem" data-action="picker-open" data-kind="path" data-id="' + esc(item.id) + '">'
+      + '<span class="riTitle">' + esc(item.name || "未命名路径") + '</span>'
+      + '<span class="riMeta">' + (item.node_count == null ? "" : item.node_count + " 步") + '</span></button>';
   }
-  function renderPathRow(path) {
-    return '<button class="resultItem" data-action="open-path" data-id="' + esc(path.id) + '">'
-      + '<span class="riTitle">' + esc(path.name || "未命名路径") + '</span>'
-      + '<span class="riMeta">' + (path.node_count == null ? "" : path.node_count + " 步") + '</span>'
-      + (path.summary ? '<span class="riDesc">' + esc(path.summary) + '</span>' : "")
-      + '</button>';
+  function renderPickerAll() {
+    var box = $("pickerList");
+    if (!box) return;
+    if (pickerState.items.length === 0) { box.innerHTML = '<span class="muted">还没有内容。</span>'; return; }
+    var html = pickerState.items.slice(0, pickerState.shown).map(pickerRow).join("");
+    var rest = pickerState.items.length - pickerState.shown;
+    if (rest > 0) html += '<button class="btn small" data-action="picker-more">加载更多（还有 ' + rest + ' 个）</button>';
+    box.innerHTML = html;
   }
-  function searchNodes() {
-    var query = $("nodeSearchInput").value.trim();
-    var box = $("nodeSearchResults");
-    if (!query) { box.innerHTML = '<span class="muted">输入关键词搜索节点。</span>'; return; }
-    box.innerHTML = '<span class="muted">搜索中…</span>';
-    api("/api/search?q=" + encodeURIComponent(query) + "&threshold=" + encodeURIComponent(String(state.settings.searchThreshold == null ? 0.6 : state.settings.searchThreshold))).then(function (data) {
+  function pickerMore() {
+    if (pickerState.shown >= pickerState.items.length) return;
+    var box = $("pickerList");
+    if (!box) return;
+    var from = pickerState.shown;
+    pickerState.shown = Math.min(pickerState.items.length, pickerState.shown + 10);
+    var more = box.querySelector('[data-action="picker-more"]');
+    if (more) more.remove();
+    var rest = pickerState.items.length - pickerState.shown;
+    box.insertAdjacentHTML("beforeend", pickerState.items.slice(from, pickerState.shown).map(pickerRow).join("") + (rest > 0
+      ? '<button class="btn small" data-action="picker-more">加载更多（还有 ' + rest + ' 个）</button>'
+      : ""));
+  }
+  function openPicker(kind) {
+    pickerState = { kind: kind, items: kind === "node" ? state.nodes.slice() : state.paths.slice(), shown: 10 };
+    var body = '<input id="pickerQuery" class="pickerQuery" placeholder="' + (kind === "node" ? "输入节点关键词（留空显示全部）" : "输入路径关键词（留空显示全部）") + '">'
+      + '<div class="row" style="margin:8px 0"><button class="btn small" data-action="picker-search">搜索</button><span id="pickerNote" class="muted"></span></div>'
+      + '<div id="pickerList" class="insertList pickerList"></div>';
+    showModal(kind === "node" ? "搜索节点" : "搜索路径", body);
+    $("pickerQuery").addEventListener("keydown", function (event) { if (event.key === "Enter") pickerSearch(); });
+    $("pickerQuery").addEventListener("input", function () { if (this.value.trim() === "") renderPickerAll(); });
+    $("pickerList").addEventListener("scroll", function () {
+      if (this.scrollTop + this.clientHeight >= this.scrollHeight - 24) pickerMore();
+    });
+    renderPickerAll();
+  }
+  function pickerSearch() {
+    var query = $("pickerQuery").value.trim();
+    if (!query) { renderPickerAll(); return; }
+    $("pickerList").innerHTML = '<span class="muted">搜索中…</span>';
+    // threshold 0: any node or path can be found, even with a weak match.
+    var url = pickerState.kind === "node"
+      ? "/api/search?q=" + encodeURIComponent(query) + "&threshold=0"
+      : "/api/index/match?q=" + encodeURIComponent(query) + "&threshold=0";
+    api(url).then(function (data) {
       var seen = {};
       var rows = [];
       (data.candidates || []).concat(data.keyword || []).forEach(function (candidate) {
-        var node = candidate.node;
-        if (!node || seen[node.id]) return;
-        seen[node.id] = true;
-        rows.push(renderNodeRow(node));
+        var item = pickerState.kind === "node" ? candidate.node : (candidate.path || candidate);
+        if (!item || !item.id || seen[item.id]) return;
+        seen[item.id] = true;
+        rows.push(item);
       });
-      box.innerHTML = rows.length === 0 ? '<span class="muted">没有找到节点。</span>' : rows.join("");
-    }).catch(function (error) { box.innerHTML = '<span class="muted">搜索失败：' + esc(error.message) + '</span>'; });
-  }
-  function searchPaths() {
-    var query = $("pathSearchInput").value.trim();
-    var box = $("pathSearchResults");
-    if (!query) { box.innerHTML = '<span class="muted">输入关键词搜索路径。</span>'; return; }
-    box.innerHTML = '<span class="muted">搜索中…</span>';
-    api("/api/index/match?q=" + encodeURIComponent(query) + "&threshold=" + encodeURIComponent(String(state.settings.searchThreshold == null ? 0.6 : state.settings.searchThreshold))).then(function (data) {
-      var seen = {};
-      var rows = [];
-      (data.candidates || []).concat(data.keyword || []).forEach(function (candidate) {
-        var path = candidate.path || candidate;
-        if (!path || !path.id || seen[path.id]) return;
-        seen[path.id] = true;
-        rows.push(renderPathRow(path));
-      });
-      box.innerHTML = rows.length === 0 ? '<span class="muted">没有找到路径。</span>' : rows.join("");
-    }).catch(function (error) { box.innerHTML = '<span class="muted">搜索失败：' + esc(error.message) + '</span>'; });
+      pickerState.items = rows;
+      pickerState.shown = 10;
+      renderPickerAll();
+      var note = $("pickerNote");
+      if (note) note.textContent = "找到 " + rows.length + " 条";
+    }).catch(function (error) { $("pickerList").innerHTML = '<span class="muted">搜索失败：' + esc(error.message) + '</span>'; });
   }
   function loadFavorites() {
     return Promise.all([api("/api/nodes?status=active"), api("/api/paths")]).then(function (data) {
@@ -992,6 +1009,17 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
     if (!el) return;
     var action = el.getAttribute("data-action");
     var id = el.getAttribute("data-id");
+    if (action === "open-node-picker") { event.preventDefault(); openPicker("node"); return; }
+    if (action === "open-path-picker") { event.preventDefault(); openPicker("path"); return; }
+    if (action === "picker-search") { event.preventDefault(); pickerSearch(); return; }
+    if (action === "picker-more") { event.preventDefault(); pickerMore(); return; }
+    if (action === "picker-open") {
+      event.preventDefault();
+      var pickedKind = el.getAttribute("data-kind");
+      closeModal();
+      if (pickedKind === "path") openPath(id); else openDetail(id);
+      return;
+    }
     if (action === "open-node") { event.preventDefault(); openDetail(id); return; }
     if (action === "open-path") { event.preventDefault(); openPath(id); return; }
     if (action === "close-detail") { hideDetail(); return; }
@@ -1107,8 +1135,8 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
       if (!actionOf(event.target)) event.stopPropagation();
     });
   })();
-  $("nodeSearchForm").addEventListener("submit", function (event) { event.preventDefault(); searchNodes(); });
-  $("pathSearchForm").addEventListener("submit", function (event) { event.preventDefault(); searchPaths(); });
+  $("nodeSearchForm") && $("nodeSearchForm").addEventListener("submit", function (event) { event.preventDefault(); });
+  $("pathSearchForm") && $("pathSearchForm").addEventListener("submit", function (event) { event.preventDefault(); });
   document.addEventListener("keydown", function (event) {
     if (event.key === "Escape") { if (!$("modalRoot").hidden) closeModal(); }
   });

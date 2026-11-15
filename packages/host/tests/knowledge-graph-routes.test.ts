@@ -90,11 +90,12 @@ describe('knowledge graph HTTP surface', () => {
     assert.equal(page.status, 200)
     const text = page.text
 
-    // Left column: one box for nodes, one for whole paths, each with its own favorites list.
-    assert.match(text, /id="nodeSearchForm"/)
-    assert.match(text, /id="pathSearchForm"/)
-    assert.match(text, /id="nodeSearchInput"/)
-    assert.match(text, /id="pathSearchInput"/)
+    // Left column: one trigger per surface, both opening the shared picker dialog.
+    assert.match(text, /data-action="open-node-picker"/)
+    assert.match(text, /data-action="open-path-picker"/)
+    assert.match(text, /function openPicker/)
+    assert.match(text, /id="pickerList"/)
+    assert.match(text, /function pickerMore/)
     assert.match(text, /id="nodeFavorites"/)
     assert.match(text, /id="pathFavorites"/)
 
