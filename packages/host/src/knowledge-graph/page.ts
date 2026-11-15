@@ -235,6 +235,10 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
   #detail .block { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
   #detail .block h3 { margin: 0 0 8px; font-size: 13px; color: var(--muted); letter-spacing: .06em; }
   .shots { display: grid; gap: 10px; }
+  .shotPreview { padding: 0; border: 0; background: transparent; cursor: zoom-in; display: block; width: 100%; }
+  .shotPreview img { display: block; width: 100%; max-height: 160px; object-fit: contain; border-radius: 6px; }
+  .shotName, .shotCaption { width: 100%; margin-top: 4px; }
+  .shot figcaption { display: grid; gap: 4px; }
   .shot { border: 1px solid var(--line); border-radius: 9px; overflow: hidden; background: #f7e9cd; }
   .shot img { width: 100%; display: block; max-height: 230px; object-fit: contain; background: #fffaf0; }
   .shot figcaption { padding: 7px 8px; font-size: 13px; color: #5a4630; display: flex; gap: 6px; align-items: center; }
@@ -592,20 +596,27 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
     html += '<div class="actionGrid"><button class="btn primary wide" data-action="save-node" data-id="' + esc(node.id) + '">保存修改</button></div>';
     var humanShots = detail.screenshots.filter(function (shot) { return shot.source !== "ai"; });
     var aiShots = detail.screenshots.filter(function (shot) { return shot.source === "ai"; });
+    function shotCard(shot) {
+      var url = BASE + "/" + shot.url;
+      return '<figure class="shot">'
+        + '<button type="button" class="shotPreview" data-action="preview-shot" data-url="' + esc(url) + '" title="点击查看原图">'
+        + '<img src="' + esc(url) + '" alt="' + esc(shot.caption) + '" loading="lazy"></button>'
+        + '<figcaption>'
+        + '<input class="shotName" data-shot-name="' + esc(shot.id) + '" value="' + esc(shot.name || "") + '" placeholder="名字（例如：登录页）">'
+        + '<input class="shotCaption" data-shot-caption="' + esc(shot.id) + '" value="' + esc(shot.caption) + '" placeholder="说明（校验用）">'
+        + '<span class="row"><span class="tag ' + (shot.source === "ai" ? "warn" : "ok") + '">' + (shot.source === "ai" ? "AI" : "人") + '</span>'
+        + '<button class="btn small" data-action="save-shot" data-id="' + esc(node.id) + '" data-shot="' + esc(shot.id) + '">保存</button>'
+        + '<button class="btn small danger" data-action="delete-shot" data-id="' + esc(node.id) + '" data-shot="' + esc(shot.id) + '">删</button></span>'
+        + '</figcaption></figure>';
+    }
     html += '<div class="block"><h3>人的截图（核心评判标准）</h3><div class="shots">';
     if (humanShots.length === 0) html += '<span class="muted">还没有人的截图。</span>';
-    humanShots.forEach(function (shot) {
-      html += '<figure class="shot"><img src="' + esc(BASE + "/" + shot.url) + '" alt="' + esc(shot.caption) + '" loading="lazy">'
-        + '<figcaption><span class="grow">' + esc(shot.caption) + '</span><button class="btn small danger" data-action="delete-shot" data-id="' + esc(node.id) + '" data-shot="' + esc(shot.id) + '">删</button></figcaption></figure>';
-    });
+    humanShots.forEach(function (shot) { html += shotCard(shot); });
     html += '</div><div class="row" style="margin-top:8px"><input type="file" id="shotFile" accept="image/png,image/jpeg,image/webp,image/gif" style="flex:1"></div>'
       + '<div class="row" style="margin-top:6px"><input id="shotCaption" class="grow" placeholder="这句截图说明用来校验准确性"><button class="btn small" data-action="upload-shot" data-id="' + esc(node.id) + '">上传</button></div>'
       + '<h3 style="margin-top:12px">AI 截图（执行指导）</h3><div class="shots">';
     if (aiShots.length === 0) html += '<span class="muted">还没有 AI 截图。</span>';
-    aiShots.forEach(function (shot) {
-      html += '<figure class="shot"><img src="' + esc(BASE + "/" + shot.url) + '" alt="' + esc(shot.caption) + '" loading="lazy">'
-        + '<figcaption><span class="grow">' + esc(shot.caption) + '</span><button class="btn small danger" data-action="delete-shot" data-id="' + esc(node.id) + '" data-shot="' + esc(shot.id) + '">删</button></figcaption></figure>';
-    });
+    aiShots.forEach(function (shot) { html += shotCard(shot); });
     html += '</div></div>';
     html += '<div class="block"><h3>被这些路径引用</h3>';
     if (detail.paths.length === 0) html += '<span class="muted">没有路径引用它。</span>';
@@ -995,10 +1006,13 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
     var box = $("createShotList");
     if (!box) return;
     if (createState.files.length === 0) { box.innerHTML = '<span class="muted">还没有选择截图。</span>'; return; }
-    box.innerHTML = createState.files.map(function (file, index) {
-      return '<figure class="shot"><img src="' + URL.createObjectURL(file) + '" alt="" style="max-height:90px">'
-        + '<figcaption><span class="grow">' + esc(file.name) + '</span>'
-        + '<button class="btn small danger" data-action="remove-create-shot" data-index="' + index + '">删</button></figcaption></figure>';
+    box.innerHTML = createState.files.map(function (item, index) {
+      return '<figure class="shot"><img src="' + URL.createObjectURL(item.file) + '" alt="">'
+        + '<figcaption>'
+        + '<input data-create-name="' + index + '" value="' + esc(item.name) + '" placeholder="名字（例如：登录页）">'
+        + '<input data-create-caption="' + index + '" value="' + esc(item.caption) + '" placeholder="这张图的说明（校验用）">'
+        + '<span class="row"><button class="btn small danger" data-action="remove-create-shot" data-index="' + index + '">删</button></span>'
+        + '</figcaption></figure>';
     }).join("");
   }
   function openCreate() {
@@ -1014,8 +1028,16 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
     renderCreateShots();
     $("createShots").addEventListener("change", function () {
       var picked = this.files ? Array.prototype.slice.call(this.files) : [];
-      createState.files = createState.files.concat(picked);
+      picked.forEach(function (file) { createState.files.push({ file: file, name: file.name, caption: "" }); });
       renderCreateShots();
+    });
+    $("createShotList").addEventListener("input", function (event) {
+      var target = event.target;
+      if (!target.getAttribute) return;
+      var nameIndex = target.getAttribute("data-create-name");
+      var captionIndex = target.getAttribute("data-create-caption");
+      if (nameIndex !== null) createState.files[Number(nameIndex)].name = target.value;
+      if (captionIndex !== null) createState.files[Number(captionIndex)].caption = target.value;
     });
   }
   function createNodeApply() {
@@ -1027,18 +1049,23 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
       var files = createState.files.slice();
       // Upload one by one so the server sees a stable node and a failed image cannot lose the node.
       var chain = Promise.resolve();
-      files.forEach(function (file, index) {
+      files.forEach(function (item) {
         chain = chain.then(function () {
           return new Promise(function (resolve) {
             var reader = new FileReader();
             reader.onload = function () {
               api("/api/nodes/" + encodeURIComponent(nodeId) + "/screenshots", {
                 method: "POST",
-                body: { caption: caption || file.name || "用户提供的截图", data: String(reader.result), file_name: file.name },
+                body: {
+                  caption: item.caption || caption || item.file.name || "用户提供的截图",
+                  name: item.name || item.file.name,
+                  data: String(reader.result),
+                  file_name: item.file.name,
+                },
               }).then(resolve).catch(function () { resolve(); });
             };
             reader.onerror = function () { resolve(); };
-            reader.readAsDataURL(file);
+            reader.readAsDataURL(item.file);
           });
         });
       });
@@ -1160,6 +1187,27 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
         toast("副本已创建。");
         loadFavorites();
         return openDetail(data.node.id);
+      }).catch(function (error) { toast(error.message, "bad"); });
+      return;
+    }
+    if (action === "preview-shot") {
+      event.preventDefault();
+      showModal("查看原图",
+        '<img src="' + esc(el.getAttribute("data-url")) + '" alt="" style="max-width:100%;max-height:72vh;display:block;margin:0 auto;border-radius:8px">',
+        '<button class="btn" data-action="close-modal">关闭</button>');
+      return;
+    }
+    if (action === "save-shot") {
+      event.preventDefault();
+      var shotId = el.getAttribute("data-shot");
+      var nameInput = document.querySelector('[data-shot-name="' + shotId + '"]');
+      var captionInput = document.querySelector('[data-shot-caption="' + shotId + '"]');
+      api("/api/nodes/" + encodeURIComponent(id) + "/screenshots/" + encodeURIComponent(shotId), {
+        method: "PATCH",
+        body: { name: nameInput ? nameInput.value : "", caption: captionInput ? captionInput.value : "" },
+      }).then(function () {
+        toast("截图信息已保存。");
+        return openDetail(id);
       }).catch(function (error) { toast(error.message, "bad"); });
       return;
     }

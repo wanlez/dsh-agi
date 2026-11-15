@@ -234,6 +234,15 @@ async function dispatch(options: GraphRequestOptions): Promise<void> {
       sendJson(res, 200, { ok: true, node: publicNode(await service.setNodeFavorite(id, body.favorite === true)) })
       return
     }
+    if (method === 'PATCH' && parts[3] === 'screenshots' && parts.length === 5) {
+      const body = asRecord(await readJson(req)) ?? {}
+      const node = await service.updateScreenshot(id, at(4), {
+        ...stringField(body, 'name') === undefined ? {} : { name: stringField(body, 'name') as string },
+        ...stringField(body, 'caption') === undefined ? {} : { caption: stringField(body, 'caption') as string },
+      })
+      sendJson(res, 200, { ok: true, node: publicNode(node) })
+      return
+    }
     if (method === 'POST' && parts[3] === 'delete') {
       sendJson(res, 200, { ok: true, node: publicNode(await service.deleteNode(id, operatorOf(req, url))) })
       return

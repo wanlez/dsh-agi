@@ -126,7 +126,13 @@ function parseNode(raw: unknown): GraphNode | undefined {
       if (typeof item !== 'object' || item === null) continue
       const shot = item as Record<string, unknown>
       if (typeof shot.id !== 'string' || typeof shot.file !== 'string' || typeof shot.caption !== 'string') continue
-      screenshots.push({ id: shot.id, file: shot.file, caption: shot.caption, ...(shot.source === 'ai' ? { source: 'ai' as const } : {}) })
+      screenshots.push({
+        id: shot.id,
+        file: shot.file,
+        caption: shot.caption,
+        ...typeof shot.name === 'string' && shot.name.trim() !== '' ? { name: shot.name } : {},
+        ...shot.source === 'ai' ? { source: 'ai' as const } : {},
+      })
     }
   }
   // An older build wrote `io.input` / `io.output`. Those keys are ignored on read and

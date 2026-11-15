@@ -33,6 +33,11 @@ export interface NodeScreenshot {
   /** One line saying what this screenshot proves (the accuracy reference). */
   readonly caption: string
   /**
+   * Operator-facing name for this screenshot (rename freely). The file name stays the content
+   * hash, so renaming never breaks the binding between "this image is for X" and the bytes.
+   */
+  readonly name?: string
+  /**
    * Who supplied it: the operator (absent or `human`) or the agent's own learning pass (`ai`).
    * Human screenshots are the accuracy standard; AI screenshots only guide the next run.
    */

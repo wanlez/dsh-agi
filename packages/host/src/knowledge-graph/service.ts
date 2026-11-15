@@ -123,6 +123,7 @@ export interface NodeDetail {
   readonly paths: readonly { readonly id: string; readonly name: string; readonly runnable: boolean }[]
   readonly screenshots: readonly {
     readonly id: string
+    readonly name: string
     readonly caption: string
     readonly source: 'human' | 'ai'
     readonly url: string
@@ -184,6 +185,8 @@ export interface GraphStats {
 /** One screenshot upload. */
 export interface ScreenshotInput {
   readonly caption: string
+  /** Optional display name; renaming never changes the content-hash file name. */
+  readonly name?: string
   /** Raw base64 or a `data:image/...;base64,` URL. */
   readonly data: string
   readonly media_type?: string
@@ -385,6 +388,7 @@ export class KnowledgeGraphService {
         })),
       screenshots: node.screenshots.map((shot) => ({
         id: shot.id,
+        name: shot.name ?? shot.caption,
         caption: shot.caption,
         source: shot.source === 'ai' ? 'ai' : 'human',
         url: `api/screenshots/${encodeURIComponent(nodeId)}/${encodeURIComponent(shot.file)}`,
@@ -928,14 +932,52 @@ export class KnowledgeGraphService {
       const { snapshot, settings } = await this.loaded()
       const node = snapshot.nodes.get(nodeId)
       if (node === undefined) throw new GraphError('node-missing', '节点不存在。', 404)
+      // The file name IS the content hash: the same bytes are stored once per node.
       const file = `${screenshotDigest(parsed.bytes)}.${parsed.extension}`
+      if (node.screenshots.some((item) => item.file === file)) return node
       await this.store.writeScreenshot(nodeId, file, parsed.bytes)
-      const shot = { id: `shot-${randomUUID().slice(0, 8)}`, file, caption, ...(input.source === 'ai' ? { source: 'ai' as const } : {}) }
+      const shot = {
+        id: `shot-${randomUUID().slice(0, 8)}`,
+        file,
+        caption,
+        ...input.name === undefined || input.name.trim() === '' ? {} : { name: input.name.trim() },
+        ...(input.source === 'ai' ? { source: 'ai' as const } : {}),
+      }
       const saved: GraphNode = {
         ...node,
         screenshots: [...node.screenshots, shot],
         embedding: embedText(nodeSearchText({ ...node, screenshots: [...node.screenshots, shot] })),
       }
+      await this.store.saveNode(saved)
+      ;(snapshot.nodes as Map<string, GraphNode>).set(nodeId, saved)
+      await this.store.commit(snapshot, settings)
+      return saved
+    })
+  }
+
+  /**
+   * Rename or re-caption one screenshot.
+   *
+   * The display name is free text; the file itself keeps its content-hash name, so the binding
+   * "this image is for X" survives any rename.
+   */
+  async updateScreenshot(nodeId: string, shotId: string, patch: {
+    readonly name?: string
+    readonly caption?: string
+  }): Promise<GraphNode> {
+    return this.locked(async () => {
+      const { snapshot, settings } = await this.loaded()
+      const node = snapshot.nodes.get(nodeId)
+      if (node === undefined) throw new GraphError('node-missing', '节点不存在。', 404)
+      const shot = node.screenshots.find((item) => item.id === shotId)
+      if (shot === undefined) throw new GraphError('screenshot-missing', '截图不存在。', 404)
+      const caption = patch.caption === undefined ? shot.caption : patch.caption.trim()
+      if (caption === '') throw new GraphError('caption-required', '截图说明不能为空。', 400)
+      const name = patch.name === undefined ? shot.name : patch.name.trim()
+      const screenshots = node.screenshots.map((item) => item.id !== shotId
+        ? item
+        : { ...item, caption, ...(name === undefined || name === '' ? { name: undefined } : { name }) })
+      const saved: GraphNode = { ...node, screenshots, embedding: embedText(nodeSearchText({ ...node, screenshots })) }
       await this.store.saveNode(saved)
       ;(snapshot.nodes as Map<string, GraphNode>).set(nodeId, saved)
       await this.store.commit(snapshot, settings)
