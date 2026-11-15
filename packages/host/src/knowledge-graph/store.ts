@@ -126,7 +126,7 @@ function parseNode(raw: unknown): GraphNode | undefined {
       if (typeof item !== 'object' || item === null) continue
       const shot = item as Record<string, unknown>
       if (typeof shot.id !== 'string' || typeof shot.file !== 'string' || typeof shot.caption !== 'string') continue
-      screenshots.push({ id: shot.id, file: shot.file, caption: shot.caption })
+      screenshots.push({ id: shot.id, file: shot.file, caption: shot.caption, ...(shot.source === 'ai' ? { source: 'ai' as const } : {}) })
     }
   }
   // An older build wrote `io.input` / `io.output`. Those keys are ignored on read and
@@ -141,6 +141,8 @@ function parseNode(raw: unknown): GraphNode | undefined {
     created_by: typeof record.created_by === 'string' ? record.created_by : 'unknown',
     derived_from: typeof record.derived_from === 'string' ? record.derived_from : null,
     screenshots,
+    ...typeof record.ai_notes === 'string' && record.ai_notes.trim() !== '' ? { ai_notes: record.ai_notes } : {},
+    ...typeof record.ai_updated_at === 'string' && record.ai_updated_at !== '' ? { ai_updated_at: record.ai_updated_at } : {},
   }
 }
 

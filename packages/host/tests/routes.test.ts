@@ -650,7 +650,7 @@ describe('settings routes', () => {
       // the separate loopback server.
       const page = await fetch(body.url)
       assert.equal(page.status, 200)
-      assert.match(await page.text(), /首屏是空图/)
+      assert.match(await page.text(), /从搜索开始/)
 
       const second = response()
       await handler(request('POST', '/.dsh-agi/graph/editor', '{}'), second)

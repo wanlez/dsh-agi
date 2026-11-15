@@ -18,6 +18,11 @@ describe('model text sanitization', () => {
     expect([...repaired].every(character => character.codePointAt(0) !== 0xd800)).toBe(true)
   })
 
+  it('strips zero-width and BOM characters that hide inside real window titles', () => {
+    expect(sanitizeModelText('Micro\u200Bsoft\u200D Edge\uFEFF')).toBe('Microsoft Edge')
+    expect(sanitizeModelText('a\u00ADb\u2060c')).toBe('abc')
+  })
+
   it('escapes line breaks and tabs', () => {
     expect(sanitizeModelText('a\r\nb\nc\td')).toBe('a\\nb\\nc\\td')
   })

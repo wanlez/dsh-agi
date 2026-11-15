@@ -123,6 +123,7 @@ describe('ball menu', () => {
     }, true, {
       openMain: () => { actions.push('open') },
       openSettings: () => { actions.push('settings') },
+      openExperienceLibrary: () => { actions.push('experience') },
       setOverlay: () => { actions.push('overlay') },
       setBackground: () => { actions.push('background') },
       setMillifraction: (enabled) => { actions.push(`fraction:${enabled}`) },
@@ -132,6 +133,7 @@ describe('ball menu', () => {
     assert.deepEqual(template.map((item) => item.label ?? item.type), [
       '打开主窗口',
       '打开悬浮球设置',
+      '进入经验库',
       '悬浮球 Agent 模型',
       '后台 Agent 模型',
       '千分比坐标',
@@ -142,13 +144,14 @@ describe('ball menu', () => {
     assert.equal(template[0]?.enabled, true)
     template[0]?.click?.({ checked: false })
     template[1]?.click?.({ checked: false })
-    template[4]?.click?.({ checked: true })
-    template[5]?.click?.({ checked: false })
-    template[7]?.click?.({ checked: false })
-    const background = template[3]?.submenu?.find((item) => item.label === '✓ Flash')
+    template[2]?.click?.({ checked: false })
+    template[5]?.click?.({ checked: true })
+    template[6]?.click?.({ checked: false })
+    template[8]?.click?.({ checked: false })
+    const background = template[4]?.submenu?.find((item) => item.label === '✓ Flash')
     assert.equal(background?.submenu?.find((item) => item.label === 'Max')?.checked, true)
     background?.submenu?.[0]?.click?.({ checked: true })
-    assert.deepEqual(actions, ['open', 'settings', 'fraction:true', 'update', 'disable', 'background'])
+    assert.deepEqual(actions, ['open', 'settings', 'experience', 'fraction:true', 'update', 'disable', 'background'])
     const english = contextMenuTemplate({
       catalog: { groups: [] },
       overlay: { provider: 'deepseek-official', model: 'plain' },
@@ -159,6 +162,7 @@ describe('ball menu', () => {
     }, false, {
       openMain() {},
       openSettings() {},
+      openExperienceLibrary() {},
       setOverlay() {},
       setBackground() {},
       setMillifraction() {},

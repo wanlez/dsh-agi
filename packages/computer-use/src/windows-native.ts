@@ -569,6 +569,15 @@ function sendMouse(api: Bindings, flags: number, x: number, y: number, data = 0)
   const top = api.GetSystemMetrics(SM_YVIRTUALSCREEN)
   const width = Math.max(1, api.GetSystemMetrics(SM_CXVIRTUALSCREEN))
   const height = Math.max(1, api.GetSystemMetrics(SM_CYVIRTUALSCREEN))
+  // An absolute point outside the virtual desktop is not rejected by SendInput: Windows clamps it
+  // to the nearest edge, so a stale or mismapped coordinate silently clicks somewhere else. Refuse
+  // it here and name both the point and the desktop the caller can target.
+  if (absolute && (x < left || y < top || x >= left + width || y >= top + height)) {
+    throw new Error(
+      `computer-use: pointer target (${String(x)}, ${String(y)}) is outside the virtual desktop `
+      + `x ${String(left)}..${String(left + width - 1)}, y ${String(top)}..${String(top + height - 1)}`,
+    )
+  }
   const input = {
     type: INPUT_MOUSE,
     u: {
@@ -583,7 +592,7 @@ function sendMouse(api: Bindings, flags: number, x: number, y: number, data = 0)
     },
   }
   if (api.SendInput(1, [input], INPUT.size) !== 1) {
-    throw new Error('computer-use: pointer input failed')
+    throw new Error('computer-use: [retryable] Windows refused the pointer event, so nothing was posted; the same action can be retried')
   }
 }
 
@@ -601,7 +610,7 @@ function postKey(api: Bindings, virtualKey: number, down: boolean, extended: boo
     },
   }
   if (api.SendInput(1, [input], INPUT.size) !== 1) {
-    throw new Error('computer-use: keyboard input failed')
+    throw new Error('computer-use: [retryable] Windows refused the key event, so nothing was posted; the same action can be retried')
   }
 }
 
@@ -1139,7 +1148,9 @@ export function createProductionWindowsOps(
     sendMouse(api, MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK, x, y)
     const pos: NativePoint = { x: 0, y: 0 }
     if (api.GetCursorPos(pos) === 0 || pos.x !== x || pos.y !== y) {
-      if (api.SetCursorPos(x, y) === 0) throw new Error('computer-use: pointer input failed')
+      if (api.SetCursorPos(x, y) === 0) {
+        throw new Error('computer-use: [retryable] the pointer could not be moved and no click was posted; the same action can be retried')
+      }
     }
   }
 

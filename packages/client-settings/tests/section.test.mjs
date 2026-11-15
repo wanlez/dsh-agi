@@ -1181,7 +1181,7 @@ describe('settings section', () => {
       return (node.children ?? []).map(said).join('')
     }
     assert.match(said(cards[0]), /经验库目录/)
-    assert.match(said(cards[0]), /节点 3 · 边 2 · 索引 1 · 决策 0/, 'the card reports the graph counts')
+    assert.match(said(cards[0]), /节点 3 · 连线 2 · 路径 1 · 决策 0/, 'the card reports the graph counts')
     assert.equal(find(cards[0], (node) => node.props?.['aria-label'] === '经验图谱').length, 0, 'no archive on/off switch')
     assert.doesNotMatch(said(view), /经验图谱/, 'the old card title is gone')
     assert.doesNotMatch(said(view), /还没有笔记/, 'the archive file list is gone')

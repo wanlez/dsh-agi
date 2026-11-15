@@ -8,6 +8,7 @@ body {
 }
 
 body {
+  position: relative;
   padding: var(--glow-top, 28px) var(--glow-right, 28px) var(--glow-bottom, 28px) var(--glow-left, 28px);
 }
 
@@ -16,7 +17,7 @@ body {
   width: 100%;
   height: 100%;
   border-radius: 16px;
-  padding: var(--stroke-top, 8px) var(--stroke-right, 8px) var(--stroke-bottom, 8px) var(--stroke-left, 8px);
+  padding: var(--stroke-top, 12px) var(--stroke-right, 12px) var(--stroke-bottom, 12px) var(--stroke-left, 12px);
   pointer-events: none;
   background: linear-gradient(
     135deg,
@@ -26,9 +27,9 @@ body {
   );
   filter:
     drop-shadow(0 0 2px rgba(255, 255, 255, 1))
-    drop-shadow(0 0 8px rgba(80, 255, 255, 1))
-    drop-shadow(0 0 16px rgba(170, 150, 255, 0.95))
-    drop-shadow(0 0 28px rgba(48, 230, 255, 0.8));
+    drop-shadow(0 0 10px rgba(80, 255, 255, 1))
+    drop-shadow(0 0 22px rgba(170, 150, 255, 0.95))
+    drop-shadow(0 0 40px rgba(48, 230, 255, 0.85));
   -webkit-mask:
     linear-gradient(#fff 0 0) content-box,
     linear-gradient(#fff 0 0);
@@ -37,4 +38,55 @@ body {
     linear-gradient(#fff 0 0) content-box,
     linear-gradient(#fff 0 0);
   mask-composite: exclude;
+  animation: frame-pulse 1.8s ease-in-out infinite;
+}
+
+/* The frame breathes so it reads as "busy" rather than as a static border. */
+@keyframes frame-pulse {
+  0%,
+  100% {
+    opacity: 0.82;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+#label {
+  position: absolute;
+  top: max(6px, calc(var(--glow-top, 28px) - 30px));
+  left: calc(var(--glow-left, 28px) + 6px);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px 6px 10px;
+  border-radius: 999px;
+  background: rgba(8, 28, 56, 0.86);
+  color: #eafcff;
+  font: 600 12px/1 "Segoe UI", "Microsoft YaHei", sans-serif;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 1px rgba(120, 240, 255, 0.6),
+    0 6px 18px rgba(0, 0, 0, 0.5);
+}
+
+#label .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #5ff7ff;
+  box-shadow: 0 0 9px #5ff7ff;
+  animation: dot-blink 1.2s ease-in-out infinite;
+}
+
+@keyframes dot-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
 }

@@ -27,6 +27,7 @@ import {
   type WorkspaceSafety,
 } from './history.ts'
 import { moveToOsTrash, osTrashAvailable } from './os-trash.ts'
+import { openGraphEditorUrl, startGraphEditorServer } from './knowledge-graph/editor-server.ts'
 import { personaForPrompt } from './persona.ts'
 import { refreshModelFallback } from './model-defaults.ts'
 import { openMainWindow } from './open-main.ts'
@@ -117,6 +118,8 @@ export interface PreStepDecision {
 
 /** Host services the plugin injects. Shapes match the official 0.1.7-rc.2 controllers. */
 export interface OrbContext {
+  /** Tool registry from the Host; absent on a Host that does not expose one. */
+  readonly tools?: { register(tool: unknown): void }
   readonly webServer: {
     readonly port: number
     register(route: {
@@ -2457,6 +2460,10 @@ export class OrbRuntime {
       this.run('open-settings', () => this.openSettings())
       return
     }
+    if (record.type === 'open-experience-library') {
+      this.run('open-experience-library', () => this.openExperienceLibrary())
+      return
+    }
     if (record.type === 'tcc') {
       this.broadcast({ type: 'tcc', status: this.tcc.status() })
       return
@@ -2710,6 +2717,19 @@ export class OrbRuntime {
   private async openSettings(): Promise<void> {
     this.settingsTarget = { at: Date.now() }
     await this.openMain()
+  }
+
+  /**
+   * The ball's "进入经验库" click: the same loopback editor the settings page opens, started on
+   * demand and handed to the system browser. It does not need the main window, so a ball-only
+   * session can reach the library too.
+   */
+  private async openExperienceLibrary(): Promise<void> {
+    const editor = await startGraphEditorServer({ baseDir: this.store.dir })
+    const opened = await openGraphEditorUrl(editor.url)
+    if (opened === false) {
+      console.error(`dsh-agi: the system browser declined the graph editor at ${editor.url}`)
+    }
   }
 
   private startAgentPoll(): void {

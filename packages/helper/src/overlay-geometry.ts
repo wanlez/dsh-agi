@@ -2,8 +2,8 @@
 
 export const SELECTION_TOOLBAR_SIZE = { width: 280, height: 46 } as const
 
-export const OBSERVATION_FRAME_STROKE_PX = 8
-export const OBSERVATION_FRAME_GLOW_PX = 28
+export const OBSERVATION_FRAME_STROKE_PX = 12
+export const OBSERVATION_FRAME_GLOW_PX = 44
 export const OBSERVATION_FRAME_OUTSET = OBSERVATION_FRAME_STROKE_PX + OBSERVATION_FRAME_GLOW_PX
 
 export interface OverlayRect {

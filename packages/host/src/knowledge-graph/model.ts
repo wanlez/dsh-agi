@@ -32,6 +32,11 @@ export interface NodeScreenshot {
   readonly file: string
   /** One line saying what this screenshot proves (the accuracy reference). */
   readonly caption: string
+  /**
+   * Who supplied it: the operator (absent or `human`) or the agent's own learning pass (`ai`).
+   * Human screenshots are the accuracy standard; AI screenshots only guide the next run.
+   */
+  readonly source?: 'human' | 'ai'
 }
 
 /** One experience step. `embedding` is a cache; a missing value is recomputed on read. */
@@ -47,6 +52,14 @@ export interface GraphNode {
   /** Source node for a copy (and for a search variant); copies never inherit edges. */
   readonly derived_from: string | null
   readonly screenshots: readonly NodeScreenshot[]
+  /**
+   * Agent-maintained supplement, written from real runs: pits, better prompts, and what the
+   * next run should watch for. The operator reads the human `description` first as the base,
+   * then follows this as the refined guidance. The operator never edits this by hand.
+   */
+  readonly ai_notes?: string
+  /** When the agent last touched {@link ai_notes}. */
+  readonly ai_updated_at?: string
 }
 
 /** The only edge type the editor creates today. */
@@ -322,9 +335,23 @@ export interface PathProblem {
  * @param path - the saved path.
  * @returns all problems; empty means the path can be executed as written.
  */
+/**
+ * Problems that keep a saved path from being a usable sequence.
+ *
+ * A path is an independently stored reference list: it names an ordered run of nodes and owns
+ * nothing else. Consecutive steps are *not* required to share a graph edge — the saved order is
+ * the relation — so the structural rules are only that every step still exists, no step repeats
+ * (a repeat is a cycle inside the path), and the recorded start/end match the sequence.
+ * Node edges stay in the library for the relationship view; a saved path no longer depends on
+ * them.
+ * @param nodes - every node.
+ * @param _edges - every edge (kept for signature compatibility; paths no longer read them).
+ * @param path - the saved path.
+ * @returns all problems; empty means the sequence is usable as written.
+ */
 export function pathProblems(
   nodes: ReadonlyMap<string, GraphNode>,
-  edges: readonly GraphEdge[],
+  _edges: readonly GraphEdge[],
   path: GraphPath,
 ): PathProblem[] {
   const problems: PathProblem[] = []
@@ -348,37 +375,7 @@ export function pathProblems(
       continue
     }
     if (positions.get(nodeId) !== index) {
-      problems.push({ code: 'duplicate-node', message: `路径重复出现「${node.title}」。`, node_id: nodeId })
-    }
-    if (index > 0) {
-      const previous = sequence[index - 1] as string
-      if (findEdge(edges, previous, nodeId) === undefined) {
-        const fromTitle = nodes.get(previous)?.title ?? previous
-        problems.push({
-          code: 'missing-edge',
-          message: `路径缺少「${fromTitle} → ${node.title}」的边。`,
-          node_id: nodeId,
-        })
-      }
-    }
-    for (const edge of edges) {
-      if (edge.to !== nodeId) continue
-      const source = nodes.get(edge.from)
-      if (!isNodePresent(source)) continue
-      const sourcePosition = positions.get(edge.from)
-      // The graph has no root: any node may start a saved path. A predecessor that is
-      // not part of the path therefore belongs to the caller's situation, not to this
-      // sequence — it is allowed for the first step only. Later steps must carry every
-      // in-edge inside the path, which is what makes the AND check enforceable.
-      if (index === 0 && sourcePosition === undefined) continue
-      if (sourcePosition === undefined || sourcePosition >= index) {
-        problems.push({
-          code: 'missing-predecessor',
-          message: `「${node.title}」的前置「${source?.title ?? edge.from}」不在路径前面。`,
-          node_id: nodeId,
-          predecessor_id: edge.from,
-        })
-      }
+      problems.push({ code: 'duplicate-node', message: `路径重复出现「${node.title}」，形成环。`, node_id: nodeId })
     }
   }
   if (sequence[0] !== path.start_node) {

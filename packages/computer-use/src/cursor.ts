@@ -140,6 +140,42 @@ function drawGlyph(
 }
 
 /**
+ * Draw a multi-digit number with the grid glyphs.
+ * @param pixels - BGRA raster, mutated in place.
+ * @param width - raster width.
+ * @param height - raster height.
+ * @param x - left edge.
+ * @param y - top edge.
+ * @param value - non-negative integer to draw.
+ * @param scale - pixels per glyph dot.
+ * @param color - overlay color and opacity as `[r, g, b, alpha]`.
+ * @returns the drawn width in pixels.
+ */
+function drawNumber(
+  pixels: Buffer,
+  width: number,
+  height: number,
+  x: number,
+  y: number,
+  value: number,
+  scale: number,
+  color: readonly [number, number, number, number],
+): number {
+  const text = String(Math.max(0, Math.round(value)))
+  const advance = 6 * scale
+  let at = x
+  for (const character of text) {
+    const glyph = GRID_GLYPHS[Number(character)]
+    if (glyph !== undefined) {
+      drawGlyph(pixels, width, height, at + 1, y + 1, glyph, scale, [0, 0, 0, 0.6])
+      drawGlyph(pixels, width, height, at, y, glyph, scale, color)
+    }
+    at += advance
+  }
+  return at - x
+}
+
+/**
  * Draw a crosshair at a raster position so a zoomed crop shows the exact click point.
  * @param pixels - BGRA raster, mutated in place.
  * @param width - raster width.
@@ -185,17 +221,20 @@ export function drawGrid(pixels: Buffer, width: number, height: number): void {
   }
   const scale = Math.max(1, Math.min(3, Math.round(width / 640)))
   const glyphHeight = 7 * scale
-  const glyphWidth = 5 * scale
-  for (let i = 0; i < 10; i += 1) {
-    const glyph = GRID_GLYPHS[i]
-    if (glyph === undefined) continue
-    const topX = Math.min(Math.max(0, width - glyphWidth - 2), Math.max(0, Math.round(width * i / 10)) + 2)
-    const topY = Math.min(Math.max(0, height - glyphHeight), 2)
-    drawGlyph(pixels, width, height, topX + 1, topY + 1, glyph, scale, [0, 0, 0, 0.6])
-    drawGlyph(pixels, width, height, topX, topY, glyph, scale, [255, 255, 255, 0.85])
-    const leftY = Math.min(Math.max(0, height - glyphHeight), Math.round(height * i / 10) + 2)
-    drawGlyph(pixels, width, height, 3, leftY + 1, glyph, scale, [0, 0, 0, 0.6])
-    drawGlyph(pixels, width, height, 2, leftY, glyph, scale, [255, 255, 255, 0.85])
+  const ink: readonly [number, number, number, number] = [255, 255, 255, 0.85]
+  // Labels carry the coordinate value itself (0, 100 … 900) rather than a column index, so a
+  // point on the grid reads as "between 400 and 499" without arithmetic.
+  const label = (value: number, atX: number, atY: number): void => {
+    const textWidth = String(value).length * 6 * scale
+    const left = Math.min(Math.max(0, width - textWidth - 2), atX)
+    const top = Math.min(Math.max(0, height - glyphHeight), atY)
+    drawNumber(pixels, width, height, left, top, value, scale, ink)
+  }
+  label(0, 3, 2)
+  for (let i = 1; i < 10; i += 1) {
+    const value = i * 100
+    label(value, Math.round(width * i / 10) + 3, 2)
+    label(value, 3, Math.round(height * i / 10) + 3)
   }
 }
 

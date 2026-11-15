@@ -3,6 +3,7 @@
  * @module @deepseek-ai/dsh-experimental-tool-computer-use/src/plugin
  */
 
+import { createHash } from 'node:crypto'
 import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -64,6 +65,7 @@ import {
   observeDesktop,
   optionalImageFields,
   requireScreen,
+  type ObservedImage,
   type ObservedScreen,
 } from './observe.ts'
 import { isUsableObservationRaster } from './raster.ts'
@@ -322,6 +324,40 @@ function sessionOf(exec: ToolExecution): Session | undefined {
   return exec.agent?.session
 }
 
+/**
+ * The frame each session last received, keyed by session id.
+ *
+ * A capture whose bytes hash to the same value is pixel-identical to the one the model already
+ * holds, so the next capture reuses that attachment instead of storing a second copy. Identical
+ * frames stay out of the attachment store and out of the next request, which is where the cost of
+ * a repeated screenshot actually sits.
+ */
+const lastSessionFrames = new Map<string, { hash: string; image: ObservedImage }>()
+
+/** Content hash of one encoded capture. */
+function frameHash(data: Uint8Array): string {
+  return createHash('sha256').update(data).digest('hex')
+}
+
+/** Session key for {@link lastSessionFrames}, or undefined when the execution carries no session. */
+function frameCacheKey(session: Session | undefined): string | undefined {
+  // Defensive read: test doubles and older hosts may hand a session-shaped object whose header is
+  // absent. A missing key only disables deduplication; it must never fail a capture.
+  const id = (session as { readonly header?: { readonly id?: unknown } } | undefined)?.header?.id
+  return typeof id === 'string' && id !== '' ? id : undefined
+}
+
+/** Record the frame a session now holds, so an identical next capture can reuse it. */
+function rememberSessionFrame(
+  session: Session | undefined,
+  captured: CapturedScreen | undefined,
+  image: ObservedImage | undefined,
+): void {
+  const key = frameCacheKey(session)
+  if (key === undefined || captured === undefined || image === undefined) return
+  lastSessionFrames.set(key, { hash: frameHash(captured.data), image })
+}
+
 function validatedPosition(exec: ToolExecution, position: readonly number[]): [number, number] {
   const session = sessionOf(exec)
   const mode = coordinateModeOf(session)
@@ -380,13 +416,25 @@ async function recapture(
   const session = sessionOf(exec)
   const mode = coordinateModeOf(session)
   const config = runtimeConfig
+  const cacheKey = frameCacheKey(session)
+  const previous = cacheKey === undefined ? undefined : lastSessionFrames.get(cacheKey)
+  const reuseImage = config?.frameDedupEnabled !== false && previous !== undefined
+    ? (captured: CapturedScreen): ObservedImage | undefined => (
+        frameHash(captured.data) === previous.hash ? previous.image : undefined
+      )
+    : undefined
   const observation = await observeDesktop(ctx, backend, exec.signal, {
     settleMs,
     coordinateMode: mode,
     displayInventoryEnabled: config?.displayInventoryEnabled ?? true,
     ...config === undefined ? {} : { maxChars: config.modelTextMaxChars },
+    ...reuseImage === undefined ? {} : { reuseImage },
   })
   rememberObservation(session, observation.screens)
+  // Keep the cache current even when this capture was new: the next identical frame reuses it.
+  if (config?.frameDedupEnabled !== false) {
+    rememberSessionFrame(session, observation.captures[0], observation.screens[0]?.image)
+  }
   return {
     screens: [...observation.screens],
     foreground: compactForeground(observation.foreground),
@@ -1941,6 +1989,11 @@ export function applyComputerUse(
       maxChars: config.modelTextMaxChars,
     })
     rememberObservation(agent.session, observation.screens)
+    // Seed the dedup cache with the first frame: a tool call that leaves the screen untouched
+    // then reuses it instead of attaching the same image twice.
+    if (config.frameDedupEnabled !== false) {
+      rememberSessionFrame(agent.session, observation.captures[0], observation.screens[0]?.image)
+    }
     signal.throwIfAborted()
     const notice = createUserMessage({
       content: [

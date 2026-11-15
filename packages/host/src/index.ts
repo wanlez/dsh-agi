@@ -13,6 +13,8 @@ import { profileDirectory, ProfileStore } from './preferences.ts'
 import { registerOrbRoutes } from './routes.ts'
 import { publishGraphPointer } from './knowledge-graph/routes.ts'
 import { KnowledgeGraphStore, knowledgeGraphDirFor } from './knowledge-graph/store.ts'
+import { KnowledgeGraphService } from './knowledge-graph/service.ts'
+import { registerGraphTools } from './knowledge-graph/tools.ts'
 import { installOrbServices, watchOrbPermissions } from './services.ts'
 import { watchAppearance } from './appearance.ts'
 import { OrbRuntime, type OrbContext, type PreStepMessage } from './orb.ts'
@@ -119,6 +121,13 @@ export function apply(ctx: OrbContext, config: { autoStart?: boolean } = {}): vo
     if (resolve(profile).toLowerCase().startsWith(profilesRoot)) publishGraphPointer(graphDir)
     void new KnowledgeGraphStore(graphDir).init().catch(() => undefined)
   }
+  // The input box reaches the library through these tools. They resolve the active library
+  // directory per call, so a folder switch in the editor reaches them too.
+  if (ctx.tools !== undefined) {
+    const graphTools = ctx.tools
+    const graphService = (): KnowledgeGraphService => new KnowledgeGraphService(new KnowledgeGraphStore(knowledgeGraphDirFor(store.dir)))
+    registerGraphTools({ tools: graphTools }, graphService)
+  }
   // pnpm appends a `name@version` rule for every young release it installs and reads
   // only the first rule per package name, so a profile that installed this plugin
   // through the market or `dsh plugin install` holds an exemption that shadows the
@@ -165,6 +174,29 @@ export function apply(ctx: OrbContext, config: { autoStart?: boolean } = {}): vo
             text: '【知识库模式·本轮规则】只检索经验图谱，不做桌面操作。先读 `$env:DSH_HOME\\dsh-agi\\ACTIVE_GRAPH` 指向的库，再读其中的 `index.json`，用收藏名和摘要匹配用户的问题；没有匹配就直说缺少什么信息。需要细节时读 `paths\\<id>.json` 和对应的 `nodes\\<id>.json`（含说明和截图 caption）。然后用清晰、简洁、口语化的方式直接回答方法论。不要调用 computer use 工具，不要操作键盘鼠标、点击界面或打开应用；用户要执行流程时，提示他切到代操作模式。',
           }],
           source: { kind: 'computer-use', form: 'notice', summary: 'Knowledge mode' },
+        })
+      }
+      // The library is edited from short chat requests, so the safe order is stated every step,
+      // not only in the tool descriptions: the tools also refuse unconfirmed writes.
+      if (sessionId !== undefined && sessionId === runtime.currentSessionId()) {
+        extras.push({
+          role: 'user',
+          id: randomUUID(),
+          content: [{
+            type: 'text',
+            text: '【经验库维护规范】用户让你创建或修改节点、路径时，按这个顺序做，安全可靠优先；不要频繁沟通，但每次沟通必须有效。\n'
+              + '1. 先 knowledge_graph_search 查重。创建节点前用一句话向用户确认标题和说明，并告诉他截图可以稍后在经验库补。\n'
+              + '2. 创建路径前先提醒用户「路径创建较复杂，请务必打开经验库核对每个细节」。用户给出 A→B→C 后，先匹配已有节点，缺的用 create_node 新建（新建前确认）。\n'
+              + '3. 每个要放进路径的节点都必须让用户确认，确认后才用 confirm_checked=true 调用 create_path；保存后用 knowledge_graph_check_path 检查，并把问题报告给用户。\n'
+              + '4. 路径不能有重复节点（环），不能引用已删除或不存在的节点；发现问题先核对再写入。\n'
+              + '5. 已经完备、没有问题的内容不要反复修改；需要长文时主动精简。\n'
+              + '6. 实际处置：用户只说「创建节点，内容 xxx」时，一条消息问完（确认标题、说明，问是否现在发截图），确认后一次建好；用户给出 A→B→C 时，先用 search 逐项匹配，回复「已有 X / 需要新建 Y」，逐节点确认；检查发现问题时列出问题和可选方案，让用户决定，不要自作主张改顺序或重写内容。\n'
+              + '【节点自学习】按节点执行完一步后（成功或失败），如果你对这一步有了更可靠的信息（目标截图、坑、更准确的提示词），用 knowledge_graph_learn_node 更新该节点的 AI 部分：\n'
+              + '- 只写 AI 部分（ai_notes / AI 截图）；人的说明和人的截图只读不改，人的截图是核心评判标准，AI 截图只做指导。\n'
+              + '- 精简：最多 3 条要点、总长 300 字以内；重复或已完备就跳过，不要为了更新而更新。\n'
+              + '- 执行时先读人的说明打底，但以 AI 补充的要点为准；看图片先看人的截图做评判，再看 AI 截图辅助定位。',
+          }],
+          source: { kind: 'computer-use', form: 'notice', summary: 'Library maintenance rules' },
         })
       }
       const pending = runtime.peekPendingImages(sessionId)

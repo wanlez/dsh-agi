@@ -738,6 +738,7 @@ async function showMenu(window: BrowserWindow): Promise<void> {
   const template = contextMenuTemplate(chrome, menuZh(), {
     openMain: () => { write({ type: 'open-main' }) },
     openSettings: () => { write({ type: 'open-settings' }) },
+    openExperienceLibrary: () => { write({ type: 'open-experience-library' }) },
     setOverlay: (selection) => { write({ type: 'set-overlay', selection }) },
     setBackground: (selection) => { write({ type: 'set-background', selection }) },
     setMillifraction: (enabled) => { void confirmMillifraction(window, enabled) },

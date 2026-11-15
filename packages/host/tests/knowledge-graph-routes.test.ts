@@ -44,129 +44,95 @@ async function request(method: string, path: string, body?: unknown): Promise<{ 
 }
 
 describe('knowledge graph HTTP surface', () => {
-  it('serves the empty-first-screen editor and a parseable client script', async () => {
+  it('serves the search-first editor and a parseable client script', async () => {
     const page = await request('GET', '/')
     assert.equal(page.status, 200)
     assert.match(page.contentType, /text\/html/)
-    assert.match(page.text, /首屏是空图/)
-    assert.match(page.text, /复用该节点/)
-    assert.match(page.text, /以它为起点新建/)
+    assert.match(page.text, /从搜索开始/)
+    assert.match(page.text, /搜索一条路径查看整条流程/)
     assert.match(page.text, /统计看板/)
-    assert.match(page.text, /拖/)
-    // The threshold is no longer a wall: both bands and the human confirmation are rendered.
-    assert.match(page.text, /未达阈值 · 最接近/)
-    assert.match(page.text, /低于阈值的路径不允许自动执行/)
-    assert.match(page.text, /人工确认测试/)
-    assert.match(page.text, /语义地板/)
     assert.match(page.text, /\+ 新建节点/)
+    assert.match(page.text, /\+ 新建路径/)
+    assert.match(page.text, /搜索节点关键词或描述/)
+    assert.match(page.text, /搜索路径 \/ 整条流程/)
+    assert.match(page.text, /收藏节点/)
+    assert.match(page.text, /收藏路径/)
     const script = /<script>([\s\S]*)<\/script>/u.exec(page.text)?.[1]
     assert.ok(script !== undefined)
     assert.doesNotThrow(() => new Function(script as string))
-    assert.equal(KNOWLEDGE_GRAPH_PAGE.includes('id="graph"'), true)
+    // The canvas and its anchor/stack vocabulary are gone: the page is a search-first browser.
+    assert.doesNotMatch(KNOWLEDGE_GRAPH_PAGE, /id="graph"/)
+    assert.doesNotMatch(KNOWLEDGE_GRAPH_PAGE, /路径栈/)
+    assert.doesNotMatch(KNOWLEDGE_GRAPH_PAGE, /建立关系/)
   })
 
   it('renames 索引 to 收藏 and 变更记录 to 操作记录 everywhere the user reads it', async () => {
     const page = await request('GET', '/')
     const text = page.text
-    // Tabs, buttons, empty states: the old vocabulary is gone from the page source.
-    assert.match(text, /data-tab="index">收藏</)
-    assert.match(text, /data-tab="log">操作记录</)
+    // The old vocabulary is gone from the page source.
     assert.doesNotMatch(text, /索引/)
     assert.doesNotMatch(text, /变更记录/)
     assert.doesNotMatch(text, /合并|废弃/)
-    assert.doesNotMatch(text, /A 方案/)
     assert.doesNotMatch(text, /io\.input|io\.output/)
-    assert.match(text, /检索收藏/)
-    assert.match(text, /保存当前路径为收藏/)
-    assert.match(text, /已保存的收藏/)
-    assert.match(text, /还没有收藏/)
-    assert.match(text, /被这些收藏引用/)
-    assert.match(text, /没有收藏引用它/)
+    assert.match(text, /收藏节点/)
     assert.match(text, /收藏路径/)
-    assert.match(text, /复制节点（内容复制，连线需自己重建）/)
+    assert.match(text, /操作记录/)
+    assert.match(text, /被这些路径引用/)
+    assert.match(text, /没有路径引用它/)
+    assert.match(text, /复制节点/)
+    assert.match(text, /删除节点/)
   })
 
-  it('renders two search columns, a return view and the unsaved guard', async () => {
+  it('renders the two search boxes, the path editor and the insert dialog', async () => {
     const page = await request('GET', '/')
     assert.equal(page.status, 200)
     const text = page.text
 
-    // One horizontal action bar, then a semantic column and a keyword column at ~1:1.
-    assert.match(text, /搜索结果 · 共 /)
-    assert.match(text, /语义匹配/)
-    assert.match(text, /语义 TOP3/)
-    assert.match(text, /关键词匹配/)
-    assert.match(text, /按字符匹配（不是正则）/)
-    assert.match(text, /无命中/)
-    assert.match(text, /\.resultColumns \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/)
-    assert.match(text, /@media \(max-width: 900px\) \{\s*\.resultColumns \{ grid-template-columns: minmax\(0, 1fr\); \}/)
+    // Left column: one box for nodes, one for whole paths, each with its own favorites list.
+    assert.match(text, /id="nodeSearchForm"/)
+    assert.match(text, /id="pathSearchForm"/)
+    assert.match(text, /id="nodeSearchInput"/)
+    assert.match(text, /id="pathSearchInput"/)
+    assert.match(text, /id="nodeFavorites"/)
+    assert.match(text, /id="pathFavorites"/)
 
-    // 定位 records the view it came from; the button restores the candidates and selection.
-    assert.match(text, /id="returnBtn"[^>]*data-action="return-view"/)
-    assert.match(text, /← 返回上一个视图/)
-    assert.match(text, /selectedId/)
-    assert.match(text, /function pushViewSnapshot/)
-    assert.match(text, /function returnView/)
+    // A path is shown and edited in place: name, summary, ordered steps, check and save.
+    assert.match(text, /function renderPathEditor/)
+    assert.match(text, /function savePathEditor/)
+    assert.match(text, /function checkPathEditor/)
+    assert.match(text, /data-action="save-path-editor"/)
+    assert.match(text, /data-action="check-path-editor"/)
+    assert.match(text, /路径至少需要一个节点/)
 
-    // The unsaved guard offers save / discard / cancel and focuses 保存.
-    assert.match(text, /有未保存的修改/)
-    assert.match(text, /data-action="guard-save"/)
-    assert.match(text, /data-action="guard-discard"/)
-    assert.match(text, /data-action="guard-cancel"/)
-    assert.match(text, /save\.focus\(\)/)
-    assert.match(text, /beforeunload/)
-    assert.match(text, /未保存/)
+    // Inserting a step is a path-only affordance with three sources and a cycle guard.
+    assert.match(text, /function insertStep/)
+    assert.match(text, /本路径内节点/)
+    assert.match(text, /重复插入会形成环/)
+    assert.match(text, /function applyInsert/)
 
-    // Plain language replaces the family-tree terms in every visible label.
-    assert.match(text, /当前节点（实色）/)
-    assert.match(text, /前置步骤（直接前置）/)
-    assert.match(text, /后续步骤（直接后续）/)
-    assert.match(text, /并列步骤（同一前置下的其他步骤）/)
-    assert.match(text, /前置步骤 · 直接前置/)
-    assert.match(text, /后续步骤 · 直接后续/)
-    assert.match(text, /并列步骤 · 同一前置/)
-    // No family-tree wording survives in the visible copy. The words are assembled from
-    // code points so a plain-text grep of the repo does not find the old terms here.
+    // The node side edits content only: no edge editing, no family-tree copy.
+    assert.match(text, /id="detailTitle"/)
+    assert.match(text, /id="detailDesc"/)
+    assert.match(text, /data-action="save-node"/)
+    assert.doesNotMatch(text, /data-action="open-relation"/)
     const family = ['\u7236', '\u5b50', '\u5144']
     const banned = family.map((prefix) => `${prefix}节点`).concat(['\u524d\u9a71', '\u540e\u7ee7', '\u7236 ·', '\u5b50 ·', '\u5144 ·'])
     assert.deepEqual(banned.filter((term) => text.includes(term)), [], 'visible copy still uses family-tree terms')
-
-    // The saved favorite button says 测试 and carries the management-console warning.
-    assert.match(text, /data-action="run-path" data-id="' \+ esc\(path\.id\) \+ '">测试</)
-    assert.match(text, /这里是知识库管理台，不是操作台；测试会真实操作电脑，请谨慎。/)
-    assert.match(text, /人工确认测试/)
-
-    // The old change log is now a Chinese operation log; ids are resolved server-side.
-    assert.match(text, /操作记录/)
-    assert.match(text, /记录谁在什么时候新建 \/ 修改 \/ 复制 \/ 删除节点或连线/)
-    assert.match(text, /function loadLog/)
-    assert.match(text, /参考候选：/)
-    assert.match(text, /entry\.sentence/)
-    assert.doesNotMatch(text, /entry\.node_id/)
   })
 
-  it('opens the relation builder from the + handle and the toolbar, and sizes the drawer to ~1/3', async () => {
+  it('offers a path-only insert dialog with cycle protection', async () => {
     const page = await request('GET', '/')
     const text = page.text
-    // Both entry points exist and share one dialog.
-    assert.match(text, /data-action="open-relation">＋ 建立关系</)
-    assert.match(text, /function openRelation/)
-    assert.match(text, /function relationSearch/)
-    assert.match(text, /function relationSubmit/)
-    assert.match(text, /data-action="rel-search"/)
-    assert.match(text, /setAttribute\("data-action", "rel-submit"\)/)
-    assert.match(text, /作为该节点的后续（起点 → 终点）/)
-    assert.match(text, /作为该节点的前置（终点 → 起点）/)
-    assert.match(text, /点击：搜索目标节点建边/)
-    // The click travels through the same pointerup path as a drag; only a real move drags.
-    assert.match(text, /if \(!moved\) \{/)
-    assert.match(text, /setTimeout\(function \(\) \{ openRelation\(from, "after"\); \}, 0\)/)
-    assert.match(text, /\/api\/edges\/validate/)
+    assert.match(text, /insertCols/)
+    assert.match(text, /insertLocal/)
+    assert.match(text, /insertResults/)
+    assert.match(text, /insertFavorites/)
+    assert.match(text, /data-pick-node/)
+    assert.match(text, /steps\.indexOf\(insert\.picked\)/)
+    // The node side never posts edges any more; edges are library data, not an editor surface.
+    assert.doesNotMatch(text, /\/api\/edges/)
 
-    // Drawer: a third of the viewport on desktop, overlay on narrow screens, resizable.
-    assert.match(text, /#detail\.drawer \{ width: var\(--drawer-width, 33vw\); \}/)
-    assert.match(text, /width: var\(--drawer-width, 33vw\)/)
-    assert.match(text, /@media \(max-width: 1100px\)/)
+    // Drawer keeps its resize contract.
     assert.match(text, /id="detail" class="drawer"/)
     assert.match(text, /function bindDrawerResize/)
     assert.match(text, /id="detailResize"/)
@@ -418,18 +384,26 @@ describe('knowledge graph HTTP surface', () => {
     assert.equal((await image.arrayBuffer()).byteLength, Buffer.from(png, 'base64').length)
   })
 
-  it('rejects a path that is not executable', async () => {
+  it('stores a path independently of graph edges and rejects a repeated node', async () => {
     const stats = await request('GET', '/api/stats')
     const first = (stats.json.stats as { nodes: { id: string }[] }).nodes[0].id
     const isolated = await request('POST', '/api/nodes', { title: '孤立节点', description: '没有任何边' })
     const isolatedId = (isolated.json.node as { id: string }).id
-    const bad = await request('POST', '/api/paths', {
-      name: '坏收藏',
-      summary: '故意缺一条边',
+    // A saved path is its own reference list: consecutive steps need no edge between them.
+    const saved = await request('POST', '/api/paths', {
+      name: '独立路径',
+      summary: '不依赖图上的边',
       node_sequence: [first, isolatedId],
     })
-    assert.equal(bad.status, 409)
-    assert.equal(bad.json.error?.code, 'path-invalid')
+    assert.equal(saved.status, 200)
+    // A repeated node inside one path is a cycle, so it is still refused.
+    const repeated = await request('POST', '/api/paths', {
+      name: '重复路径',
+      summary: '同一节点出现两次',
+      node_sequence: [first, isolatedId, first],
+    })
+    assert.equal(repeated.status, 400)
+    assert.equal(repeated.json.error?.code, 'path-duplicate')
   })
 
   it('builds an edge from a search hit for a node the canvas never shows', async () => {

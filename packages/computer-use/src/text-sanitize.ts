@@ -47,6 +47,19 @@ function isPrivateUse(codePoint: number): boolean {
     || (codePoint >= 0x100000 && codePoint <= 0x10fffd)
 }
 
+/**
+ * Invisible formatting characters that ride inside real window titles (Edge and other Chromium
+ * apps insert U+200B into their captions). They are dropped rather than replaced by a space, so a
+ * title reads exactly as it is shown on screen and a caller comparing it does not need to know
+ * they were there.
+ */
+function isZeroWidth(codePoint: number): boolean {
+  return codePoint === 0x00ad // soft hyphen
+    || (codePoint >= 0x200b && codePoint <= 0x200f) // ZWSP, ZWNJ, ZWJ, LRM, RLM
+    || codePoint === 0x2060 // word joiner
+    || codePoint === 0xfeff // byte-order mark used as a zero-width no-break space
+}
+
 function isLoneSurrogate(codePoint: number): boolean {
   return codePoint >= 0xd800 && codePoint <= 0xdfff
 }
@@ -66,8 +79,8 @@ function countCodePoints(value: string): number {
 }
 
 /**
- * Remove private-use characters, replace lone surrogates, replace dropped controls with a
- * space, escape newlines and tabs, and truncate with an explicit marker.
+ * Remove private-use and zero-width characters, replace lone surrogates, replace dropped
+ * controls with a space, escape newlines and tabs, and truncate with an explicit marker.
  * @param input - raw text from a window, error, page, or tool result.
  * @param options - optional truncation length.
  * @returns a single-line, valid-Unicode string safe to place in the model envelope.
@@ -88,6 +101,7 @@ export function sanitizeModelText(
       continue
     }
     if (isPrivateUse(codePoint)) continue
+    if (isZeroWidth(codePoint)) continue
     if (isDroppedControl(codePoint)) {
       repaired += ' '
       continue

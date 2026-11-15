@@ -76,7 +76,7 @@ export function captureWithFallback<T>(input: CaptureFallbackInput<T>): CaptureC
     bitbltFrame = input.bitblt()
   } catch (bitbltError: unknown) {
     if (!input.enabled || input.printWindow === undefined) {
-      throw new Error(`computer-use: screen capture failed: ${errorText(bitbltError)}`)
+      throw new Error(`computer-use: screen capture failed: ${errorText(bitbltError)} (nothing on screen was changed, so this can be retried)`)
     }
     try {
       const rescued = input.printWindow()
@@ -90,7 +90,7 @@ export function captureWithFallback<T>(input: CaptureFallbackInput<T>): CaptureC
       }
     } catch (rescueError: unknown) {
       throw new Error(
-        `computer-use: screen capture failed: BitBlt: ${errorText(bitbltError)}; PrintWindow: ${errorText(rescueError)}`,
+        `computer-use: screen capture failed: BitBlt: ${errorText(bitbltError)}; PrintWindow: ${errorText(rescueError)} (nothing on screen was changed, so this can be retried)`,
       )
     }
   }

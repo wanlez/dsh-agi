@@ -53,7 +53,7 @@ describe('graph editor loopback server', () => {
     const page = await fetch(editor.url)
     assert.equal(page.status, 200)
     assert.match(page.headers.get('content-type') ?? '', /text\/html/)
-    assert.match(await page.text(), /首屏是空图/)
+    assert.match(await page.text(), /从搜索开始/)
 
     const state = await fetch(new URL('api/state', editor.url))
     assert.equal(state.status, 200)
@@ -97,7 +97,7 @@ describe('graph editor loopback server', () => {
       assert.equal(editor.reused, false)
       const page = await fetch(editor.url)
       assert.equal(page.status, 200)
-      assert.match(await page.text(), /首屏是空图/)
+      assert.match(await page.text(), /从搜索开始/)
     } finally {
       await new Promise<void>((done) => occupied.close(() => done()))
       await stopGraphEditorServer()

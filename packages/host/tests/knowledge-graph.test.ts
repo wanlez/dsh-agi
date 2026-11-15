@@ -231,26 +231,24 @@ describe('knowledge graph invariants', () => {
     assert.equal(copyRow?.action_label, '复制节点')
   })
 
-  it('rejects a saved path whose sequence is not executable', async () => {
+  it('stores a saved path independently of the graph edges', async () => {
     const service = newService()
     const a = await service.createNode({ title: 'A', description: 'A' })
     const b = await service.createNode({ title: 'B', description: 'B' })
     const c = await service.createNode({ title: 'C', description: 'C' })
-    await service.addEdge(a.id, b.id)
-    await service.addEdge(b.id, c.id)
-    // A → C is missing, so this sequence is not a prepared path.
-    await assert.rejects(() => service.createPath({ name: '坏路径', summary: '缺边', node_sequence: [a.id, c.id] }), (error: unknown) => {
-      assert.ok(error instanceof GraphError)
-      assert.equal(error.code, 'path-invalid')
-      assert.match(error.message, /缺少/)
-      return true
-    })
-    const ok = await service.createPath({ name: '好路径', summary: '三步', node_sequence: [a.id, b.id, c.id] })
+    // A path is its own ordered reference list; no edge is required between steps.
+    const ok = await service.createPath({ name: '独立路径', summary: '三步', node_sequence: [a.id, b.id, c.id] })
     const detail = await service.pathDetail(ok.id)
     assert.equal(detail.nodes.length, 3)
     assert.match(detail.text, /完整路径/)
     assert.match(detail.text, /1\. A/)
     assert.equal(detail.problems.length, 0)
+    // A repeated node inside one path is a cycle and stays refused.
+    await assert.rejects(() => service.createPath({ name: '环路径', summary: '重复', node_sequence: [a.id, b.id, a.id] }), (error: unknown) => {
+      assert.ok(error instanceof GraphError)
+      assert.equal(error.code, 'path-duplicate')
+      return true
+    })
   })
 
   it('stops with a message when no index matches', async () => {

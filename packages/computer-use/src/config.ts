@@ -31,6 +31,13 @@ export interface Config {
   readonly dwmFlushEnabled?: boolean
   /** Enable the preview-stage local hover diff. Default: true. */
   readonly hoverFeedbackEnabled?: boolean
+  /**
+   * Reuse the previous attachment when a capture is pixel-identical to it, so the model is not
+   * sent the same image twice. Default: false — the post-action frame is the evidence that the
+   * action changed (or failed to change) the screen, so dropping it trades verification for
+   * tokens. Turn it on for long runs where the screen often stays identical.
+   */
+  readonly frameDedupEnabled?: boolean
   /** Per-channel BGRA delta that counts as a hover change. Default: 8. */
   readonly hoverPixelTolerance?: number
   /** Minimum changed fraction of sampled pixels for hover feedback. Default: 0.02. */
@@ -54,6 +61,8 @@ export interface ResolvedComputerUseConfig {
   readonly printWindowEnabled: boolean
   readonly dwmFlushEnabled: boolean
   readonly hoverFeedbackEnabled: boolean
+  /** Pixel-identical captures reuse the previous attachment instead of a second copy. */
+  readonly frameDedupEnabled: boolean
   readonly hoverPixelTolerance: number
   readonly hoverMinChangedRatio: number
   readonly hoverMinChangedPixels: number
@@ -72,6 +81,7 @@ export const Config: z<Config> = z.object({
   printWindowEnabled: z.boolean().default(true),
   dwmFlushEnabled: z.boolean().default(true),
   hoverFeedbackEnabled: z.boolean().default(true),
+  frameDedupEnabled: z.boolean().default(false),
   hoverPixelTolerance: z.number().default(8),
   hoverMinChangedRatio: z.number().default(0.02),
   hoverMinChangedPixels: z.number().default(16),
@@ -116,6 +126,7 @@ export function resolveComputerUseConfig(config: Config = {}): ResolvedComputerU
     printWindowEnabled: config.printWindowEnabled ?? true,
     dwmFlushEnabled: config.dwmFlushEnabled ?? true,
     hoverFeedbackEnabled: config.hoverFeedbackEnabled ?? true,
+    frameDedupEnabled: config.frameDedupEnabled ?? false,
     hoverPixelTolerance: requireFiniteNonNegative(config.hoverPixelTolerance ?? 8, 'hoverPixelTolerance'),
     hoverMinChangedRatio: requireUnitInterval(config.hoverMinChangedRatio ?? 0.02, 'hoverMinChangedRatio'),
     hoverMinChangedPixels: requirePositiveInteger(config.hoverMinChangedPixels ?? 16, 'hoverMinChangedPixels'),

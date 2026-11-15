@@ -300,14 +300,37 @@ async function dispatch(options: GraphRequestOptions): Promise<void> {
 
   if (parts[1] === 'paths' && parts.length >= 3) {
     const id = at(2)
-    if (method === 'GET') {
+    if (method === 'GET' && parts.length === 3) {
       const detail = await service.pathDetail(id)
       sendJson(res, 200, { ...detail, ok: true, path: publicPath(detail.path) })
+      return
+    }
+    if (method === 'GET' && parts[3] === 'check') {
+      sendJson(res, 200, { ok: true, check: await service.checkPath(id) })
+      return
+    }
+    if (method === 'GET' && parts[3] === 'view') {
+      sendJson(res, 200, { ok: true, view: await service.pathView(id) })
       return
     }
     if (method === 'DELETE') {
       await service.deletePath(id)
       sendJson(res, 200, { ok: true })
+      return
+    }
+    if (method === 'PUT') {
+      const body = asRecord(await readJson(req)) ?? {}
+      const sequence = Array.isArray(body.node_sequence)
+        ? body.node_sequence.filter((item): item is string => typeof item === 'string')
+        : []
+      const path = await service.updatePath({
+        pathId: id,
+        name: stringField(body, 'name') ?? '',
+        summary: stringField(body, 'summary') ?? '',
+        node_sequence: sequence,
+        operator: operatorOf(req, url),
+      })
+      sendJson(res, 200, { ok: true, path: publicPath(path) })
       return
     }
     if (method === 'POST' && parts[3] === 'run') {

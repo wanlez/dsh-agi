@@ -127,26 +127,25 @@ window.__ModuleLoader__.load({
       personaCreate: '新建卡片',
       personaError: '失败：',
       graphTitle: '经验库目录',
-      graphDescription: '执行用的图谱库位置。换目录时先复制并校验，再切指针，最后删旧目录；任一步失败自动回滚到原目录。',
-      graphFolder: '当前目录：',
-      graphDefault: '默认位置：',
-      graphDefaultHint: '（选它就能迁回默认）',
+      graphDescription: '执行用的图谱库位置。换目录时先复制校验再切换，任一步失败自动回滚。',
+      graphFolder: '目录',
+      graphCountsKey: '规模',
+      graphDefaultKey: '默认',
+      graphLogKey: '迁移',
       graphChange: '更改目录…',
-      graphChanging: '正在迁移（复制 → 校验 → 切指针 → 删旧目录）…',
-      graphOpen: '打开文件夹',
+      graphChanging: '正在迁移（复制 → 校验 → 切换）…',
       graphEditor: '打开经验库',
       graphEditorOpening: '正在打开…',
       graphEditorOpened: '已在本机浏览器打开（端口 {port}）',
       graphEditorFailed: '打开经验库失败：',
       graphEditorNoUrl: '宿主没有返回编辑器地址。',
       graphRefresh: '刷新',
-      graphCounts: '节点 {nodes} · 边 {edges} · 索引 {paths} · 决策 {decisions}',
-      graphMigrated: '已迁到新目录：节点 {nodes} · 边 {edges} · 索引 {paths}',
-      graphMerged: '目标已有图谱，已合并：节点 {nodes} · 边 {edges} · 索引 {paths}',
+      graphCounts: '节点 {nodes} · 连线 {edges} · 路径 {paths} · 决策 {decisions}',
+      graphMigrated: '已迁到新目录：节点 {nodes} · 连线 {edges} · 路径 {paths}',
+      graphMerged: '目标已有图谱，已合并：节点 {nodes} · 连线 {edges} · 路径 {paths}',
       graphLeftover: '旧目录没删掉（两份都完整），可手动删除：',
       graphLog: '迁移日志：',
       graphError: '迁移失败：',
-      graphNone: '（还没有迁移记录）',
       workspaceTitle: 'Agent 工作区',
       workspaceDescription: '悬浮球 Agent 的新会话会创建在这里。切换后旧目录内容保持不变，也可以随时恢复默认工作区。',
       workspaceCurrent: '当前工作区：',
@@ -400,22 +399,22 @@ window.__ModuleLoader__.load({
       personaCreate: 'New card',
       personaError: 'Failed: ',
       graphTitle: 'Experience library folder',
-      graphDescription: 'Where the executable graph library lives. Switching copies and verifies first, then switches the pointer, then deletes the old folder; any failure rolls back to the original folder.',
-      graphFolder: 'Current folder: ',
-      graphDefault: 'Default location: ',
-      graphDefaultHint: ' (pick it to move back)',
+      graphDescription: 'Where the executable graph library lives. Switching copies and verifies, then switches over; any failure rolls back.',
+      graphFolder: 'Folder',
+      graphCountsKey: 'Size',
+      graphDefaultKey: 'Default',
+      graphLogKey: 'Migration',
       graphChange: 'Change folder…',
-      graphChanging: 'Migrating (copy → verify → switch pointer → delete old)…',
-      graphOpen: 'Open folder',
+      graphChanging: 'Migrating (copy → verify → switch)…',
       graphEditor: 'Open experience library',
       graphEditorOpening: 'Opening…',
       graphEditorOpened: 'Opened in your default browser (port {port})',
       graphEditorFailed: 'Could not open the experience library: ',
       graphEditorNoUrl: 'The host did not return an editor address.',
       graphRefresh: 'Refresh',
-      graphCounts: 'nodes {nodes} · edges {edges} · indexes {paths} · decisions {decisions}',
-      graphMigrated: 'Moved: nodes {nodes} · edges {edges} · indexes {paths}',
-      graphMerged: 'Target already held a graph; merged: nodes {nodes} · edges {edges} · indexes {paths}',
+      graphCounts: 'nodes {nodes} · edges {edges} · paths {paths} · decisions {decisions}',
+      graphMigrated: 'Moved: nodes {nodes} · edges {edges} · paths {paths}',
+      graphMerged: 'Target already held a graph; merged: nodes {nodes} · edges {edges} · paths {paths}',
       graphLeftover: 'The old folder could not be deleted (both copies are complete): ',
       graphLog: 'Migration log: ',
       graphError: 'Migration failed: ',
@@ -1424,19 +1423,6 @@ window.__ModuleLoader__.load({
         }
       }
 
-      async function openFolder() {
-        try {
-          setState(await request('/.dsh-agi/graph/open', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: '{}',
-          }))
-          setError('')
-        } catch (e) {
-          setError(String((e && e.message) || e))
-        }
-      }
-
       /**
        * The editor cannot be opened with `window.open`: the desktop shell denies new
        * windows, and its authenticated route rejects a browser without the DSH cookie.
@@ -1471,33 +1457,34 @@ window.__ModuleLoader__.load({
 
       const counts = state && state.counts ? state.counts : { nodes: 0, edges: 0, paths: 0, decisions: 0 }
       const last = state && state.lastMigration ? state.lastMigration : null
+      const custom = state !== null && state.isDefault === false
+      const row = (key, value, badge) => h('div', { className: 'dsh-agi-set-kv-row' },
+        h('span', { className: 'dsh-agi-set-kv-key' }, key),
+        h('span', { className: 'dsh-agi-set-kv-value' }, value),
+        badge === undefined ? h('span', {}) : badge)
       return h('section', { className: 'dsh-agi-set-card dsh-agi-set-knowledge' },
         cardHead('folder', copy('graphTitle', '经验库目录'), copy('graphDescription', '')),
         h('div', { className: 'dsh-agi-set-card-body' },
           h('div', { className: 'dsh-agi-set-panel' },
-            h('div', { className: 'dsh-agi-set-workspace-top' },
-              h('p', { className: 'dsh-agi-set-muted dsh-agi-set-workspace-path' },
-                copy('graphFolder', 'Current folder: ') + (state ? state.dir : '…')),
-              h('span', { className: 'dsh-agi-set-badge' + (state && state.isDefault === false ? ' is-custom' : '') },
-                state && state.isDefault === false ? 'custom' : 'default')),
             h('div', { className: 'dsh-agi-set-workspace-controls' },
               h('button', { type: 'button', className: 'dsh-agi-set-path', disabled: busy, onClick: () => { void changeFolder() } },
                 copy('graphChange', '更改目录…')),
-              h('button', { type: 'button', className: 'dsh-agi-set-path', onClick: () => { void openFolder() } },
-                copy('graphOpen', '打开文件夹')),
               h('button', { type: 'button', className: 'dsh-agi-set-path', disabled: busy || opening, onClick: () => { void openEditor() } },
                 copy('graphEditor', '打开经验库')),
-              h('button', { type: 'button', className: 'dsh-agi-set-path', onClick: () => { void load() } },
+              h('button', { type: 'button', className: 'dsh-agi-set-path', disabled: busy, onClick: () => { void load() } },
                 copy('graphRefresh', '刷新'))),
-            h('p', { className: 'dsh-agi-set-muted' }, fill(copy('graphCounts', 'nodes {nodes} · edges {edges} · indexes {paths} · decisions {decisions}'), counts)),
-            state && state.defaultDir
-              ? h('p', { className: 'dsh-agi-set-muted' },
-                  copy('graphDefault', '默认位置：') + state.defaultDir + copy('graphDefaultHint', '（选它就能迁回默认）'))
-              : null,
-            last
-              ? h('p', { className: 'dsh-agi-set-muted' },
-                  copy('graphLog', '迁移日志：') + last.ts + ' · ' + last.event + (last.detail ? ' · ' + last.detail : ''))
-              : h('p', { className: 'dsh-agi-set-muted' }, copy('graphNone', '（还没有迁移记录）')),
+            h('div', { className: 'dsh-agi-set-kv' },
+              row(copy('graphFolder', '目录'), state ? state.dir : '…',
+                h('span', { className: 'dsh-agi-set-badge' + (custom ? ' is-custom' : '') },
+                  custom ? 'custom' : 'default')),
+              row(copy('graphCountsKey', '规模'),
+                fill(copy('graphCounts', '节点 {nodes} · 连线 {edges} · 路径 {paths} · 决策 {decisions}'), counts)),
+              custom && state.defaultDir
+                ? row(copy('graphDefaultKey', '默认'), state.defaultDir)
+                : null,
+              last
+                ? row(copy('graphLogKey', '迁移'), last.ts + ' · ' + last.event + (last.detail ? ' · ' + last.detail : ''))
+                : null),
             busy ? h('p', { className: 'dsh-agi-set-muted' }, copy('graphChanging', '')) : null,
             opening ? h('p', { className: 'dsh-agi-set-muted' }, copy('graphEditorOpening', '正在打开…')) : null,
             notice ? h('p', { className: 'dsh-agi-set-muted' }, notice) : null,
@@ -3006,6 +2993,11 @@ window.__ModuleLoader__.load({
 /* Workspace */
 .dsh-agi-set-workspace-top { display: flex; align-items: center; gap: 10px; }
 .dsh-agi-set .dsh-agi-set-workspace-path { flex: 1; min-width: 0; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; color: color-mix(in srgb, currentColor 60%, transparent); }
+.dsh-agi-set-kv { margin-top: 11px; display: grid; gap: 5px; }
+.dsh-agi-set-kv-row { display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; align-items: baseline; gap: 10px; }
+.dsh-agi-set-kv-key { font-size: 11.5px; line-height: 1.5; color: color-mix(in srgb, currentColor 48%, transparent); }
+.dsh-agi-set-kv-value { min-width: 0; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; color: color-mix(in srgb, currentColor 66%, transparent); }
+.dsh-agi-set-kv-row .dsh-agi-set-badge { justify-self: end; }
 .dsh-agi-set-badge { flex: none; font-size: 10.5px; font-weight: 600; line-height: 1.6; padding: 1px 8px; border-radius: 999px; color: color-mix(in srgb, currentColor 58%, transparent); background: color-mix(in srgb, currentColor 7%, transparent); }
 .dsh-agi-set-badge.is-custom { color: var(--dsh-agi-accent); background: color-mix(in srgb, var(--dsh-agi-accent) 10%, transparent); }
 .dsh-agi-set-workspace-controls { display: flex; align-items: center; gap: 8px; margin-top: 10px; }

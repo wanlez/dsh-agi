@@ -36,6 +36,8 @@ import {
   type Neighborhood,
 } from './model.ts'
 import { operationRows, type OperationRow } from './operations.ts'
+import { checkPath as checkPathStatic, type PathCheckResult } from './path-check.ts'
+import { pathView as resolvePathView, type PathView } from './path-view.ts'
 import {
   cosineSimilarity,
   embedText,
@@ -99,6 +101,11 @@ export interface CreatePathInput {
   readonly operator?: string
 }
 
+/** Input for replacing one saved path's name, summary and sequence. */
+export interface UpdatePathInput extends CreatePathInput {
+  readonly pathId: string
+}
+
 /** One node row in the detail drawer. */
 export interface EdgeRow {
   readonly from: string
@@ -117,6 +124,7 @@ export interface NodeDetail {
   readonly screenshots: readonly {
     readonly id: string
     readonly caption: string
+    readonly source: 'human' | 'ai'
     readonly url: string
   }[]
 }
@@ -178,6 +186,8 @@ export interface ScreenshotInput {
   readonly data: string
   readonly media_type?: string
   readonly file_name?: string
+  /** Who supplied it; the agent's learning pass sets `ai`. Defaults to the operator. */
+  readonly source?: 'human' | 'ai'
 }
 
 const MAX_SCREENSHOT_BYTES = 8 * 1024 * 1024
@@ -373,6 +383,7 @@ export class KnowledgeGraphService {
       screenshots: node.screenshots.map((shot) => ({
         id: shot.id,
         caption: shot.caption,
+        source: shot.source === 'ai' ? 'ai' : 'human',
         url: `api/screenshots/${encodeURIComponent(nodeId)}/${encodeURIComponent(shot.file)}`,
       })),
     }
@@ -668,6 +679,42 @@ export class KnowledgeGraphService {
     })
   }
 
+  /**
+   * Replace one saved path's name, summary and sequence.
+   *
+   * A path owns its own order: editing it never touches another path or the node library.
+   * The same structural rules apply as on creation (non-empty, no repeated node, every node
+   * exists), and the search embedding follows the new text.
+   */
+  async updatePath(input: UpdatePathInput): Promise<GraphPath> {
+    return this.locked(async () => {
+      const { snapshot, settings } = await this.loaded()
+      const index = snapshot.paths.findIndex((path) => path.id === input.pathId)
+      if (index === -1) throw new GraphError('path-missing', '收藏不存在。', 404)
+      const sequence = [...input.node_sequence]
+      if (sequence.length === 0) throw new GraphError('path-empty', '收藏路径至少需要一个节点。', 400)
+      if (new Set(sequence).size !== sequence.length) throw new GraphError('path-duplicate', '收藏路径不能重复同一个节点。', 400)
+      const name = input.name.trim()
+      if (name === '') throw new GraphError('path-name-required', '收藏名不能为空。', 400)
+      for (const id of sequence) {
+        if (!snapshot.nodes.has(id)) throw new GraphError('node-missing', '路径引用了不存在的节点。', 404)
+      }
+      const previous = snapshot.paths[index] as GraphPath
+      const path: GraphPath = {
+        ...previous,
+        name,
+        summary: input.summary.trim(),
+        start_node: sequence[0] as string,
+        end_node: sequence[sequence.length - 1] as string,
+        node_sequence: sequence,
+        embedding: embedText(pathSearchText({ ...previous, name, summary: input.summary.trim() }, snapshot.nodes)),
+      }
+      ;(snapshot.paths as GraphPath[])[index] = path
+      await this.store.commit(snapshot, settings)
+      return path
+    })
+  }
+
   /** Load the complete path and a prompt-ready text rendering. */
   async pathDetail(pathId: string): Promise<PathDetail> {
     const { snapshot } = await this.loaded()
@@ -692,6 +739,27 @@ export class KnowledgeGraphService {
       lines.push(`当前问题：${problems.map((problem) => problem.message).join('；')}`)
     }
     return { path, nodes: nodes.filter((node): node is GraphNode => node !== undefined), problems, text: lines.join('\n') }
+  }
+
+  /**
+   * Static pre-flight check for one saved path.
+   *
+   * This is what the editor's 检查 button runs. It never starts a run: no desktop action, no
+   * model verdict, only data, edges and fields.
+   */
+  async checkPath(pathId: string): Promise<PathCheckResult> {
+    const { snapshot } = await this.loaded()
+    const path = snapshot.paths.find((item) => item.id === pathId)
+    if (path === undefined) throw new GraphError('path-missing', '收藏不存在。', 404)
+    return checkPathStatic(path, snapshot.nodes, snapshot.edges)
+  }
+
+  /** Resolve one saved path into ordered, titled steps for any display surface. */
+  async pathView(pathId: string): Promise<PathView> {
+    const { snapshot } = await this.loaded()
+    const path = snapshot.paths.find((item) => item.id === pathId)
+    if (path === undefined) throw new GraphError('path-missing', '收藏不存在。', 404)
+    return resolvePathView(path, snapshot.nodes)
   }
 
   /** Start one run. The path must validate against the graph as it is now. */
@@ -788,6 +856,31 @@ export class KnowledgeGraphService {
     return run
   }
 
+  /**
+   * Write the agent-maintained supplement and bump its timestamp.
+   *
+   * The human title/description and their screenshots are never touched here: the operator's
+   * text stays the base, and this field is only the agent's refined guidance from real runs.
+   * The size rule is enforced here so a runaway model cannot turn a node into an essay.
+   */
+  async updateNodeAi(nodeId: string, notes: string): Promise<GraphNode> {
+    const trimmed = notes.trim()
+    if (trimmed === '') throw new GraphError('ai-notes-empty', 'AI 补充不能为空；没有新内容就不要写。', 400)
+    if (trimmed.length > 1200) throw new GraphError('ai-notes-too-long', 'AI 补充太长：压缩到 1200 字以内，只留要点。', 400)
+    return this.locked(async () => {
+      const { snapshot, settings } = await this.loaded()
+      const node = snapshot.nodes.get(nodeId)
+      if (node === undefined) throw new GraphError('node-missing', '节点不存在。', 404)
+      if (!isNodePresent(node)) throw new GraphError('node-removed', '已删除的节点不能更新。', 409)
+      if (trimmed === (node.ai_notes ?? '')) return node
+      const saved: GraphNode = { ...node, ai_notes: trimmed, ai_updated_at: new Date().toISOString() }
+      await this.store.saveNode(saved)
+      ;(snapshot.nodes as Map<string, GraphNode>).set(nodeId, saved)
+      await this.store.commit(snapshot, settings)
+      return saved
+    })
+  }
+
   /** Add one screenshot; the caption feeds both search and the judge. */
   async addScreenshot(nodeId: string, input: ScreenshotInput): Promise<GraphNode> {
     const caption = input.caption.trim()
@@ -800,7 +893,7 @@ export class KnowledgeGraphService {
       if (node === undefined) throw new GraphError('node-missing', '节点不存在。', 404)
       const file = `${screenshotDigest(parsed.bytes)}.${parsed.extension}`
       await this.store.writeScreenshot(nodeId, file, parsed.bytes)
-      const shot = { id: `shot-${randomUUID().slice(0, 8)}`, file, caption }
+      const shot = { id: `shot-${randomUUID().slice(0, 8)}`, file, caption, ...(input.source === 'ai' ? { source: 'ai' as const } : {}) }
       const saved: GraphNode = {
         ...node,
         screenshots: [...node.screenshots, shot],

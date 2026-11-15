@@ -15,6 +15,7 @@ export interface ContextMenuState {
 export interface ContextMenuActions {
   openMain(): void
   openSettings(): void
+  openExperienceLibrary(): void
   setOverlay(selection: MenuSelection): void
   setBackground(selection: MenuSelection): void
   setMillifraction(enabled: boolean): void
@@ -40,6 +41,12 @@ export function contextMenuTemplate(state: ContextMenuState, zh: boolean, action
       label: zh ? '打开悬浮球设置' : 'Open floating-ball settings',
       enabled: state.openMain,
       click: () => { actions.openSettings() },
+    },
+    {
+      // The experience library is its own loopback page in the system browser, so it does not
+      // need the main window and stays available even when only the ball is running.
+      label: zh ? '进入经验库' : 'Open experience library',
+      click: () => { actions.openExperienceLibrary() },
     },
     {
       label: zh ? '悬浮球 Agent 模型' : 'Floating-ball Agent model',

@@ -51,6 +51,12 @@ export interface ObservedScreen {
   /** App owning {@link windowId}, for the hotkey focus error message. */
   appName?: string
   image: ObservedImage
+  /**
+   * True when this capture is pixel-identical to the previous frame of the session and reuses
+   * that frame's attachment instead of storing a second copy. The envelope then explains that
+   * the model's existing image still applies.
+   */
+  deduplicated?: boolean
 }
 
 /** Capture outcome used by first-frame notices and GUI tool results. */
@@ -168,13 +174,20 @@ export function formatScreenEnvelope(
   screen: ObservedScreen,
   mode: CoordinateMode = 'millifraction',
 ): string {
-  if (mode === 'pixel') {
-    return `<screen_index>${String(screen.screenIndex)}</screen_index>
-<coordinate_space>pixels</coordinate_space>
-<attached_size>${String(screen.image.width)}x${String(screen.image.height)}</attached_size>`
+  const lines = mode === 'pixel'
+    ? [
+        `<screen_index>${String(screen.screenIndex)}</screen_index>`,
+        '<coordinate_space>pixels</coordinate_space>',
+        `<attached_size>${String(screen.image.width)}x${String(screen.image.height)}</attached_size>`,
+      ]
+    : [
+        `<screen_index>${String(screen.screenIndex)}</screen_index>`,
+        '<coordinate_space>0-1000</coordinate_space>',
+      ]
+  if (screen.deduplicated === true) {
+    lines.push('<frame_note>this frame is pixel-identical to the previous capture of this session, so no second copy is attached: the image you already received still applies, and its coordinates are unchanged</frame_note>')
   }
-  return `<screen_index>${String(screen.screenIndex)}</screen_index>
-<coordinate_space>0-1000</coordinate_space>`
+  return lines.join('\n')
 }
 
 /**
@@ -190,6 +203,9 @@ export function observationBlocks(
   const blocks: ContentBlock[] = []
   for (const screen of screens) {
     blocks.push({ type: 'text', text: formatScreenEnvelope(screen, mode) })
+    // A frame identical to the previous one is not attached again: the model already holds it,
+    // and the envelope says so. Storage stays untouched as well.
+    if (screen.deduplicated === true) continue
     blocks.push({ type: 'image', attachment: imageRefFromObserved(screen.image) })
   }
   return blocks
@@ -245,6 +261,15 @@ export interface ObserveDesktopOptions {
    * @returns false to skip `saveImage` for this capture.
    */
   readonly persistCapture?: (captured: CapturedScreen) => boolean
+  /**
+   * Reuse a previous attachment when this capture is pixel-identical to it.
+   * Return the old image to skip `saveImage` and mark the screen `deduplicated`; return
+   * `undefined` to store the fresh capture normally. Deciding here instead of after the fact keeps
+   * the attachment store free of duplicate bytes.
+   * @param captured - encoded screen bytes from {@link DesktopBackend.capture}.
+   * @returns the previous image to reuse, or undefined to store this capture.
+   */
+  readonly reuseImage?: (captured: CapturedScreen) => ObservedImage | undefined
   /** Include the display inventory when the backend supplies it. Default: true. */
   readonly displayInventoryEnabled?: boolean
   /** Maximum code points per model-facing text field. */
@@ -293,17 +318,12 @@ export async function observeDesktop(
   const screens: ObservedScreen[] = []
   const captures: CapturedScreen[] = []
   const persistCapture = options.persistCapture
+  const reuseImage = options.reuseImage
   for (const screen of selected) {
     signal.throwIfAborted()
     const captured = await backend.capture(screen, signal)
     captures.push(captured)
-    if (persistCapture !== undefined && !persistCapture(captured)) continue
-    const saved = await ctx.attachments.saveImage({
-      data: captured.data,
-      mediaType: captured.mediaType,
-      name: `${IMAGE_NAME_PREFIX}-${String(screen.index)}`,
-    })
-    screens.push({
+    const meta = {
       screenIndex: screen.index,
       logicalWidth: screen.bounds.width,
       logicalHeight: screen.bounds.height,
@@ -312,6 +332,22 @@ export async function observeDesktop(
       ...screen.windowId === undefined ? {} : { windowId: screen.windowId },
       ...screen.transientWindowIds === undefined ? {} : { transientWindowIds: [...screen.transientWindowIds] },
       ...screen.appName === undefined ? {} : { appName: screen.appName },
+    }
+    // A frame identical to the previous one reuses its attachment: no second copy in the store,
+    // and the envelope tells the model its existing image still applies.
+    const reused = reuseImage?.(captured)
+    if (reused !== undefined) {
+      screens.push({ ...meta, image: reused, deduplicated: true })
+      continue
+    }
+    if (persistCapture !== undefined && !persistCapture(captured)) continue
+    const saved = await ctx.attachments.saveImage({
+      data: captured.data,
+      mediaType: captured.mediaType,
+      name: `${IMAGE_NAME_PREFIX}-${String(screen.index)}`,
+    })
+    screens.push({
+      ...meta,
       image: {
         attachmentId: saved.attachmentId,
         mediaType: saved.mediaType,
