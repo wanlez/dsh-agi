@@ -42,7 +42,7 @@ import {
 } from './model.ts'
 import { operationRows, type OperationRow } from './operations.ts'
 import { checkPath as checkPathStatic, type PathCheckResult } from './path-check.ts'
-import { pathView as resolvePathView, type PathView } from './path-view.ts'
+import { pathFlowText, pathView as resolvePathView, type PathView } from './path-view.ts'
 import {
   cosineSimilarity,
   embedText,
@@ -325,6 +325,9 @@ export class KnowledgeGraphService {
   private pathRows(snapshot: GraphSnapshot): PathRow[] {
     return snapshot.paths.map((path) => {
       const problems = pathProblems(snapshot.nodes, snapshot.edges, path)
+      // The row's step count and title list are display, so they follow the same instances the
+      // detail view renders; the stored sequence is only the view's own linear fallback.
+      const view = resolvePathView(path, snapshot.nodes)
       return {
         id: path.id,
         name: path.name,
@@ -333,8 +336,8 @@ export class KnowledgeGraphService {
         end_node: path.end_node,
         start_title: snapshot.nodes.get(path.start_node)?.title ?? path.start_node,
         end_title: snapshot.nodes.get(path.end_node)?.title ?? path.end_node,
-        node_titles: path.node_sequence.map((id) => snapshot.nodes.get(id)?.title ?? id),
-        node_count: path.node_sequence.length,
+        node_titles: view.steps.map((step) => step.missing ? step.node_id : step.title),
+        node_count: view.step_count,
         runnable: problems.length === 0,
         problems: problems.map((problem) => problem.message),
         favorite: path.favorite !== false,
@@ -1006,28 +1009,35 @@ export class KnowledgeGraphService {
     const { snapshot } = await this.loaded()
     const path = snapshot.paths.find((item) => item.id === pathId)
     if (path === undefined) throw new GraphError('path-missing', '收藏不存在。', 404)
-    const nodes = path.node_sequence.map((id) => snapshot.nodes.get(id))
     const problems = pathProblems(snapshot.nodes, snapshot.edges, path)
+    const view = resolvePathView(path, snapshot.nodes)
+    const flow = pathFlowText(view)
     const lines = [
       `收藏：${path.name}（${path.id}）`,
       `摘要：${path.summary}`,
       `起始节点：${snapshot.nodes.get(path.start_node)?.title ?? path.start_node}`,
       `结束节点：${snapshot.nodes.get(path.end_node)?.title ?? path.end_node}`,
-      '完整路径：',
+      flow.length === 0 ? '完整路径：' : `完整路径：${flow[0]}`,
     ]
-    path.node_sequence.forEach((id, index) => {
-      const node = snapshot.nodes.get(id)
-      lines.push(`${index + 1}. ${node?.title ?? id}`)
-      if (node !== undefined && node.description !== '') lines.push(`   说明：${node.description}`)
-      for (const shot of node?.screenshots ?? []) lines.push(`   校验截图：${shot.caption}`)
-    })
+    // Branches read best on their own indented line under the main chain.
+    for (const branch of flow.slice(1)) lines.push(`        ${branch}`)
+    // The numbered list renders the same instances as 完整路径 above: both come from the path's
+    // own graph, so a hand-edited graph can never leave the two halves of this text disagreeing.
+    // A deleted node still prints its id so the step stays identifiable.
+    for (const step of view.steps) {
+      lines.push(`${step.index}. ${step.missing ? step.node_id : step.title}`)
+      if (step.description !== '') lines.push(`   说明：${step.description}`)
+      for (const caption of step.screenshots) lines.push(`   校验截图：${caption}`)
+    }
     if (problems.length > 0) {
       lines.push(`当前问题：${problems.map((problem) => problem.message).join('；')}`)
     }
     return {
       path,
       graph: path.graph ?? linearPathGraph(path.node_sequence),
-      nodes: nodes.filter((node): node is GraphNode => node !== undefined),
+      nodes: view.steps
+        .map((step) => snapshot.nodes.get(step.node_id))
+        .filter((node): node is GraphNode => node !== undefined),
       problems,
       text: lines.join('\n'),
     }

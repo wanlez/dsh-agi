@@ -2,14 +2,15 @@
  * Static pre-flight check for one saved path.
  *
  * This is the only "test" the editor offers: it never starts a run, touches the desktop, or
- * asks a model for a verdict. The structural rules (a step may not repeat, every step's
- * predecessors must appear earlier, the first and last step must match the recorded start and
- * end, consecutive steps must be connected) already live in `pathProblems`; this module reuses
- * that single source instead of re-implementing it, and adds the field checks a run needs.
+ * asks a model for a verdict. The structural rules (the flow graph must stay a DAG, every
+ * instance must still exist, the recorded start/end must be in the flow) already live in
+ * `pathProblems`; this module reuses that single source instead of re-implementing it, and adds
+ * the field checks a run needs.
  * @module knowledge-graph/path-check
  */
 
 import { pathProblems, type GraphEdge, type GraphNode, type GraphPath, type PathProblem } from './model.ts'
+import { pathFlowText, pathView as resolvePathView, type PathEdgeView } from './path-view.ts'
 
 /** One problem the static check found. */
 export interface PathCheckIssue {
@@ -28,6 +29,10 @@ export interface PathCheckResult {
   /** True when the path has no issue at all. */
   readonly runnable: boolean
   readonly step_count: number
+  /** Instance edges, 0-based indices into the step list; a plain path is one linear chain. */
+  readonly edges: readonly PathEdgeView[]
+  /** The flow as chain lines, e.g. `1 → 2 → 3`; branches are indented. */
+  readonly flow: readonly string[]
   readonly issues: readonly PathCheckIssue[]
 }
 
@@ -43,9 +48,9 @@ export function checkPath(
   nodes: ReadonlyMap<string, GraphNode>,
   edges: readonly GraphEdge[],
 ): PathCheckResult {
-  // Structure first: empty sequence, missing or deleted steps, a repeated step (which is what a
-  // cycle inside one saved path would look like), a missing edge between consecutive steps, a
-  // predecessor that is not earlier in the path, and a start/end that no longer matches.
+  // Structure first: empty sequence, missing or deleted steps, a cycle inside one saved path
+  // (duplicate steps in the legacy linear form, real cycle detection over the instance graph),
+  // and a start/end that no longer matches.
   const issues: PathCheckIssue[] = pathProblems(nodes, edges, path).map(problem => ({
     code: problem.code,
     message: problem.message,
@@ -66,11 +71,14 @@ export function checkPath(
   if (path.name.trim() === '') issues.push({ code: 'empty-name', message: '收藏没有名称。' })
   if (path.summary.trim() === '') issues.push({ code: 'empty-summary', message: '收藏没有摘要（检索会读它）。' })
 
+  const view = resolvePathView(path, nodes)
   return {
     path_id: path.id,
     name: path.name,
     runnable: issues.length === 0,
-    step_count: path.node_sequence.length,
+    step_count: view.step_count,
+    edges: view.edges,
+    flow: pathFlowText(view),
     issues,
   }
 }

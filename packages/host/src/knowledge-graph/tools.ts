@@ -9,7 +9,7 @@
  */
 
 import { readFile } from 'node:fs/promises'
-import { GraphError, type GraphNode } from './model.ts'
+import { GraphError, type GraphNode, type GraphPath } from './model.ts'
 import { KnowledgeGraphService } from './service.ts'
 
 /** One text block as the tool registry renders it. */
@@ -36,6 +36,90 @@ function asStringArray(args: ToolArgs, key: string): string[] {
 function asBoolean(args: ToolArgs, key: string): boolean | undefined {
   const value = args[key]
   return typeof value === 'boolean' ? value : undefined
+}
+
+/** One `[from, to]` pair of 0-based positions in `steps`. */
+type EdgePair = readonly [number, number]
+
+/**
+ * Read the optional `edges` argument used by the path tools.
+ *
+ * Each entry is `[from, to]`, both 0-based indices into `steps` (the instance list), so the same
+ * node id may appear at several positions. Omitting `edges` builds one linear chain `0→1→2…`;
+ * an explicit list is rejected when an index is out of range or points at itself.
+ * @param args - raw model-supplied arguments.
+ * @param stepCount - how many instances `steps` declares.
+ * @returns validated instance pairs, in the caller's order.
+ */
+function asEdgePairs(args: ToolArgs, stepCount: number): readonly EdgePair[] {
+  const raw = args.edges
+  if (raw === undefined || raw === null) {
+    return Array.from({ length: Math.max(stepCount - 1, 0) }, (_, index): EdgePair => [index, index + 1])
+  }
+  if (!Array.isArray(raw)) throw new GraphError('edges-invalid', 'edges 必须是 [from, to] 下标对的数组。', 400)
+  const pairs: EdgePair[] = []
+  raw.forEach((item, index) => {
+    if (!Array.isArray(item) || item.length !== 2) {
+      throw new GraphError('edges-invalid', `edges 第 ${index + 1} 项不是 [from, to] 两个下标。`, 400)
+    }
+    const from = item[0]
+    const to = item[1]
+    if (typeof from !== 'number' || typeof to !== 'number' || !Number.isInteger(from) || !Number.isInteger(to)) {
+      throw new GraphError('edges-invalid', `edges 第 ${index + 1} 项的下标必须是整数。`, 400)
+    }
+    if (from < 0 || from >= stepCount || to < 0 || to >= stepCount) {
+      throw new GraphError(
+        'edge-out-of-range',
+        `edges 第 ${index + 1} 项 [${from}, ${to}] 越界：下标必须落在 0..${stepCount - 1}（对应 steps 的位置）。`,
+        400,
+      )
+    }
+    if (from === to) {
+      throw new GraphError('edge-self-loop', `edges 第 ${index + 1} 项 [${from}, ${from}] 是自己连自己，路径里不存在这一步。`, 400)
+    }
+    pairs.push([from, to])
+  })
+  return pairs
+}
+
+/**
+ * Reject instance edges that close a loop.
+ *
+ * Repetition is not a cycle: the same node id at two positions is just two instances. Only an
+ * edge path that actually leads back does, and a saved flow has to stay a DAG.
+ * @param pairs - validated instance pairs.
+ * @param stepCount - instance count.
+ * @throws GraphError when Kahn's algorithm cannot visit every instance.
+ */
+function assertNoCycle(pairs: readonly EdgePair[], stepCount: number): void {
+  const outgoing = new Map<number, number[]>()
+  const indegree = new Map<number, number>()
+  for (let index = 0; index < stepCount; index += 1) {
+    outgoing.set(index, [])
+    indegree.set(index, 0)
+  }
+  for (const [from, to] of pairs) {
+    outgoing.get(from)?.push(to)
+    indegree.set(to, (indegree.get(to) ?? 0) + 1)
+  }
+  const queue = [...indegree.keys()].filter(key => (indegree.get(key) ?? 0) === 0)
+  const visited = new Set<number>()
+  while (queue.length > 0) {
+    const key = queue.shift() as number
+    if (visited.has(key)) continue
+    visited.add(key)
+    for (const next of outgoing.get(key) ?? []) {
+      indegree.set(next, (indegree.get(next) ?? 1) - 1)
+      if ((indegree.get(next) ?? 0) === 0) queue.push(next)
+    }
+  }
+  if (visited.size === stepCount) return
+  const loop = [...Array(stepCount).keys()].filter(key => !visited.has(key)).map(key => key + 1)
+  throw new GraphError(
+    'path-cycle',
+    `路径里有环：第 ${loop.join('、')} 步沿着 edges 能绕回来。分支路径必须是有向无环图；删掉绕回来的边再保存。`,
+    400,
+  )
 }
 
 /** One JSON-Schema object parameter block. */
@@ -122,15 +206,19 @@ export function registerGraphTools(ctx: GraphToolContext, resolve: () => Knowled
         const paths = await service.searchPaths(query, 0)
         const seen = new Set<string>()
         const rows: Record<string, unknown>[] = []
-        type PathCandidate = { readonly path: { readonly id: string; readonly name: string; readonly summary: string; readonly node_sequence: readonly string[] } }
+        type PathCandidate = { readonly path: GraphPath }
         const addPath = (candidate: PathCandidate): void => {
           if (seen.has(candidate.path.id)) return
           seen.add(candidate.path.id)
+          const stepCount = candidate.path.node_sequence.length
           rows.push({
             path_id: candidate.path.id,
             name: candidate.path.name,
             summary: candidate.path.summary,
-            steps: candidate.path.node_sequence.length,
+            steps: stepCount,
+            node_count: stepCount,
+            // A path saved without its own graph is one linear chain.
+            edge_count: candidate.path.graph?.edges.length ?? Math.max(stepCount - 1, 0),
           })
         }
         for (const candidate of paths.candidates) addPath(candidate)
@@ -242,16 +330,25 @@ export function registerGraphTools(ctx: GraphToolContext, resolve: () => Knowled
   ctx.tools.register(graphTool({
     name: 'knowledge_graph_create_path',
     description:
-      'Save one ordered path into the experience library. CALL ONLY AFTER ALL OF THESE HAPPENED: '
+      'Save one flow into the experience library. CALL ONLY AFTER ALL OF THESE HAPPENED: '
       + '(1) you told the operator "路径创建较复杂，请务必打开经验库核对每个细节" when the request is a new path; '
       + '(2) you matched every step they named against knowledge_graph_search and created missing nodes with '
-      + 'knowledge_graph_create_node; (3) you listed the final ordered steps back to the operator and they '
-      + 'confirmed each one (set confirm_checked=true only then). The tool itself rejects duplicate steps '
-      + '(a cycle), missing nodes, and an unconfirmed write, and it checks the saved path afterwards.',
+      + 'knowledge_graph_create_node; (3) you listed the final ordered steps (and branches) back to the operator '
+      + 'and they confirmed each one (set confirm_checked=true only then). The same node may appear more than once: '
+      + 'different positions are different instances, and a repeated node is not a cycle by itself - only edges '
+      + 'that actually lead back form one, and a cycle is rejected. For a branching flow pass steps (the instance '
+      + 'list) plus optional edges ([from, to] pairs of 0-based positions in steps); omit edges for one straight '
+      + 'line. Out-of-range indices, self edges, cycles and missing nodes are rejected, and the saved path is '
+      + 'checked afterwards.',
     parameters: schema({
       name: { type: 'string', description: 'Path name the operator will recognize, e.g. 发福利积分.' },
       summary: { type: 'string', description: 'One sentence: what this flow does, for whom, and when.' },
-      steps: { type: 'array', items: { type: 'string' }, description: 'Ordered node ids from knowledge_graph_search / knowledge_graph_create_node.' },
+      steps: { type: 'array', items: { type: 'string' }, description: 'Node instances in flow order (node ids from knowledge_graph_search / knowledge_graph_create_node). The same node id may repeat at different positions.' },
+      edges: {
+        type: 'array',
+        items: { type: 'array', items: { type: 'integer' }, minItems: 2, maxItems: 2 },
+        description: 'Optional [from, to] pairs of 0-based positions in steps. Omit for one linear chain 0→1→2…; pass only when the flow branches or merges.',
+      },
       confirm_checked: { type: 'boolean', description: 'True only after the operator confirmed the ordered list.' },
     }, ['name', 'summary', 'steps']),
     isConcurrencySafe: () => false,
@@ -259,11 +356,18 @@ export function registerGraphTools(ctx: GraphToolContext, resolve: () => Knowled
       const service = resolve()
       const steps = asStringArray(args, 'steps').filter(step => step.trim() !== '')
       if (steps.length === 0) throw new GraphError('path-empty', '路径至少需要一个节点。', 400)
-      if (new Set(steps).size !== steps.length) throw new GraphError('path-duplicate', '路径里有重复节点，会形成环。', 400)
+      // The flow is a DAG of instances, not a repeat-free list: `edges` decides what follows
+      // what, and only a real loop is a cycle.
+      const pairs = asEdgePairs(args, steps.length)
+      assertNoCycle(pairs, steps.length)
       for (const id of steps) {
         const detail = await service.nodeDetail(id).catch(() => undefined)
         if (detail === undefined) throw new GraphError('node-missing', `节点 ${id} 不存在，先用 knowledge_graph_search 找它。`, 404)
         if (detail.node.status === 'deleted') throw new GraphError('node-removed', `节点「${detail.node.title}」已删除，不能放入路径。`, 409)
+      }
+      const graph = {
+        nodes: steps.map((id, index) => ({ key: `n${index}`, node_id: id })),
+        edges: pairs.map(([from, to]) => ({ from: `n${from}`, to: `n${to}` })),
       }
       if (asBoolean(args, 'confirm_checked') !== true) {
         const review: Record<string, unknown>[] = []
@@ -274,7 +378,8 @@ export function registerGraphTools(ctx: GraphToolContext, resolve: () => Knowled
         }
         return {
           created: false,
-          reason: '每个引入路径的节点都要操作者确认后才能写入。把下面的顺序清单原样给操作者核对，确认后再用 confirm_checked=true 调用。',
+          reason: '每个引入路径的节点都要操作者确认后才能写入。把下面的顺序清单和连线原样给操作者核对，确认后再用 confirm_checked=true 调用。',
+          edges: pairs.map(([from, to]) => `${from + 1} → ${to + 1}`),
           review,
         }
       }
@@ -282,17 +387,18 @@ export function registerGraphTools(ctx: GraphToolContext, resolve: () => Knowled
         name: asString(args, 'name') ?? '',
         summary: asString(args, 'summary') ?? '',
         node_sequence: steps,
+        graph,
         operator: 'ball',
       })
       const check = await service.checkPath(path.id)
-      return { created: true, path_id: path.id, name: path.name, check }
+      return { created: true, path_id: path.id, name: path.name, step_count: steps.length, edge_count: pairs.length, check }
     },
   }))
 
   ctx.tools.register(graphTool({
     name: 'knowledge_graph_check_path',
     description:
-      'Run the static check on one saved path: every step exists, no repeated step (cycle), start/end match, '
+      'Run the static check on one saved path: every step exists, the flow graph has no cycle, start/end match, '
       + 'and required fields are filled. It never touches the desktop. Use it after creating or editing a path, '
       + 'and report any finding back to the operator.',
     parameters: schema({

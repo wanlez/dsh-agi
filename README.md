@@ -59,7 +59,7 @@ The input box can drive the library through seven tools:
 | `knowledge_graph_search` | Finds existing nodes and paths before anything is created — the operator decides whether to reuse one or create something new. |
 | `knowledge_graph_get_node` | Reads a node, including its AI supplement and which screenshots are human vs AI. |
 | `knowledge_graph_create_node` | Creates a node; refuses a duplicate title unless the operator explicitly confirms creating a new one, and can store screenshots attached in the same message. |
-| `knowledge_graph_create_path` | Saves an ordered path **only after explicit confirmation**; rejects cycles and missing nodes, and checks the saved path afterwards. |
+| `knowledge_graph_create_path` | Saves a flow **only after explicit confirmation**: `steps` plus optional `edges` (`[from, to]` 0-based instance index pairs; omit for a straight line). The same node may repeat at different positions; only a real edge back is a cycle, and cycles or missing nodes are rejected. Checks the saved path afterwards. |
 | `knowledge_graph_check_path` | Runs the static check and reports every finding. |
 | `knowledge_graph_update_node` | Fixes a human title or description — wording stays the operator's. |
 | `knowledge_graph_learn_node` | After a real run, updates **only** the AI part: `ai_notes` (capped at 600 characters, 3 bullets) and AI screenshots. Skips when nothing new was learned. |
@@ -84,6 +84,13 @@ The observation frame (the glowing border drawn while the agent is in control) i
 ## Version notes
 
 Each release keeps its own section, newest first, so the delta between two versions is always readable.
+
+### 0.6.8
+
+- **Path tools speak graphs.** `knowledge_graph_create_path` now takes an optional `edges` argument: `[from, to]` pairs of 0-based positions in `steps`. Omit it and the flow is one straight line `0 → 1 → 2…`. The same node may sit at several positions — a repeated node is not a cycle by itself, only edges that actually lead back are, and out-of-range indices, self edges and cycles are rejected with a clear message.
+- **Branches render everywhere.** The path view, the static check and the path detail text now carry `edges` and render the flow as `1 → 2 → 3`, with branches on follow-up indented `↳` lines.
+- **One source of truth.** The numbered step list and the step count now come from the path graph instead of the legacy `node_sequence`, so a hand-edited graph can no longer disagree with its own list.
+- **Injected rule reversed.** A node may appear several times in one path; only a real edge back forms a cycle. Branching flows are passed as `steps` plus `edges`.
 
 ### 0.6.7
 
