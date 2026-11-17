@@ -211,7 +211,7 @@ export function apply(ctx: OrbContext, config: { autoStart?: boolean } = {}): vo
             content: [{
               type: 'text',
               text: '【暂停与继续】用户插话「暂停一下」时：立刻停下当前操作，不要继续点击/输入/滚动，只简短确认，然后等用户下一步指示；用户插话「继续刚才的任务」时：从断点接着做，不要重复已完成的步骤。\n'
-              + '【自动反思】上一轮任务已经结束。先按【节点自学习】检查：这一轮走过的节点里，有没有值得写回的坑、更准的提示、目标截图？有就用 knowledge_graph_learn_node 写回（ai_notes ≤600 字、每个节点图片 ≤10 张），没有就跳过，然后回答用户。',
+              + '【自动反思】上一轮任务已经结束。静默检查：这一轮走过的节点里有没有值得写回的坑、更准的提示、目标截图？有就用 knowledge_graph_learn_node 写回（ai_notes ≤600 字、每个节点图片 ≤10 张），没有就跳过。不要回复用户、不要复述上一轮的回答，直接结束本轮。',
             }],
             source: { kind: 'computer-use', form: 'notice', summary: 'Reflection' },
           })
