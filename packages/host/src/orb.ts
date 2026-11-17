@@ -2846,7 +2846,8 @@ export class OrbRuntime {
   }
 
   /** The Host's own view of the turn; undefined when the read is unavailable or fails. */
-  private async officialRunning(): Promise<boolean | undefined> {    const read = this.ctx.sessionController.state
+  private async officialRunning(): Promise<boolean | undefined> {
+    const read = this.ctx.sessionController.state
     const sessionId = this.sessionId
     if (read === undefined || sessionId === undefined) return undefined
     try {
@@ -2879,28 +2880,19 @@ export class OrbRuntime {
     // start a new task after this.
     this.settlePendingPrompt()
     const sessionId = this.sessionId
-    if (!sessionId || !this.turnRunning) return
+    if (!sessionId) return
+    // The operator pressed stop: the panel settles right now, whatever the Host believes,
+    // and the cancel only makes the agent follow. A real turn's own turn/end closes it
+    // again, so a late event can never leave the panel spinning.
+    if (!this.turnRunning) return
+    this.finishTurn()
     try {
       await this.ctx.sessionController.cancel({ sessionId })
     } catch (error) {
-      // A failing cancel must not paint the ball as stopped: the turn keeps running and
-      // its own turn/end stays the authoritative close — unless the Host says it is idle,
-      // in which case that end will never come and the panel would spin forever.
       const message = error instanceof Error ? error.message : String(error)
       console.error(`dsh-agi: cancel failed: ${message}`)
-      if (await this.clearStaleTurn('cancel-failed')) return
-      this.status(message)
-      return
+      // Cancel failing is not the panel's problem: it already settled.
     }
-    // A new turn (ball prompt, wake-up, session switch) may have started while the cancel
-    // was in flight; only the turn this call was about may be closed here.
-    if (this.turnEpoch !== epoch || this.sessionId !== sessionId) return
-    this.drain()
-    // drain() can synchronously process the old turn/end, which starts a pending new
-    // prompt. Re-check before closing: that new turn is not ours to finish.
-    if (this.turnEpoch !== epoch || this.sessionId !== sessionId) return
-    if (await this.clearStaleTurn('stop')) return
-    this.finishTurn()
   }
 
   /**
