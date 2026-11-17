@@ -385,6 +385,8 @@ export interface PendingImages {
 export class OrbRuntime {
   private readonly token = randomBytes(32).toString('hex')
   private readonly sessionFile = dshHomePath('dsh-agi', 'floating-session.json')
+  /** Shared mode's fixed anchor: written when the operator switches to shared, reused on restarts. */
+  private readonly sharedAnchorFile = dshHomePath('dsh-agi', 'shared-anchor.json')
   private server: Server | undefined
   private port = 0
   private readonly sockets = new Set<Socket>()
@@ -1152,8 +1154,19 @@ export class OrbRuntime {
     // selection. A Host whose session list cannot be read falls back to the isolated rule
     // instead of failing the start.
     if (this.store.sessionMode() === 'shared') {
+      // The anchor is fixed when the operator switches into shared mode. Re-picking the newest
+      // session on every start would let a restart adopt whatever conversation another window is
+      // running at that moment (a long download, for example) and drive it from the ball.
+      const anchored = await readSavedSession(this.sharedAnchorFile)
+      if (anchored !== undefined) {
+        if (await this.openConversation(anchored.sessionId)) return this.adopt(anchored.sessionId)
+        console.error('dsh-agi: the anchored shared session cannot be opened; re-anchoring')
+      }
       const recent = await this.mostRecentlyUpdatedSession()
-      if (recent !== undefined && await this.openConversation(recent)) return this.adopt(recent)
+      if (recent !== undefined && await this.openConversation(recent)) {
+        await writeSavedSession(this.sharedAnchorFile, recent)
+        return this.adopt(recent)
+      }
     }
     const workspaceId = await this.workspaceId()
     const saved = await readSavedSession(this.sessionFile)
@@ -2103,6 +2116,13 @@ export class OrbRuntime {
    */
   async setSessionMode(mode: SessionMode): Promise<void> {
     this.store.setSessionMode(mode)
+    // Entering shared mode pins the conversation every later start will adopt. The operator
+    // changes the pin by switching modes again, never by a restart re-reading "newest".
+    if (mode === 'shared') {
+      const recent = await this.mostRecentlyUpdatedSession()
+      if (recent !== undefined) await writeSavedSession(this.sharedAnchorFile, recent)
+      else await rm(this.sharedAnchorFile, { force: true })
+    }
     await this.publishChrome()
   }
 
@@ -3126,6 +3146,15 @@ function readWindowIds(value: unknown): readonly number[] {
     if (!ids.includes(entry)) ids.push(entry)
   }
   return ids
+}
+
+async function writeSavedSession(file: string, sessionId: string): Promise<void> {
+  try {
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, `${JSON.stringify({ sessionId })}\n`)
+  } catch (error) {
+    console.error(`dsh-agi: could not save the shared anchor: ${error instanceof Error ? error.message : String(error)}`)
+  }
 }
 
 async function readSavedSession(file: string): Promise<{ sessionId: string; agentPreset?: string } | undefined> {

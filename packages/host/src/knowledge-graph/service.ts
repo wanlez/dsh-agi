@@ -32,9 +32,12 @@ import {
   type DecisionLogEntry,
   type GraphEdge,
   type GraphNode,
+  type CommonSense,
+  type CommonSenseImage,
   type GraphPath,
   type GraphSettings,
   type GraphSnapshot,
+  type CommonSenseEntry,
   type NodeScreenshot,
   type NodeStatus,
   type Neighborhood,
@@ -155,6 +158,12 @@ export interface PathRow {
 }
 
 /** The full path the executor loads after the operator confirms an index. */
+export interface CommonSenseInputEntry {
+  readonly id?: string
+  readonly text: string
+  readonly images?: readonly CommonSenseImage[]
+}
+
 export interface PathDetail {
   readonly path: GraphPath
   /** The owned flow graph; older paths are projected from their linear sequence. */
@@ -400,6 +409,75 @@ export class KnowledgeGraphService {
   }
 
   /** Node drawer payload. */
+  /** The operator's global common sense: read before any path, written only from the page. */
+  async commonSense(): Promise<CommonSense> {
+    return this.store.readCommonSense()
+  }
+
+  /**
+   * Replace the whole common-sense area from the operator's page. The agent has no write path
+   * here: entries are human-authored, and each stays within 100 characters.
+   */
+  async saveCommonSense(input: readonly CommonSenseInputEntry[]): Promise<CommonSense> {
+    const entries: CommonSenseEntry[] = []
+    for (const item of input) {
+      const text = item.text.trim()
+      if (text === '') continue
+      if (text.length > 100) throw new GraphError('common-sense-too-long', '每条常识最多 100 字。', 400)
+      entries.push({
+        id: item.id === undefined || item.id.trim() === '' ? `cs-${randomUUID().slice(0, 8)}` : item.id.trim(),
+        text,
+        ...item.images === undefined || item.images.length === 0 ? {} : { images: item.images },
+      })
+    }
+    const saved: CommonSense = { entries }
+    await this.store.saveCommonSense(saved)
+    return saved
+  }
+
+  /** Attach one image to a common-sense entry. */
+  async addCommonSenseImage(entryId: string, input: ScreenshotInput): Promise<CommonSense> {
+    const parsed = decodeImage(input)
+    if (parsed === undefined) throw new GraphError('image-invalid', '图片必须是 PNG/JPEG/WebP/GIF，且不超过 8MB。', 400)
+    const current = await this.store.readCommonSense()
+    const entry = current.entries.find((item) => item.id === entryId)
+    if (entry === undefined) throw new GraphError('common-sense-missing', '这条常识不存在。', 404)
+    const file = `${screenshotDigest(parsed.bytes)}.${parsed.extension}`
+    const savedFile = await this.store.writeCommonSenseImage(file, parsed.bytes)
+    const images: CommonSenseImage[] = [
+      ...entry.images ?? [],
+      { file: savedFile, ...input.name === undefined || input.name.trim() === '' ? {} : { name: input.name.trim() } },
+    ]
+    const saved: CommonSense = { entries: current.entries.map((item) => item.id === entryId ? { ...item, images } : item) }
+    await this.store.saveCommonSense(saved)
+    return saved
+  }
+
+  /** Remove one image from a common-sense entry and delete its file. */
+  async deleteCommonSenseImage(entryId: string, file: string): Promise<CommonSense> {
+    const current = await this.store.readCommonSense()
+    const entry = current.entries.find((item) => item.id === entryId)
+    if (entry === undefined) throw new GraphError('common-sense-missing', '这条常识不存在。', 404)
+    const images = (entry.images ?? []).filter((image) => image.file !== file)
+    const saved: CommonSense = { entries: current.entries.map((item) => item.id === entryId ? { ...item, images } : item) }
+    await this.store.saveCommonSense(saved)
+    await this.store.removeCommonSenseImage(file)
+    return saved
+  }
+
+  /** Bytes of one common-sense image, for the page's <img> tags. */
+  async commonSenseImage(file: string): Promise<Uint8Array | undefined> {
+    return this.store.readCommonSenseImage(file)
+  }
+
+  /** The prompt block every ball turn starts with; empty when the operator wrote nothing. */
+  async commonSenseText(): Promise<string> {
+    const commonSense = await this.store.readCommonSense()
+    if (commonSense.entries.length === 0) return ''
+    return '【常识区·全局必读】以下是操作者写的全局常识，执行任何路径前都要读并遵守；这是人的区域，你只读不改：\n'
+      + commonSense.entries.map((entry, index) => `${index + 1}. ${entry.text}`).join('\n')
+  }
+
   async nodeDetail(nodeId: string): Promise<NodeDetail> {
     const { snapshot } = await this.loaded()
     const node = snapshot.nodes.get(nodeId)
@@ -1168,7 +1246,7 @@ export class KnowledgeGraphService {
   async updateNodeAi(nodeId: string, notes: string): Promise<GraphNode> {
     const trimmed = notes.trim()
     if (trimmed === '') throw new GraphError('ai-notes-empty', 'AI 补充不能为空；没有新内容就不要写。', 400)
-    if (trimmed.length > 1200) throw new GraphError('ai-notes-too-long', 'AI 补充太长：压缩到 1200 字以内，只留要点。', 400)
+    if (trimmed.length > 600) throw new GraphError('ai-notes-too-long', 'AI 补充太长：压缩到 600 字以内，只留 3 条要点。', 400)
     return this.locked(async () => {
       const { snapshot, settings } = await this.loaded()
       const node = snapshot.nodes.get(nodeId)
@@ -1193,6 +1271,10 @@ export class KnowledgeGraphService {
       const { snapshot, settings } = await this.loaded()
       const node = snapshot.nodes.get(nodeId)
       if (node === undefined) throw new GraphError('node-missing', '节点不存在。', 404)
+      // One cap for every write path: live learning, operator upload and import all land here.
+      if (node.screenshots.length >= 10) {
+        throw new GraphError('screenshot-limit', '每个节点最多 10 张图片（人工与 AI 合计）；先删掉不需要的再加。', 409)
+      }
       // The file name IS the content hash: the same bytes are stored once per node.
       const file = `${screenshotDigest(parsed.bytes)}.${parsed.extension}`
       if (node.screenshots.some((item) => item.file === file)) return node

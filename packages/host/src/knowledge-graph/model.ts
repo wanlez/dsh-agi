@@ -586,6 +586,27 @@ function roleOrder(role: NeighborhoodNode['role']): number {
   return role === 'anchor' ? 0 : role === 'parent' ? 1 : role === 'child' ? 2 : 3
 }
 
+/** One operator-editable common-sense entry: global guidance the ball reads before any path. */
+export interface CommonSenseEntry {
+  readonly id: string
+  /** Operator text, at most 100 characters. */
+  readonly text: string
+  /** Illustrations for this entry; only the operator edits them, from the library page. */
+  readonly images?: readonly CommonSenseImage[]
+}
+
+/** One image attached to a common-sense entry. */
+export interface CommonSenseImage {
+  /** File name inside the library's `common-sense/` folder. */
+  readonly file: string
+  readonly name?: string
+}
+
+/** The whole common-sense area, edited only by the operator. */
+export interface CommonSense {
+  readonly entries: readonly CommonSenseEntry[]
+}
+
 /** The text an embedding is computed from: title, prose, screenshot captions. */
 export function nodeSearchText(node: Pick<GraphNode, 'title' | 'description' | 'screenshots'>): string {
   const captions = node.screenshots.map((shot) => shot.caption)

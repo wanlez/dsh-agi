@@ -4,7 +4,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { cpSync, existsSync, readdirSync, renameSync } from 'node:fs'
+import { cpSync, existsSync, readFileSync, readdirSync, renameSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { TccMonitor } from './tcc.ts'
@@ -203,6 +203,16 @@ export function apply(ctx: OrbContext, config: { autoStart?: boolean } = {}): vo
           }],
           source: { kind: 'computer-use', form: 'notice', summary: 'Library maintenance rules' },
         })
+        // The operator's common sense is global guidance for every path; it is read-only here.
+        const commonSense = readCommonSenseText(knowledgeGraphDirFor(store.dir))
+        if (commonSense !== '') {
+          extras.push({
+            role: 'user',
+            id: randomUUID(),
+            content: [{ type: 'text', text: commonSense }],
+            source: { kind: 'computer-use', form: 'notice', summary: 'Common sense' },
+          })
+        }
         // The two conversation modes differ in who owns the session and whether the window can
         // see it; stating the mode up front stops the agent from guessing wrong about its scope.
         extras.push({
@@ -344,4 +354,24 @@ function logWebPort(ctx: OrbContext): void {
     console.error('dsh-agi: authenticated URL is unavailable')
   }
   console.error(`dsh-agi: host web port ${port}`)
+}
+
+/** Read the operator's common-sense entries from the library file, as one prompt block. */
+function readCommonSenseText(dir: string): string {
+  try {
+    const raw = JSON.parse(readFileSync(join(dir, 'common-sense.json'), 'utf8')) as unknown
+    if (typeof raw !== 'object' || raw === null) return ''
+    const list = (raw as { entries?: unknown }).entries
+    if (!Array.isArray(list)) return ''
+    const texts = list.flatMap((item) => {
+      if (typeof item !== 'object' || item === null) return []
+      const record = item as Record<string, unknown>
+      return typeof record.text === 'string' && record.text.trim() !== '' ? [record.text.trim()] : []
+    })
+    if (texts.length === 0) return ''
+    return '【常识区·全局必读】以下是操作者写的全局常识，执行任何路径前都要读并遵守；这是人的区域，你只读不改：\n'
+      + texts.map((text, index) => `${index + 1}. ${text}`).join('\n')
+  } catch {
+    return ''
+  }
 }

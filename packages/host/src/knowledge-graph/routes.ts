@@ -11,7 +11,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { GraphCompletion } from './search.ts'
 import type { GraphNode, GraphPath, NodeStatus, PathGraph, PathGraphEdge, PathGraphNode } from './model.ts'
 import { KNOWLEDGE_GRAPH_PAGE } from './page.ts'
-import { KnowledgeGraphService } from './service.ts'
+import { KnowledgeGraphService, type CommonSenseInputEntry } from './service.ts'
 import { KnowledgeGraphStore } from './store.ts'
 import { GraphError, NODE_STATUSES } from './model.ts'
 import { GRAPH_POINTER, publishGraphPointer } from './library.ts'
@@ -209,6 +209,72 @@ async function dispatch(options: GraphRequestOptions): Promise<void> {
   }
 
   // Node detail and actions.
+  if (parts[1] === 'common-sense') {
+    if (method === 'GET' && parts.length === 2) {
+      sendJson(res, 200, { ok: true, commonSense: await service.commonSense() })
+      return
+    }
+    if (method === 'POST' && parts.length === 2) {
+      const body = asRecord(await readJson(req)) ?? {}
+      const list = Array.isArray(body.entries) ? body.entries : []
+      const input: CommonSenseInputEntry[] = []
+      for (const item of list) {
+        const record = asRecord(item)
+        if (record === undefined) continue
+        const text = stringField(record, 'text') ?? ''
+        const id = stringField(record, 'id')
+        const imagesRaw = Array.isArray(record.images) ? record.images : []
+        const images = imagesRaw.flatMap((image) => {
+          const entry = asRecord(image)
+          if (entry === undefined) return []
+          const file = stringField(entry, 'file')
+          if (file === undefined) return []
+          const name = stringField(entry, 'name')
+          return [{ file, ...name === undefined ? {} : { name } }]
+        })
+        input.push({ text, ...id === undefined ? {} : { id }, ...images.length === 0 ? {} : { images } })
+      }
+      sendJson(res, 200, { ok: true, commonSense: await service.saveCommonSense(input) })
+      return
+    }
+    if (method === 'GET' && parts[2] === 'images' && parts[3] !== undefined) {
+      const file = decodeURIComponent(parts[3])
+      const bytes = await service.commonSenseImage(file)
+      if (bytes === undefined) {
+        sendJson(res, 404, { ok: false, error: { code: 'image-missing', message: '图片不存在。' } })
+        return
+      }
+      const lower = file.toLowerCase()
+      const type = lower.endsWith('.jpg') || lower.endsWith('.jpeg') ? 'image/jpeg'
+        : lower.endsWith('.webp') ? 'image/webp'
+        : lower.endsWith('.gif') ? 'image/gif'
+        : 'image/png'
+      res.writeHead(200, { 'content-type': type })
+      res.end(bytes)
+      return
+    }
+    if (method === 'POST' && parts.length === 4 && parts[3] === 'images') {
+      const body = asRecord(await readJson(req)) ?? {}
+      const data = stringField(body, 'data') ?? ''
+      const caption = stringField(body, 'caption') ?? '常识截图'
+      const name = stringField(body, 'name')
+      const saved = await service.addCommonSenseImage(parts[2] as string, {
+        data,
+        caption,
+        ...name === undefined ? {} : { name },
+      })
+      sendJson(res, 200, { ok: true, commonSense: saved })
+      return
+    }
+    if (method === 'DELETE' && parts.length === 4 && parts[3] === 'images') {
+      const file = url.searchParams.get('file') ?? ''
+      sendJson(res, 200, { ok: true, commonSense: await service.deleteCommonSenseImage(parts[2] as string, file) })
+      return
+    }
+    sendJson(res, 404, { ok: false, error: { code: 'route-missing', message: '没有这个常识区接口。' } })
+    return
+  }
+
   if (method === 'POST' && parts[1] === 'nodes' && parts[2] === 'import') {
     const body = asRecord(await readJson(req)) ?? {}
     const dir = stringField(body, 'dir') ?? ''

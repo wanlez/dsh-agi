@@ -29,6 +29,8 @@ import {
   type GraphPath,
   type GraphSettings,
   type GraphSnapshot,
+  type CommonSense,
+  type CommonSenseEntry,
   type NodeScreenshot,
   type PathGraph,
   type PathGraphEdge,
@@ -529,6 +531,62 @@ export class KnowledgeGraphStore {
     } catch {
       return undefined
     }
+  }
+
+  /** Read the operator's common-sense entries; a missing or broken file reads as empty. */
+  async readCommonSense(): Promise<CommonSense> {
+    const raw = JSON.parse(await readFile(join(this.dir, 'common-sense.json'), 'utf8').catch(() => 'null')) as unknown
+    if (typeof raw !== 'object' || raw === null) return { entries: [] }
+    const list = (raw as { entries?: unknown }).entries
+    if (!Array.isArray(list)) return { entries: [] }
+    const entries: CommonSenseEntry[] = []
+    for (const item of list) {
+      if (typeof item !== 'object' || item === null) continue
+      const record = item as Record<string, unknown>
+      if (typeof record.id !== 'string' || typeof record.text !== 'string') continue
+      const images = Array.isArray(record.images)
+        ? record.images.flatMap((image) => {
+            if (typeof image !== 'object' || image === null) return []
+            const entry = image as Record<string, unknown>
+            return typeof entry.file === 'string'
+              ? [{ file: entry.file, ...typeof entry.name === 'string' ? { name: entry.name } : {} }]
+              : []
+          })
+        : []
+      entries.push({ id: record.id, text: record.text, ...images.length === 0 ? {} : { images } })
+    }
+    return { entries }
+  }
+
+  /** Persist the common-sense area. The operator's page is the only writer. */
+  async saveCommonSense(commonSense: CommonSense): Promise<void> {
+    await writeFile(join(this.dir, 'common-sense.json'), JSON.stringify(commonSense, null, 2), 'utf8')
+  }
+
+  /** Store one common-sense image and return its stored file name. */
+  async writeCommonSenseImage(file: string, bytes: Uint8Array): Promise<string> {
+    const folder = join(this.dir, 'common-sense')
+    await mkdir(folder, { recursive: true })
+    const clean = safeFile(file) ?? `${randomUUID().slice(0, 8)}.png`
+    await writeFile(join(folder, clean), bytes)
+    return clean
+  }
+
+  /** Read one common-sense image, or undefined when it is gone. */
+  async readCommonSenseImage(file: string): Promise<Uint8Array | undefined> {
+    const clean = safeFile(file)
+    if (clean === undefined) return undefined
+    try {
+      return await readFile(join(this.dir, 'common-sense', clean))
+    } catch {
+      return undefined
+    }
+  }
+
+  /** Delete one common-sense image file; a missing file is fine. */
+  async removeCommonSenseImage(file: string): Promise<void> {
+    const clean = safeFile(file)
+    if (clean !== undefined) await rm(join(this.dir, 'common-sense', clean), { force: true })
   }
 
   /** File size, used by the screenshot route. */

@@ -794,6 +794,12 @@ let expandedAt = 0
    */
   async function showWorkPanel() {
     if (pageClosed()) return
+    // Every turn event calls this. Re-running the expand would re-bounds the window under the
+    // avatar and make it flicker while the operator is typing, so an open panel is a no-op.
+    if (expanded && docked === undefined) {
+      pinBall()
+      return
+    }
     // The unsnap slide is an animation this page does not own: growing the window mid-slide would
     // fight the frames the main process is still writing.
     if (docked !== undefined) await unsnapDocked()
@@ -2615,6 +2621,14 @@ let expandedAt = 0
     else composer.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
   })
   prompt.addEventListener('paste', (event) => {
+    // The image handler above claims image items; this one only takes plain text, or it would
+    // swallow a pasted screenshot before the composer could store it.
+    const items = event.clipboardData && event.clipboardData.items
+    if (items) {
+      for (const item of items) {
+        if (item.type && item.type.startsWith('image/')) return
+      }
+    }
     event.preventDefault()
     insertPlainText(prompt, event.clipboardData?.getData('text/plain') ?? '')
     syncComposerHeight()
