@@ -520,7 +520,7 @@ let expandedAt = 0
     if (pageClosed()) return
     document.body.classList.toggle('running', running)
     stop.hidden = !stopShown()
-    pauseButton.hidden = !(stopShown() || paused)
+    pauseButton.hidden = !(running || paused)
     setWorkLocked(running)
     syncPromptPlaceholder()
     // The mode switch is a per-turn choice: lock it while the ball is working.
@@ -720,7 +720,7 @@ let expandedAt = 0
       expandedAt = Date.now()
       document.body.classList.add('expanded')
       stop.hidden = !stopShown()
-      pauseButton.hidden = !(stopShown() || paused)
+      pauseButton.hidden = !(running || paused)
       renderAgentStrip()
       syncGif()
       renderVoiceMeter()
