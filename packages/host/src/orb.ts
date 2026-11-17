@@ -1428,9 +1428,8 @@ export class OrbRuntime {
       if (sourceKind === 'user' || sourceKind === undefined) {
         if (!this.replaying) return
         const text = userText(data)
-        const images = userImages(data)
-        if (!text.trim() && images.length === 0) return
-        this.block(`user:${seq}`, 'user', text || '（图片）', false, 'set', { images })
+        if (!text.trim()) return
+        this.block(`user:${seq}`, 'user', text, false, 'set')
         return
       }
       // The code_agent completion report is the only notice the ball shows as
@@ -2472,9 +2471,7 @@ export class OrbRuntime {
     this.pendingImages = { sessionId, blocks: imageBlocks, paths: stagedPaths }
     imageDebug(`pending images=${imageBlocks.length} session=${sessionId}`)
     const key = `user:${randomUUID()}`
-    this.block(key, 'user', trimmed || '（图片）', false, 'set', {
-      images: imageBlocks.map((block) => ({ mediaType: block.mediaType, data: block.data })),
-    })
+    this.block(key, 'user', trimmed || '（图片）', false, 'set')
     await this.submitPrompt(trimmed)
   }
 
@@ -3369,21 +3366,6 @@ async function unarchiveHistorySession(ctx: OrbContext, sessionId: string): Prom
 function projection(record: Record<string, unknown>, key: string): unknown {
   const values = asRecord(asRecord(record.projections)?.values)
   return values?.[key]
-}
-
-/** Image attachments carried by one user message, ready for the ball's local echo. */
-function userImages(data: unknown): { mediaType: string; data: string }[] {
-  const record = asRecord(data)
-  const content = Array.isArray(record?.content) ? record.content : []
-  const images: { mediaType: string; data: string }[] = []
-  for (const item of content) {
-    const block = asRecord(item)
-    if (block?.type !== 'image') continue
-    const mediaType = typeof block.mediaType === 'string' ? block.mediaType : 'image/png'
-    const raw = typeof block.data === 'string' ? block.data : ''
-    if (raw !== '') images.push({ mediaType, data: raw })
-  }
-  return images
 }
 
 function userText(data: unknown): string {
