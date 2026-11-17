@@ -3189,13 +3189,9 @@ export class OrbRuntime {
     return index
   }
 
-  /**
-   * Caller conversation titles for the tooltips of background agent tasks. A title is a
-   * conversation name, which changes on a human scale, so a minute of cache is plenty and
-   * keeps the session list off the ten-second path.
-   */
+  /** Caller conversation titles for the tooltips, refreshed at most every 10 seconds. */
   private refreshCallerTitles(): void {
-    if (this.callerTitles !== undefined && Date.now() - this.callerTitles.at < 60_000) return
+    if (this.callerTitles !== undefined && Date.now() - this.callerTitles.at < 10_000) return
     this.callerTitlesTask ??= this.historyRecords().then((rows) => {
       const byId = new Map<string, string>()
       for (const row of rows) if (row.title !== '') byId.set(row.sessionId, row.title)
