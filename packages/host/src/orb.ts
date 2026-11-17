@@ -441,8 +441,8 @@ export class OrbRuntime {
   private watermark = 0
   /** Set when a turn ends; the next pre-step injects one reflection instruction and clears it. */
   private reflectionDue = false
-  /** True once this turn produced a tool block; only tool-using turns earn a reflection nudge. */
-  private toolCalledThisTurn = false
+  /** True once this turn called an experience-library tool; only those turns earn a reflection. */
+  private graphTouchedThisTurn = false
   private missingLogged = false
   private timer: ReturnType<typeof setInterval> | undefined
   private giveUp: ReturnType<typeof setTimeout> | undefined
@@ -1686,8 +1686,10 @@ export class OrbRuntime {
   private finishTurn(): void {
     // One reflection nudge, and only when this turn actually touched tools (a plain chat turn
     // never went through the experience-library loop and has nothing to write back).
-    if (this.toolCalledThisTurn) this.markReflection()
-    this.toolCalledThisTurn = false
+    // Reflection belongs to the experience-library loop only: a plain desktop or chat turn never
+    // ran a knowledge_graph tool, so there is nothing to write back and no nudge is injected.
+    if (this.graphTouchedThisTurn) this.markReflection()
+    this.graphTouchedThisTurn = false
     this.turnRunning = false
     this.setPhase('stopped')
     // The screenshots belonged to this turn; the next one starts from what the user sends.
@@ -1743,7 +1745,7 @@ export class OrbRuntime {
     detail?: Partial<ToolDetail>,
     usage?: BlockUsage,
   ): void {
-    if (kind === 'tool') this.toolCalledThisTurn = true
+    if (kind === 'tool' && (name as string | undefined)?.startsWith('knowledge_graph_') === true) this.graphTouchedThisTurn = true
     const previous = this.blocks.get(key)
     const previousText = previous?.text ?? ''
     const next = clip(mode === 'append' ? `${previousText}${text}` : text, 20_000)

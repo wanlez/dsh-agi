@@ -515,6 +515,11 @@ let expandedAt = 0
     freezeGif(gif)
   }
 
+  /** Opening a session (or clearing one) should land on the newest message, not mid-history. */
+  function scrollTranscriptToBottom() {
+    requestAnimationFrame(() => { transcript.scrollTop = transcript.scrollHeight })
+  }
+
   function setRunning(next, interrupted = false) {
     running = next
     if (pageClosed()) return
@@ -717,6 +722,7 @@ let expandedAt = 0
       applyDirection(state)
       panel.hidden = false
       expanded = true
+      scrollTranscriptToBottom()
       expandedAt = Date.now()
       document.body.classList.add('expanded')
       stop.hidden = !stopShown()
@@ -2844,7 +2850,10 @@ let expandedAt = 0
   if (safeChip !== null) safeChip.hidden = true
   api.onSafeMode((enabled) => { setSafeModeChip(enabled === true) })
   api.onTurn((turn) => { stage({ type: 'turn', ...(turn ?? {}) }) })
-  api.onSession((id) => { sessionId = typeof id === 'string' ? id : '' })
+  api.onSession((id) => {
+    sessionId = typeof id === 'string' ? id : ''
+    scrollTranscriptToBottom()
+  })
   api.onHistory((items) => {
     historyItems = Array.isArray(items) ? items : []
     if (historyOpen) renderHistory()
@@ -2863,7 +2872,10 @@ let expandedAt = 0
     permission = preset
     renderPermission()
   })
-  api.onReset(() => { stage({ type: 'reset' }) })
+  api.onReset(() => {
+    stage({ type: 'reset' })
+    scrollTranscriptToBottom()
+  })
   api.onPin?.(() => { void pinFromHost() })
   api.onUnpin?.(() => { unpinFromHost() })
   api.onVoiceHold?.((hold) => { applyVoiceHold(hold) })
