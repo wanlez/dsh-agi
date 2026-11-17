@@ -1619,7 +1619,7 @@ body.expand-down #minimize {
 /* Pause rides inside the composer (already an absolute box), just left of the avatar. */
 #pause {
   position: absolute;
-  right: 8px;
+  right: 56px;
   top: 50%;
   transform: translateY(-50%);
   width: 26px;
