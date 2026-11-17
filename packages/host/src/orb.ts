@@ -1154,19 +1154,15 @@ export class OrbRuntime {
     // selection. A Host whose session list cannot be read falls back to the isolated rule
     // instead of failing the start.
     if (this.store.sessionMode() === 'shared') {
-      // The anchor is fixed when the operator switches into shared mode. Re-picking the newest
-      // session on every start would let a restart adopt whatever conversation another window is
-      // running at that moment (a long download, for example) and drive it from the ball.
-      const anchored = await readSavedSession(this.sharedAnchorFile)
-      if (anchored !== undefined) {
-        if (await this.openConversation(anchored.sessionId)) return this.adopt(anchored.sessionId)
-        console.error('dsh-agi: the anchored shared session cannot be opened; re-anchoring')
-      }
+      // Every start adopts the conversation the main window touched last. The pin then holds for
+      // the whole run (nothing re-picks mid-session); the operator changes it by sending a message
+      // in another conversation and restarting, exactly the manual move they asked for.
       const recent = await this.mostRecentlyUpdatedSession()
       if (recent !== undefined && await this.openConversation(recent)) {
         await writeSavedSession(this.sharedAnchorFile, recent)
         return this.adopt(recent)
       }
+      console.error('dsh-agi: could not read the recent sessions; falling back to the isolated rule')
     }
     const workspaceId = await this.workspaceId()
     const saved = await readSavedSession(this.sessionFile)
