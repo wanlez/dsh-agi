@@ -1005,13 +1005,7 @@ export class OrbRuntime {
    * The sequence a fresh panel's rebuild starts from: just before the newest blocks, so the
    * ball opens on the exchange it is part of instead of the conversation's first message.
    */
-  private replayStart(session: { snapshotEvents(): readonly { readonly type: string; readonly seq: number }[] }): number {
-    let events: readonly { readonly type: string; readonly seq: number }[]
-    try {
-      events = session.snapshotEvents()
-    } catch {
-      return this.watermark
-    }
+  private windowStart(events: readonly { readonly type: string; readonly seq: number }[]): number {
     let seen = 0
     for (let index = events.length - 1; index >= 0; index -= 1) {
       const event = events[index]
@@ -1022,6 +1016,41 @@ export class OrbRuntime {
     return 0
   }
 
+  /**
+   * Rebuild one panel's transcript from the replay window. A panel that connects before the
+   * session is back in the store waits for it instead of replaying from the top.
+   */
+  private replayInto(socket: Socket): void {
+    const sessionId = this.sessionId
+    if (sessionId === undefined) return
+    const session = this.ctx.sessions.get(sessionId)
+    if (session === undefined) {
+      imageDebug('accept replay deferred: session not in the store yet')
+      setTimeout(() => {
+        if (!this.halted && this.sockets.has(socket)) this.replayInto(socket)
+      }, 300)
+      return
+    }
+    let events: readonly { readonly type: string; readonly seq: number }[]
+    try {
+      events = session.snapshotEvents()
+    } catch (error) {
+      imageDebug(`accept replay failed: ${error instanceof Error ? error.message : String(error)}`)
+      return
+    }
+    const from = this.windowStart(events)
+    this.clearDirty()
+    this.blocks.clear()
+    this.blockOrder.length = 0
+    this.watermark = from
+    this.replaying = true
+    this.drain()
+    this.replaying = false
+    // A transcript can never prove a turn is live: the process that ran it may be gone.
+    // Only live events from here on — and the ball's own prompt — start a turn.
+    imageDebug(`accept replay blocks=${this.blockOrder.length} from=${from} events=${events.length}`)
+  }
+
   private accept(socket: Socket, hello: unknown): void {
     const pid = asRecord(hello)?.pid
     if (typeof pid === 'number' && Number.isInteger(pid) && pid > 0) this.helperPid = pid
@@ -1029,19 +1058,7 @@ export class OrbRuntime {
     if (this.sessionId) this.send(socket, { type: 'session', sessionId: this.sessionId })
     // A fresh page always rebuilds from the window rather than from whatever this process
     // happens to hold: a trimmed or half-built map used to leave the panel showing one turn.
-    if (this.sessionId) {
-      const session = this.ctx.sessions.get(this.sessionId)
-      this.clearDirty()
-      this.blocks.clear()
-      this.blockOrder.length = 0
-      if (session !== undefined) this.watermark = this.replayStart(session)
-      this.replaying = true
-      this.drain()
-      this.replaying = false
-      // A transcript can never prove a turn is live: the process that ran it may be gone.
-      // Only live events from here on — and the ball's own prompt — start a turn.
-      imageDebug(`accept replay blocks=${this.blockOrder.length} from=${this.watermark}`)
-    }
+    this.replayInto(socket)
     this.panelConnected = true
     imageDebug(`accept state turn=${this.turnRunning} hold=${this.voice.holdState()} speech=${this.voice.speaking()} mode=${this.voice.listenMode()}`)
     this.send(socket, { type: 'turn', running: this.turnRunning })
@@ -2957,7 +2974,7 @@ export class OrbRuntime {
     await this.adopt(sessionId)
     this.resetTranscript()
     const opened = this.ctx.sessions.get(sessionId)
-    if (opened !== undefined) this.watermark = this.replayStart(opened)
+    if (opened !== undefined) this.watermark = this.windowStart(opened.snapshotEvents())
     this.replaying = true
     this.drain()
     this.replaying = false
