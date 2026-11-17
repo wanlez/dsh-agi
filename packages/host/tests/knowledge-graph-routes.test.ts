@@ -1,5 +1,6 @@
 import { createServer, type Server } from 'node:http'
 import { mkdtempSync, rmSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, before, describe, it } from 'node:test'
@@ -388,6 +389,99 @@ describe('knowledge graph HTTP surface', () => {
     assert.equal(image.status, 200)
     assert.match(image.headers.get('content-type') ?? '', /image\/png/)
     assert.equal((await image.arrayBuffer()).byteLength, Buffer.from(png, 'base64').length)
+  })
+
+  it('persists the screenshot source and moves it between the human and AI shelves', async () => {
+    const created = await request('POST', '/api/nodes', { title: '来源测试节点', description: '人工写的原文' })
+    const nodeId = (created.json.node as { id: string }).id
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nQAAAABJRU5ErkJggg=='
+
+    const uploaded = await request('POST', `/api/nodes/${nodeId}/screenshots`, {
+      caption: 'AI 执行指导图',
+      data: png,
+      source: 'ai',
+    })
+    assert.equal(uploaded.status, 200)
+    let shots = (await request('GET', `/api/nodes/${nodeId}`)).json.screenshots as { id: string; source: string }[]
+    assert.equal(shots[0]?.source, 'ai')
+
+    const moved = await request('PATCH', `/api/nodes/${nodeId}/screenshots/${shots[0]?.id}`, {
+      caption: '人工复核图',
+      source: 'human',
+    })
+    assert.equal(moved.status, 200)
+    shots = (await request('GET', `/api/nodes/${nodeId}`)).json.screenshots as { id: string; source: string }[]
+    assert.equal(shots[0]?.source, 'human')
+
+    const invalid = await request('POST', `/api/nodes/${nodeId}/screenshots`, {
+      caption: '错误来源',
+      data: png,
+      source: 'robot',
+    })
+    assert.equal(invalid.status, 400)
+    assert.equal(invalid.json.error?.code, 'screenshot-source-invalid')
+  })
+
+  it('writes ai_notes without touching the human description', async () => {
+    const created = await request('POST', '/api/nodes', { title: '备注测试节点', description: '人的原始描述' })
+    const nodeId = (created.json.node as { id: string }).id
+
+    const patch = await request('PATCH', `/api/nodes/${nodeId}`, { ai_notes: '第一条 AI 补充' })
+    assert.equal(patch.status, 200)
+    assert.equal((patch.json.node as { ai_notes?: string }).ai_notes, '第一条 AI 补充')
+
+    const posted = await request('POST', `/api/nodes/${nodeId}/ai-notes`, { ai_notes: '第二条 AI 补充' })
+    assert.equal(posted.status, 200)
+
+    const detail = await request('GET', `/api/nodes/${nodeId}`)
+    assert.equal((detail.json.node as { ai_notes?: string }).ai_notes, '第二条 AI 补充')
+    assert.equal((detail.json.node as { description: string }).description, '人的原始描述')
+
+    // The agent path may only touch ai_notes, never rewrite the operator's prose.
+    const denied = await request('PATCH', `/api/nodes/${nodeId}?operator=ai`, { description: 'AI 想改描述' })
+    assert.equal(denied.status, 403)
+    assert.equal(denied.json.error?.code, 'human-field-readonly')
+  })
+
+  it('deletes a path over HTTP and leaves no reference in index.json', async () => {
+    const created = await request('POST', '/api/nodes', { title: '待删路径节点', description: '独立节点' })
+    const nodeId = (created.json.node as { id: string }).id
+    const saved = await request('POST', '/api/paths', {
+      name: '待删路径',
+      summary: '删除后 index 不应残留',
+      node_sequence: [nodeId],
+    })
+    assert.equal(saved.status, 200)
+    const pathId = (saved.json.path as { id: string }).id
+
+    const removed = await request('DELETE', `/api/paths/${pathId}`)
+    assert.equal(removed.status, 200)
+    assert.equal((await request('GET', `/api/paths/${pathId}`)).status, 404)
+
+    const index = JSON.parse(await readFile(join(root, 'library', 'index.json'), 'utf8')) as {
+      paths: { id: string }[]
+    }
+    assert.equal(index.paths.some((entry) => entry.id === pathId), false)
+  })
+
+  it('serializes concurrent writes so a screenshot delete and a node patch both survive', async () => {
+    const created = await request('POST', '/api/nodes', { title: '并发节点', description: '并发前的描述' })
+    const nodeId = (created.json.node as { id: string }).id
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nQAAAABJRU5ErkJggg=='
+    const uploaded = await request('POST', `/api/nodes/${nodeId}/screenshots`, { caption: '并发截图', data: png })
+    const shotId = ((uploaded.json.node as { screenshots: { id: string }[] }).screenshots[0]).id
+
+    await Promise.all([
+      request('DELETE', `/api/nodes/${nodeId}/screenshots/${shotId}`),
+      request('PATCH', `/api/nodes/${nodeId}`, { title: '并发后的标题' }),
+      request('PATCH', `/api/nodes/${nodeId}`, { description: '并发后的描述' }),
+    ])
+
+    const detail = await request('GET', `/api/nodes/${nodeId}`)
+    const node = detail.json.node as { title: string; description: string; screenshots: unknown[] }
+    assert.equal(node.title, '并发后的标题')
+    assert.equal(node.description, '并发后的描述')
+    assert.equal(node.screenshots.length, 0)
   })
 
   it('stores a path independently of graph edges and rejects a repeated node', async () => {

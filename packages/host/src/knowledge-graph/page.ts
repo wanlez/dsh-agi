@@ -997,6 +997,7 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
       + '<span class="grow"></span>'
       + (editor.pathId == null ? "" : '<button class="btn small" data-action="copy-path">复制路径</button>')
       + (editor.pathId == null ? "" : '<button class="btn small" data-action="export-path">导出路径</button>')
+      + (editor.pathId == null ? "" : '<button class="btn small danger" data-action="delete-path">删除路径</button>')
       + (editor.pathId == null ? "" : '<button class="starButton' + (editor.favorite === false ? "" : " is-on") + '" data-action="toggle-path-favorite" title="' + (editor.favorite === false ? "未收藏，点击收藏" : "已收藏，点击取消收藏") + '">' + (editor.favorite === false ? "☆" : "★") + '</button>')
       + '<button class="btn small" data-action="check-path-editor">检查</button>'
       + '<button class="btn small primary" data-action="save-path-editor">保存</button>'
@@ -1565,6 +1566,25 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
       }).catch(function (error) { toast(error.message, "bad"); });
       return;
     }
+    if (action === "delete-path") {
+      event.preventDefault();
+      var doomedPath = state.pathEditor;
+      if (!doomedPath || doomedPath.pathId == null) return;
+      askConfirm({
+        title: "删除这条路径？",
+        message: "路径会从收藏和 index.json 里移除，节点和截图不受影响；删除后页面不能恢复。",
+        confirmText: "删除",
+        danger: true,
+      }).then(function (yes) {
+        if (!yes) return;
+        api("/api/paths/" + encodeURIComponent(doomedPath.pathId), { method: "DELETE" }).then(function () {
+          toast("路径已删除。");
+          closePathEditor();
+          loadFavorites();
+        }).catch(function (error) { toast(error.message, "bad"); });
+      });
+      return;
+    }
     if (action === "copy-path") {
       event.preventDefault();
       var copyEditor = state.pathEditor;
@@ -1664,7 +1684,7 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
       var caption = $("shotCaption").value.trim();
       var reader = new FileReader();
       reader.onload = function () {
-        api("/api/nodes/" + encodeURIComponent(id) + "/screenshots", { method: "POST", body: { caption: caption, data: String(reader.result), file_name: file.name } }).then(function () {
+        api("/api/nodes/" + encodeURIComponent(id) + "/screenshots", { method: "POST", body: { caption: caption, data: String(reader.result), file_name: file.name, source: "human" } }).then(function () {
           toast("截图已上传。");
           return openDetail(id);
         }).catch(function (error) { toast(error.message, "bad"); });

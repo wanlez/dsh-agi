@@ -106,6 +106,7 @@ async function dispatch(options: GraphRequestOptions): Promise<void> {
     const stats = await service.stats()
     sendJson(res, 200, {
       ok: true,
+      api_version: 2,
       dir: stats.dir,
       settings: stats.settings,
       counts: stats.counts,
@@ -298,11 +299,30 @@ async function dispatch(options: GraphRequestOptions): Promise<void> {
     }
     if (method === 'PATCH' && parts.length === 3) {
       const body = asRecord(await readJson(req)) ?? {}
-      const node = await service.updateNode(id, {
-        ...stringField(body, 'title') === undefined ? {} : { title: stringField(body, 'title') as string },
-        ...stringField(body, 'description') === undefined ? {} : { description: stringField(body, 'description') as string },
-      }, operatorOf(req, url))
-      sendJson(res, 200, { ok: true, node: publicNode(node) })
+      const operator = operatorOf(req, url)
+      const aiNotes = stringField(body, 'ai_notes')
+      const title = stringField(body, 'title')
+      const description = stringField(body, 'description')
+      // The human owns the prose. An agent may refine ai_notes, never rewrite the description.
+      if (operator === 'ai' && (title !== undefined || description !== undefined)) {
+        throw new GraphError('human-field-readonly', 'description / title 只能由人修改；AI 只能写 ai_notes。', 403)
+      }
+      let node = aiNotes === undefined ? undefined : await service.updateNodeAi(id, aiNotes)
+      if (title !== undefined || description !== undefined) {
+        node = await service.updateNode(id, {
+          ...title === undefined ? {} : { title },
+          ...description === undefined ? {} : { description },
+        }, operator)
+      }
+      // An empty patch stays a no-op read for older clients that send `{}`.
+      const resolved = node ?? (await service.nodeDetail(id)).node
+      sendJson(res, 200, { ok: true, node: publicNode(resolved) })
+      return
+    }
+    if (method === 'POST' && parts[3] === 'ai-notes') {
+      const body = asRecord(await readJson(req)) ?? {}
+      const notes = stringField(body, 'ai_notes') ?? stringField(body, 'notes') ?? ''
+      sendJson(res, 200, { ok: true, node: publicNode(await service.updateNodeAi(id, notes)) })
       return
     }
     if (method === 'POST' && parts[3] === 'copy') {
@@ -321,9 +341,11 @@ async function dispatch(options: GraphRequestOptions): Promise<void> {
     }
     if (method === 'PATCH' && parts[3] === 'screenshots' && parts.length === 5) {
       const body = asRecord(await readJson(req)) ?? {}
+      const source = screenshotSource(stringField(body, 'source'))
       const node = await service.updateScreenshot(id, at(4), {
         ...stringField(body, 'name') === undefined ? {} : { name: stringField(body, 'name') as string },
         ...stringField(body, 'caption') === undefined ? {} : { caption: stringField(body, 'caption') as string },
+        ...source === undefined ? {} : { source },
       })
       sendJson(res, 200, { ok: true, node: publicNode(node) })
       return
@@ -338,11 +360,13 @@ async function dispatch(options: GraphRequestOptions): Promise<void> {
     }
     if (method === 'POST' && parts[3] === 'screenshots') {
       const body = asRecord(await readJson(req)) ?? {}
+      const source = screenshotSource(stringField(body, 'source'))
       const node = await service.addScreenshot(id, {
         caption: stringField(body, 'caption') ?? '',
         data: stringField(body, 'data') ?? '',
         media_type: stringField(body, 'media_type'),
         file_name: stringField(body, 'file_name'),
+        ...source === undefined ? {} : { source },
       })
       sendJson(res, 200, { ok: true, node: publicNode(node) })
       return
@@ -415,7 +439,7 @@ async function dispatch(options: GraphRequestOptions): Promise<void> {
     }
     if (method === 'DELETE') {
       await service.deletePath(id)
-      sendJson(res, 200, { ok: true })
+      sendJson(res, 200, { ok: true, deleted: id })
       return
     }
     if (method === 'POST' && parts[3] === 'favorite') {
@@ -569,6 +593,15 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 function stringField(body: Record<string, unknown>, key: string): string | undefined {
   const value = body[key]
   return typeof value === 'string' ? value : undefined
+}
+
+/** Screenshot shelf from a request body; absent/blank means "keep the current one". */
+function screenshotSource(value: string | undefined): 'human' | 'ai' | undefined {
+  if (value === undefined) return undefined
+  const trimmed = value.trim()
+  if (trimmed === '') return undefined
+  if (trimmed === 'human' || trimmed === 'ai') return trimmed
+  throw new GraphError('screenshot-source-invalid', 'source 只能是 human 或 ai。', 400)
 }
 
 /** The optional graph form of a saved path; absent keeps the legacy linear shape. */

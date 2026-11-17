@@ -8,7 +8,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import {
   createExecutionRun,
   judgeStep,
@@ -239,20 +239,30 @@ async function readJsonFile(file: string): Promise<Record<string, unknown> | und
   }
 }
 
+/**
+ * One write queue per library directory.
+ *
+ * Every caller constructs its own service (HTTP routes cache one, the agent tools create a
+ * fresh one per call), so the queue must live outside the instance: two instances writing the
+ * same directory would otherwise read the same snapshot and overwrite each other's file.
+ */
+const WRITE_QUEUES = new Map<string, Promise<unknown>>()
+
 /** The service owns one library directory and one in-memory run table. */
 export class KnowledgeGraphService {
   private readonly runs = new Map<string, ExecutionRun>()
-  private queue: Promise<unknown> = Promise.resolve()
 
   constructor(
     readonly store: KnowledgeGraphStore,
     private readonly completion?: GraphCompletion,
   ) {}
 
-  /** Serialize mutations; a failed operation releases the queue. */
+  /** Serialize mutations for one directory; a failed operation releases the queue. */
   private locked<T>(task: () => Promise<T>): Promise<T> {
-    const run = this.queue.then(task, task)
-    this.queue = run.then(() => undefined, () => undefined)
+    const key = resolve(this.store.dir)
+    const previous = WRITE_QUEUES.get(key) ?? Promise.resolve()
+    const run = previous.then(task, task)
+    WRITE_QUEUES.set(key, run.then(() => undefined, () => undefined))
     return run
   }
 
@@ -929,7 +939,7 @@ export class KnowledgeGraphService {
         file: shot.file,
         caption: shot.caption,
         ...typeof shot.name === 'string' && shot.name !== '' ? { name: shot.name } : {},
-        ...shot.source === 'ai' ? { source: 'ai' as const } : {},
+        ...shot.source === 'ai' ? { source: 'ai' as const } : shot.source === 'human' ? { source: 'human' as const } : {},
       })
     }
     const node: GraphNode = {
@@ -1284,7 +1294,8 @@ export class KnowledgeGraphService {
         file,
         caption,
         ...input.name === undefined || input.name.trim() === '' ? {} : { name: input.name.trim() },
-        ...(input.source === 'ai' ? { source: 'ai' as const } : {}),
+        // Persist the shelf explicitly: the editor splits human and AI screenshots by this field.
+        source: input.source === 'ai' ? 'ai' as const : 'human' as const,
       }
       const saved: GraphNode = {
         ...node,
@@ -1299,14 +1310,16 @@ export class KnowledgeGraphService {
   }
 
   /**
-   * Rename or re-caption one screenshot.
+   * Rename, re-caption, or move one screenshot between the human and AI shelves.
    *
    * The display name is free text; the file itself keeps its content-hash name, so the binding
-   * "this image is for X" survives any rename.
+   * "this image is for X" survives any rename. `source` is persisted on the node file, so the
+   * editor's "AI 截图" column survives a reload instead of falling back to `human`.
    */
   async updateScreenshot(nodeId: string, shotId: string, patch: {
     readonly name?: string
     readonly caption?: string
+    readonly source?: 'human' | 'ai'
   }): Promise<GraphNode> {
     return this.locked(async () => {
       const { snapshot, settings } = await this.loaded()
@@ -1319,7 +1332,12 @@ export class KnowledgeGraphService {
       const name = patch.name === undefined ? shot.name : patch.name.trim()
       const screenshots = node.screenshots.map((item) => item.id !== shotId
         ? item
-        : { ...item, caption, ...(name === undefined || name === '' ? { name: undefined } : { name }) })
+        : {
+            ...item,
+            caption,
+            ...(name === undefined || name === '' ? { name: undefined } : { name }),
+            ...(patch.source === undefined ? {} : { source: patch.source }),
+          })
       const saved: GraphNode = { ...node, screenshots, embedding: embedText(nodeSearchText({ ...node, screenshots })) }
       await this.store.saveNode(saved)
       ;(snapshot.nodes as Map<string, GraphNode>).set(nodeId, saved)
