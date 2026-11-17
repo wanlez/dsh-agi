@@ -688,7 +688,6 @@ body.expand-up #transcript {
   font-size: 12px;
   color: var(--pin);
   cursor: pointer;
-  transform: translateX(18px);
 }
 
 #mode-track {
@@ -1617,84 +1616,28 @@ body.expand-down #minimize {
   line-height: var(--prompt-line);
 }
 
-/* Pause sits beside the stop cap and shares its anchored positions. */
-
-
-body.docked #ball,
-body.docked #panel,
-body.docked #pause{
-
-  visibility: hidden;
-  pointer-events: none;
+/* Pause rides inside the composer, just left of the avatar. */
+#composer {
+  position: relative;
 }
-
-
-#pause{
-
-  /* Opposite 72px cap of the input pill from #ball; 14px is (72-44)/2. */
+#pause {
   position: absolute;
-  z-index: 2;
-  width: 44px;
-  height: 44px;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 26px;
+  height: 26px;
   border: 1px solid var(--pin);
   border-radius: 50%;
   padding: 0;
   background: var(--white);
-  cursor: pointer;
-}
-
-
-body.expand-left #pause{
-
-  left: calc(var(--chrome) + 14px + 88px);
-}
-
-
-body.expand-right #pause{
-
-  right: calc(var(--chrome) + 14px + 88px);
-}
-
-
-/* Strip-side anchors: the stop cap rides the panel, not the widened window. */
-body.has-strip.strip-left #pause{
-
-  left: calc(var(--strip-w) + var(--chrome) + 14px + 88px);
-}
-
-
-body.has-strip.strip-right #pause{
-
-  right: calc(var(--strip-w) + var(--chrome) + 14px + 88px);
-}
-
-
-body.expand-up #pause{
-
-  bottom: calc(var(--chrome) + 14px + 88px);
-}
-
-
-body.expand-down #pause{
-
-  top: calc(var(--chrome) + 14px + 88px);
-}
-
-
-body:not(.expanded) #pause,
-body:not(.running):not(.voice-hold) #pause{
-
-  display: none;
-}
-#pause:empty { display: none; }
-
-/* Pause glyph sits centred in its own anchored cap. */
-#pause {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 15px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--black);
   line-height: 1;
+  cursor: pointer;
+  z-index: 2;
 }
