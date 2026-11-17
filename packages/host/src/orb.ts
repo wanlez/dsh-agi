@@ -374,13 +374,10 @@ const ECHO_MAX_TOTAL_BYTES = 6_000_000
 const ECHO_RETAIN_BYTES = 32_000_000
 
 /**
- * Blocks one fresh panel rebuilds. A page load has no DOM of its own, so the host replays the
+ * Turns one fresh panel rebuilds. A page load has no DOM of its own, so the host replays the
  * conversation into it; replaying the whole log made the ball open on its first message.
  */
-const REPLAY_WINDOW_BLOCKS = 200
-
-/** Event types that become transcript blocks; the replay window is measured in these. */
-const REPLAY_BLOCK_EVENTS = new Set(['user/message', 'assistant/message', 'tool/call'])
+const REPLAY_WINDOW_TURNS = 5
 
 interface BlockMessage {
   readonly type: 'block'
@@ -1004,15 +1001,16 @@ export class OrbRuntime {
   }
 
   /**
-   * Rebuild one panel's transcript. The whole log is read into memory first (the block cap
-   * keeps the newest), and only then is its last window sent to the page: the panel can never
-   * show the conversation's opening, and the page is never told about blocks already trimmed.
+   * Rebuild one panel's transcript from the newest turns only. The start comes straight from
+   * the event log's own `turn/start` boundaries, so the panel cannot open on the conversation's
+   * first message no matter what this process happens to hold in memory.
    * A panel that connects before the session is back in the store waits for it.
    */
   private replayInto(socket: Socket): void {
     const sessionId = this.sessionId
     if (sessionId === undefined) return
-    if (this.ctx.sessions.get(sessionId) === undefined) {
+    const session = this.ctx.sessions.get(sessionId)
+    if (session === undefined) {
       setTimeout(() => {
         if (!this.halted && this.sockets.has(socket)) this.replayInto(socket)
       }, 300)
@@ -1021,7 +1019,7 @@ export class OrbRuntime {
     this.clearDirty()
     this.blocks.clear()
     this.blockOrder.length = 0
-    this.watermark = 0
+    this.watermark = this.newestTurnsStart(session) - 1
     this.silentReplay = true
     this.replaying = true
     try {
@@ -1030,13 +1028,28 @@ export class OrbRuntime {
       this.replaying = false
       this.silentReplay = false
     }
-    const keys = this.blockOrder.slice(-REPLAY_WINDOW_BLOCKS)
-    for (const key of keys) {
+    for (const key of this.blockOrder) {
       const block = this.blocks.get(key)
       if (block !== undefined) this.send(socket, block)
     }
     // A transcript can never prove a turn is live: the process that ran it may be gone.
     // Only live events from here on — and the ball's own prompt — start a turn.
+  }
+
+  /** The seq the newest {@link REPLAY_WINDOW_TURNS} turns begin at, or 0 for a short log. */
+  private newestTurnsStart(session: { snapshotEvents(): readonly { readonly type: string; readonly seq: number }[] }): number {
+    let events: readonly { readonly type: string; readonly seq: number }[]
+    try {
+      events = session.snapshotEvents()
+    } catch {
+      return 0
+    }
+    const starts: number[] = []
+    for (let index = events.length - 1; index >= 0 && starts.length < REPLAY_WINDOW_TURNS; index -= 1) {
+      const event = events[index]
+      if (event?.type === 'turn/start') starts.push(Number(event.seq))
+    }
+    return starts.at(-1) ?? 0
   }
 
   private accept(socket: Socket, hello: unknown): void {
@@ -2964,6 +2977,8 @@ export class OrbRuntime {
     if (!(await this.openConversation(sessionId))) return
     await this.adopt(sessionId)
     this.resetTranscript()
+    const opened = this.ctx.sessions.get(sessionId)
+    this.watermark = opened === undefined ? 0 : Math.max(0, this.newestTurnsStart(opened) - 1)
     this.silentReplay = true
     this.replaying = true
     try {
@@ -2972,7 +2987,7 @@ export class OrbRuntime {
       this.replaying = false
       this.silentReplay = false
     }
-    for (const key of this.blockOrder.slice(-REPLAY_WINDOW_BLOCKS)) {
+    for (const key of this.blockOrder) {
       const block = this.blocks.get(key)
       if (block !== undefined) this.broadcast(block)
     }
