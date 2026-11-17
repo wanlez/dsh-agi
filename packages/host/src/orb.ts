@@ -102,6 +102,11 @@ export interface AttachmentService {
    * replayed screenshot through it instead of guessing the provider's layout.
    */
   imageHostPath?(ref: { readonly attachmentId: string }): string | undefined
+  /**
+   * Validate a prompt's image budget without storing anything. Already stored images
+   * pass through unchanged, so this is the pre-flight for a prompt that carries them.
+   */
+  admitPromptContent?(content: readonly unknown[]): Promise<unknown>
 }
 
 /**
@@ -429,8 +434,9 @@ export class OrbRuntime {
   /** Steps whose first tool-call delta already told voice that the preceding text was mid-turn. */
   private readonly toolVoiceSteps = new Set<string>()
   /**
-   * Screenshots the next model call of the running turn must carry. The prompt itself is
-   * text-only, so the images ride the pre-step hook and are dropped when the turn ends.
+   * Screenshots the next model call of the running turn must carry. Images normally ride the
+   * prompt itself, so the main window shows them like any other upload; this fallback only
+   * fills when the attachment store refuses that prompt, and clears when the turn ends.
    */
   private pendingImages: PendingImages | undefined
   private child: ChildProcess | undefined
@@ -2508,21 +2514,40 @@ export class OrbRuntime {
       return
     }
     const sessionId = await this.ensureSession()
-    this.pendingImages = { sessionId, blocks: imageBlocks, paths: stagedPaths }
-    imageDebug(`pending images=${imageBlocks.length} session=${sessionId}`)
     const key = `user:${randomUUID()}`
     this.block(key, 'user', trimmed || '（图片）', false, 'set', undefined, echoed.length === 0 ? undefined : { images: echoed })
-    await this.submitPrompt(trimmed)
+    // The screenshots ride the prompt itself, so the main window and this transcript show
+    // one ordinary upload instead of a context injection. The store's own admission is the
+    // pre-flight: a prompt it would refuse keeps the old pre-step path rather than failing
+    // the turn outright.
+    const service = this.attachmentService()
+    let inline = true
+    if (service?.admitPromptContent !== undefined) {
+      try {
+        await service.admitPromptContent(content)
+      } catch (error) {
+        inline = false
+        const message = error instanceof Error ? error.message : String(error)
+        imageDebug(`prompt images refused: ${message} count=${imageBlocks.length}`)
+      }
+    }
+    if (!inline) this.pendingImages = { sessionId, blocks: imageBlocks, paths: stagedPaths }
+    // An inline prompt still tells the next step where the staged copies are, so the agent
+    // can file them into the library by path; the images themselves already travelled.
+    else this.pendingImages = { sessionId, blocks: [], paths: stagedPaths }
+    imageDebug(`prompt images=${imageBlocks.length} inline=${inline} session=${sessionId}`)
+    await this.submitPrompt(trimmed, inline ? content : undefined)
   }
 
   /**
    * The screenshots the next step of {@link sessionId} must see, or undefined once they were
-   * consumed, the turn ended, or another conversation is asking.
+   * consumed, the turn ended, or another conversation is asking. A prompt that carried its
+   * images inline leaves only the staged-copy note.
    * @param sessionId - the session the step belongs to; undefined skips the check.
    */
   peekPendingImages(sessionId: string | undefined): PendingImages | undefined {
     const pending = this.pendingImages
-    if (pending === undefined || pending.blocks.length === 0) return undefined
+    if (pending === undefined) return undefined
     if (sessionId !== undefined && sessionId !== pending.sessionId) return undefined
     return pending
   }

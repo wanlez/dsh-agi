@@ -247,10 +247,13 @@ export function apply(ctx: OrbContext, config: { autoStart?: boolean } = {}): vo
         imageDebug(`pre-step attach images=${blocks.length} session=${sessionId}`)
         const paths = pending.paths
         // Naming the staged copies is what lets the agent file them into the experience
-        // library by path instead of guessing where the bytes live.
+        // library by path instead of guessing where the bytes live. A prompt that carried
+        // its images inline leaves only the copies, so the note says exactly that.
         const intro = paths.length === 0
           ? '用户这一轮附带的截图：'
-          : `用户这一轮附带的截图（原图已存到：${paths.join('；')}。写经验库时请把它们复制进 <经验库>/<流程名>/screenshots/ 并改成有含义的名字）：`
+          : blocks.length === 0
+            ? `用户这一轮截图的本机副本：${paths.join('；')}。写经验库时请把这些文件复制进 <经验库>/<流程名>/screenshots/ 并改成有含义的名字。`
+            : `用户这一轮附带的截图（原图已存到：${paths.join('；')}。写经验库时请把它们复制进 <经验库>/<流程名>/screenshots/ 并改成有含义的名字）：`
         extras.push({
           role: 'user',
           id: randomUUID(),
