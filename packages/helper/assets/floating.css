@@ -1564,14 +1564,22 @@ body.expand-down #minimize {
 
 /* 输入框上方的图片条 */
 #attachments {
-  /* In-flow, so the status row above is pushed up instead of being covered. */
+  /* In-flow, so the status row above is pushed up instead of being covered.
+   * #panel already reserves the composer band at its bottom, so this only needs
+   * the small gap above the input; reserving it again doubled the distance. */
   position: relative;
   z-index: 4;
   display: flex;
   gap: 6px;
   overflow-x: auto;
-  margin: 0 16px calc(var(--composer-height, 72px) + 8px);
+  margin: 0 16px 6px;
   padding: 2px 0;
+}
+
+/* The panel expands downward from the top edge, so the strip follows the composer
+ * there by moving to the start of the flow instead of its end. */
+body.expand-down #attachments {
+  order: -1;
 }
 
 #attachments[hidden] { display: none; }
