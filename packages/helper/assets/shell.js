@@ -1829,6 +1829,14 @@ let expandedAt = 0
         bubble.className = 'user-bubble'
         const actions = document.createElement('div')
         actions.className = 'user-actions'
+        const echoedImages = Array.isArray(block.payload?.images) ? block.payload.images : []
+        for (const image of echoedImages) {
+          if (typeof image?.data !== 'string' || image.data === '') continue
+          const thumb = document.createElement('img')
+          thumb.className = 'user-image'
+          thumb.src = 'data:' + (image.mediaType || 'image/png') + ';base64,' + image.data
+          bubble.append(thumb)
+        }
         actions.append(messageCopyButton(() => bubble.textContent ?? ''))
         node.append(bubble, actions)
       } else if (block.kind === 'notice') {
