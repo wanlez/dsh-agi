@@ -416,6 +416,12 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
   .starButton { background: transparent; border: 0; font-size: 20px; line-height: 1; color: #b8860b; cursor: pointer; padding: 2px 6px; }
   .starButton:hover { transform: scale(1.1); }
   .insertNote { font-size: 11.5px; color: var(--muted); margin-bottom: 6px; line-height: 1.5; }
+  .csEntry { width: 100%; box-sizing: border-box; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; background: #fffaf0; }
+  .csText { width: 100%; font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
+  .csThumbs { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+  .csThumb { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); }
+  .csImages { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+  .csEditText { width: 100%; min-height: 80px; font: inherit; padding: 8px; border-radius: 10px; border: 1px solid var(--line); box-sizing: border-box; }
   .riTitle { font-weight: 600; font-size: 13px; }
   .riMeta { font-size: 11px; color: var(--muted); }
   .riDesc { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1245,56 +1251,76 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
   }
 
   // ---------- stats ----------
+  var csEditingId = "";
   function openCommonSense() {
     api("/api/common-sense").then(function (data) { renderCommonSense(data.commonSense); }).catch(function (error) { toast(error.message, "bad"); });
   }
   function renderCommonSense(commonSense) {
     var entries = (commonSense && commonSense.entries) || [];
-    showModal("常识区", '<p class="muted">全局常识：球执行任何路径前都会读它。只允许人工编辑，球不会自己改。</p><div id="csList"></div><button class="btn" data-action="cs-add">+ 添加常识</button><div class="insertFoot"><button class="btn primary" data-action="cs-save">保存</button></div>');
+    showModal("常识区", '<p class="muted">全局常识：球执行任何路径前都会读它。只允许人工编辑，球不会自己改。</p><div id="csList"></div><div class="insertFoot"><button class="btn" data-action="cs-add">+ 添加常识</button><button class="btn primary" data-action="cs-save">保存</button></div>');
     renderCommonSenseList(entries);
   }
   function renderCommonSenseList(entries) {
     var box = $("csList");
     if (!box) return;
-    box.innerHTML = entries.map(function (entry) {
-      var images = (entry.images || []).map(function (image) {
-        return '<span class="csImage"><img src="/.dsh-agi/knowledge-graph/api/common-sense/images/' + encodeURIComponent(image.file) + '" alt=""><button class="btn small" data-action="cs-image-remove" data-id="' + esc(entry.id) + '" data-file="' + esc(image.file) + '">删图</button></span>';
-      }).join("");
-      return '<div class="csEntry" data-id="' + esc(entry.id) + '">'
-        + '<textarea class="csText" maxlength="100" placeholder="一条常识（100 字以内）">' + esc(entry.text) + '</textarea>'
-        + '<div class="csImages">' + images + '<input type="file" accept="image/*" data-action="cs-image-add" data-id="' + esc(entry.id) + '"></div>'
-        + '<button class="btn small danger" data-action="cs-remove">删除这条</button></div>';
-    }).join("");
+    box.innerHTML = entries.length === 0
+      ? '<p class="muted">还没有常识。点「添加常识」写一条。</p>'
+      : entries.map(function (entry) {
+          var images = (entry.images || []).map(function (image) {
+            return '<img class="csThumb" src="/.dsh-agi/knowledge-graph/api/common-sense/images/' + encodeURIComponent(image.file) + '" alt="">';
+          }).join("");
+          return '<div class="csEntry" data-id="' + esc(entry.id) + '">'
+            + '<div class="csText">' + esc(entry.text) + '</div>'
+            + (images === "" ? "" : '<div class="csThumbs">' + images + '</div>')
+            + '<button class="btn small" data-action="cs-edit" data-id="' + esc(entry.id) + '">调整</button>'
+            + '</div>';
+        }).join("");
     box.dataset.entries = JSON.stringify(entries);
-    box.querySelectorAll("input[type=file]").forEach(function (input) {
-      input.addEventListener("change", function () {
-        var file = input.files && input.files[0];
-        if (!file) return;
-        var entryId = input.getAttribute("data-id") || "";
-        var reader = new FileReader();
-        reader.onload = function () {
-          var result = String(reader.result || "");
-          var comma = result.indexOf(",");
-          if (comma < 0) return;
-          uploadCommonSenseImage(entryId, result.slice(comma + 1));
-        };
-        reader.readAsDataURL(file);
-      });
+  }
+  function csEntries() {
+    var box = $("csList");
+    try { return JSON.parse(box.dataset.entries || "[]") || []; } catch (error) { return []; }
+  }
+  function openCommonSenseEdit(entryId) {
+    csEditingId = entryId;
+    var entries = csEntries();
+    var entry = entries.find(function (item) { return item.id === entryId; });
+    if (!entry) { toast("找不到这条常识。", "bad"); return; }
+    var images = (entry.images || []).map(function (image) {
+      return '<span class="csImage"><img class="csThumb" src="/.dsh-agi/knowledge-graph/api/common-sense/images/' + encodeURIComponent(image.file) + '" alt=""><button class="btn small" data-action="cs-image-remove" data-id="' + esc(entry.id) + '" data-file="' + esc(image.file) + '">删图</button></span>';
+    }).join("");
+    showModal("调整常识", '<textarea id="csEditText" class="csEditText" maxlength="100" placeholder="一条常识（100 字以内）">' + esc(entry.text) + '</textarea>'
+      + '<div class="csImages">' + images + '</div>'
+      + '<input id="csEditFile" type="file" accept="image/*">'
+      + '<div class="insertFoot"><button class="btn ghost" data-action="cs-edit-cancel">取消</button><button class="btn danger" data-action="cs-edit-remove">删除这条</button><button class="btn primary" data-action="cs-edit-save">确定</button></div>');
+    $("csEditFile").addEventListener("change", function () {
+      var file = $("csEditFile").files && $("csEditFile").files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function () {
+        var result = String(reader.result || "");
+        var comma = result.indexOf(",");
+        if (comma < 0) return;
+        uploadCommonSenseImage(entry.id, result.slice(comma + 1));
+      };
+      reader.readAsDataURL(file);
     });
   }
-  function collectCommonSense() {
-    var known = {};
+  function saveCommonSenseEdit() {
     var box = $("csList");
-    try { (JSON.parse(box.dataset.entries || "[]") || []).forEach(function (entry) { known[entry.id] = entry; }); } catch (error) { known = {}; }
-    var list = [];
-    document.querySelectorAll("#csList .csEntry").forEach(function (row) {
-      var text = row.querySelector(".csText").value.trim();
-      if (text === "") return;
-      var id = row.getAttribute("data-id") || "";
-      var previous = known[id];
-      list.push({ text: text, ...id ? { id: id } : {}, ...previous && previous.images ? { images: previous.images } : {} });
-    });
-    return list;
+    var entries = csEntries();
+    var editing = document.querySelector("#modalBody .csEditText");
+    if (editing === null) return;
+    var id = csEditingId;
+    if (id === "") return;
+    var text = editing.value.trim();
+    entries = entries.map(function (item) { return item.id === id ? { id: id, text: text, ...item.images ? { images: item.images } : {} } : item; });
+    box.dataset.entries = JSON.stringify(entries);
+    closeModal();
+    renderCommonSenseList(entries);
+  }
+  function collectCommonSense() {
+    return csEntries();
   }
   function saveCommonSense() {
     api("/api/common-sense", { method: "POST", body: { entries: collectCommonSense() } }).then(function (data) {
@@ -1491,6 +1517,18 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
       return;
     }
     if (action === "common-sense") { event.preventDefault(); openCommonSense(); return; }
+    if (action === "cs-edit") { event.preventDefault(); openCommonSenseEdit(el.getAttribute("data-id") || ""); return; }
+    if (action === "cs-edit-cancel") { event.preventDefault(); closeModal(); return; }
+    if (action === "cs-edit-remove") {
+      event.preventDefault();
+      var box = $("csList");
+      var entries = csEntries().filter(function (item) { return item.id !== csEditingId; });
+      if (box) box.dataset.entries = JSON.stringify(entries);
+      closeModal();
+      renderCommonSenseList(entries);
+      return;
+    }
+    if (action === "cs-edit-save") { event.preventDefault(); saveCommonSenseEdit(); return; }
     if (action === "cs-add") {
       event.preventDefault();
       var listBox = $("csList");
