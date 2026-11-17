@@ -85,6 +85,15 @@ The observation frame (the glowing border drawn while the agent is in control) i
 
 Each release keeps its own section, newest first, so the delta between two versions is always readable.
 
+### 0.6.10
+
+- **Common sense**: operator-maintained global entries (100-character text plus images) that the ball reads before any path and never edits. The page is now full-width, images sit under their text, and each entry edits in one small Adjust dialog.
+- **Reflection only follows the library loop**: it fires only after a turn that actually called a `knowledge_graph` tool, and it stays silent — the ball no longer talks to itself on a timer.
+- **Pause / resume**: a pause key beside stop sends a steer that makes the model stop (‖) and resume from the break (▶), without depending on the running state.
+- **Conversation modes**: isolated (default: the ball's own computer-use conversation in a private workspace) and follow-recent (the window's newest conversation is adopted on each restart, then pinned for the run); shared mode locks the ball's history list and says why.
+- **Library guardrails**: AI notes are capped at 600 characters and each node at 10 images, enforced in the single write path; the write queue is shared per directory so instances can no longer overwrite each other; screenshot sources are persisted explicitly; AI may only write ai_notes.
+- **Ball panel**: option lists cap at 45vh and scroll independently; switching, resetting, or expanding a conversation scrolls to the newest message; attachment previews reserve their own space so the status row moves up instead of being covered.
+
 ### 0.6.9
 
 - **Ball session mode (isolated / follow recent).** Settings → Floating ball → Ball conversation. The default, isolated, keeps the ball on its own `computer-use` conversations, created in a private workspace of its own. "Follow recent" starts the ball on the conversation the main window touched last (the ball's own computer-use conversations are skipped). Restart the ball to apply a switch.
