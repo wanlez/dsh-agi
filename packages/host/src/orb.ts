@@ -198,7 +198,7 @@ export interface OrbContext {
   }
   readonly sessions: {
     get(id: string): {
-      snapshotEvents(): readonly { readonly type: string; readonly seq: number; readonly data: unknown }[]
+      snapshotEvents(): readonly { readonly type: string; readonly seq: number; readonly data: unknown; readonly time?: number }[]
       readonly header?: { readonly cwd?: string; readonly agentPreset?: string }
     } | undefined
   }
@@ -447,6 +447,8 @@ export class OrbRuntime {
   private halted = false
   private generation = 0
   private replaying = false
+  /** True once this process has replayed a transcript; only the first replay can be stale. */
+  private replayed = false
   private workspaceTask: Promise<string> | undefined
   private ballWorkspaceTask: Promise<string> | undefined
   private retry: ReturnType<typeof setTimeout> | undefined
@@ -468,6 +470,13 @@ export class OrbRuntime {
   private idleWarned = false
   /** Quiet polls since the last transcript event, counted while a turn is believed running. */
   private quietPolls = 0
+  /**
+   * When this Host process started. A turn that began before it cannot still be running:
+   * whatever ran it died with the previous process, so a replay that adopts one is stale.
+   */
+  private readonly processStartedAt = Date.now()
+  /** When the turn the ball currently believes in began, as the transcript timed it. */
+  private openedTurnAt: number | undefined
   private sessionId: string | undefined
   private sessionError: string | undefined
   private creating: Promise<string> | undefined
@@ -1000,9 +1009,14 @@ export class OrbRuntime {
     this.sockets.add(socket)
     if (this.sessionId) this.send(socket, { type: 'session', sessionId: this.sessionId })
     if (this.blockOrder.length === 0 && this.sessionId) {
+      const firstReplay = !this.replayed
       this.replaying = true
       this.drain()
       this.replaying = false
+      this.replayed = true
+      // The replayed turn is the one the page would paint as running, so settle it before
+      // the page hears anything about the turn.
+      this.settleReplayedTurn(firstReplay)
     } else {
       for (const key of this.blockOrder) {
         const block = this.blocks.get(key)
@@ -1452,7 +1466,7 @@ export class OrbRuntime {
         if (seq <= this.watermark) continue
         this.watermark = seq
         fresh = true
-        this.consume(event.type, event.data, seq)
+        this.consume(event.type, event.data, seq, Number(event.time))
       }
     } catch (error) {
       console.error(`dsh-agi: transcript read failed: ${error instanceof Error ? error.message : String(error)}`)
@@ -1470,7 +1484,7 @@ export class OrbRuntime {
     }
   }
 
-  private consume(type: string, data: unknown, seq: number): void {
+  private consume(type: string, data: unknown, seq: number, time?: number): void {
     if (type === 'user/message') {
       const record = asRecord(data)
       const sourceKind = asRecord(record?.source)?.kind
@@ -1496,6 +1510,8 @@ export class OrbRuntime {
       if (this.turnRunning) return
       this.turnInterrupted = false
       this.beginTurn()
+      // A replayed event carries the time it was written; the live case already set now.
+      if (typeof time === 'number' && Number.isFinite(time)) this.openedTurnAt = time
       this.armIdle()
       return
     }
@@ -1716,6 +1732,7 @@ export class OrbRuntime {
   private beginTurn(): void {
     this.turnEpoch += 1
     this.turnRunning = true
+    this.openedTurnAt = Date.now()
     this.selection.setSessionRunning(true)
     this.broadcast({ type: 'turn', running: true })
     this.voice.beginTurn()
@@ -2825,8 +2842,7 @@ export class OrbRuntime {
   }
 
   /** The Host's own view of the turn; undefined when the read is unavailable or fails. */
-  private async officialRunning(): Promise<boolean | undefined> {
-    const read = this.ctx.sessionController.state
+  private async officialRunning(): Promise<boolean | undefined> {    const read = this.ctx.sessionController.state
     const sessionId = this.sessionId
     if (read === undefined || sessionId === undefined) return undefined
     try {
@@ -2837,6 +2853,19 @@ export class OrbRuntime {
       // An unreadable state keeps whatever the transcript said.
       return undefined
     }
+  }
+
+  /**
+   * The first replay of a process can only hold events written by earlier processes, so a
+   * turn it opens cannot still be running — whatever ran it is gone. The panel would spin
+   * on that ghost forever (this is the reported bug), so it is finished right here.
+   */
+  private settleReplayedTurn(firstReplay: boolean): void {
+    if (!firstReplay || !this.turnRunning) return
+    const opened = this.openedTurnAt
+    const age = opened === undefined || opened <= 0 ? 'unknown' : `${Math.round((this.processStartedAt - opened) / 1000)}s`
+    console.error(`dsh-agi: clearing stale turn (replayed from a previous process, opened ${age} before this one)`)
+    this.finishTurn()
   }
 
   /**
