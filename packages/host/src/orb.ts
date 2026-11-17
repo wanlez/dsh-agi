@@ -445,10 +445,6 @@ export class OrbRuntime {
   private halted = false
   private generation = 0
   private replaying = false
-  /** Index in `blockOrder` where the newest turn's blocks begin. */
-  private lastTurnStart = 0
-  /** True while a replay builds the transcript in memory; the page hears nothing meanwhile. */
-  private silentReplay = false
   /**
    * True once a panel has connected. The 400ms poll starts before that and reads the whole
    * stored transcript as if it were live — which is how a turn the previous process left
@@ -996,47 +992,23 @@ export class OrbRuntime {
     return given.length === expected.length && timingSafeEqual(given, expected)
   }
 
-  /**
-   * Hand a fresh panel the turn it is joining, without touching what the page already shows
-   * and without touching the stored conversation: the ball is a view, so it only needs the
-   * newest turn appended, not a rebuilt transcript.
-   * A panel that connects before the session is back in the store waits for it.
-   */
-  private replayInto(socket: Socket): void {
-    const sessionId = this.sessionId
-    if (sessionId === undefined) return
-    if (this.blockOrder.length === 0) {
-      const session = this.ctx.sessions.get(sessionId)
-      if (session === undefined) {
-        setTimeout(() => {
-          if (!this.halted && this.sockets.has(socket)) this.replayInto(socket)
-        }, 300)
-        return
-      }
-      // Memory is empty (fresh process): read the log into it, but keep the page untouched
-      // while doing so, then send only the newest turn below.
-      this.silentReplay = true
-      this.replaying = true
-      try {
-        this.drain()
-      } finally {
-        this.replaying = false
-        this.silentReplay = false
-      }
-    }
-    const from = Math.min(Math.max(0, this.lastTurnStart), this.blockOrder.length)
-    for (const key of this.blockOrder.slice(from)) {
-      const block = this.blocks.get(key)
-      if (block !== undefined) this.send(socket, block)
-    }
-  }
-
   private accept(socket: Socket, hello: unknown): void {
     const pid = asRecord(hello)?.pid
     if (typeof pid === 'number' && Number.isInteger(pid) && pid > 0) this.helperPid = pid
     this.sockets.add(socket)
     if (this.sessionId) this.send(socket, { type: 'session', sessionId: this.sessionId })
-    this.replayInto(socket)
+    if (this.blockOrder.length === 0 && this.sessionId) {
+      this.replaying = true
+      this.drain()
+      this.replaying = false
+      // A transcript can never prove a turn is live: the process that ran it may be gone.
+      // Only live events from here on — and the ball's own prompt — start a turn.
+    } else {
+      for (const key of this.blockOrder) {
+        const block = this.blocks.get(key)
+        if (block) this.send(socket, block)
+      }
+    }
     this.panelConnected = true
     imageDebug(`accept state turn=${this.turnRunning} hold=${this.voice.holdState()} speech=${this.voice.speaking()} mode=${this.voice.listenMode()}`)
     this.send(socket, { type: 'turn', running: this.turnRunning })
@@ -1515,9 +1487,6 @@ export class OrbRuntime {
       return
     }
     if (type === 'turn/start') {
-      // The newest turn's first block, so a page that connects later can be handed that
-      // turn alone instead of the whole conversation.
-      this.lastTurnStart = this.blockOrder.length
       // A wake turn (e.g. the code_agent completion followup) starts without a
       // ball prompt; the ball still shows it as running, stop button included.
       if (this.replaying || !this.panelConnected) return
@@ -1991,9 +1960,6 @@ export class OrbRuntime {
   }
 
   private broadcast(message: unknown): void {
-    // A replay builds the transcript in memory and then sends one window of it, so the page
-    // never paints events it is about to be trimmed away from.
-    if (this.silentReplay) return
     for (const socket of this.sockets) this.send(socket, message)
   }
 
@@ -2957,21 +2923,9 @@ export class OrbRuntime {
     if (!(await this.openConversation(sessionId))) return
     await this.adopt(sessionId)
     this.resetTranscript()
-    this.lastTurnStart = 0
-    this.silentReplay = true
     this.replaying = true
-    try {
-      this.drain()
-    } finally {
-      this.replaying = false
-      this.silentReplay = false
-    }
-    // Only the newest turn goes on screen for the newly opened conversation.
-    const from = Math.min(Math.max(0, this.lastTurnStart), this.blockOrder.length)
-    for (const key of this.blockOrder.slice(from)) {
-      const block = this.blocks.get(key)
-      if (block !== undefined) this.broadcast(block)
-    }
+    this.drain()
+    this.replaying = false
     // A row's running flag is stored state, not evidence: live events start the turn.
     if (row.running) this.watch()
   }
