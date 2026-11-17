@@ -1816,6 +1816,33 @@ let expandedAt = 0
     return String(text).split('\n').find((line) => line.trim() !== '') ?? ''
   }
 
+  /**
+   * Echoed screenshots sit above the bubble in their own strip, so the bubble's
+   * text-only update never wipes them and the copy button still copies text.
+   */
+  function renderUserImages(row, block) {
+    const images = Array.isArray(block.payload?.images) ? block.payload.images : []
+    const signature = images
+      .map((image) => String(image?.mediaType ?? '') + ':' + String(image?.data ?? '').length)
+      .join('|')
+    if (row.dataset.echoImages === signature) return
+    row.dataset.echoImages = signature
+    const existing = row.querySelector('.user-images')
+    if (existing) existing.remove()
+    if (images.length === 0) return
+    const box = document.createElement('div')
+    box.className = 'user-images'
+    for (const image of images) {
+      if (typeof image?.data !== 'string' || image.data === '') continue
+      const thumb = document.createElement('img')
+      thumb.className = 'user-image'
+      thumb.alt = ''
+      thumb.src = 'data:' + (image.mediaType || 'image/png') + ';base64,' + image.data
+      box.append(thumb)
+    }
+    if (box.childElementCount > 0) row.prepend(box)
+  }
+
   function upsertBlock(block) {
     if (typeof block?.key !== 'string' || typeof block.text !== 'string') return
     blockData.set(block.key, block)
@@ -1878,6 +1905,7 @@ let expandedAt = 0
     node.toggleAttribute('data-response', block.response === true)
     if (block.kind === 'user') {
       node.querySelector('.user-bubble').textContent = block.text
+      renderUserImages(node, block)
     } else if (block.kind === 'notice') {
       // Settled at creation; nothing per-update.
     } else if (block.kind === 'reasoning') {

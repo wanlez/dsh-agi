@@ -1652,12 +1652,19 @@ body.expand-down #pause {
   top: calc(var(--composer-height, 72px) + 14px);
 }
 
-/* Screenshots echoed in the ball's own transcript. */
+/* Screenshots echoed in the ball's own transcript: a strip above the bubble. */
+.user-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+  max-width: min(calc(var(--dsh-chat-content-width, 748px) * 0.702), 82%);
+}
+
 .user-image {
   display: block;
   max-width: 180px;
   max-height: 120px;
   border-radius: 8px;
-  margin: 2px 0;
   object-fit: contain;
 }

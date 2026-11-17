@@ -4,7 +4,7 @@
  */
 
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer, type Server, type Socket } from 'node:net'
 import { dirname, join, resolve } from 'node:path'
@@ -97,6 +97,11 @@ export interface AttachmentService {
     readonly height?: number
     readonly name?: string
   }>
+  /**
+   * The official store's own locator for a stored image object. The ball reads a
+   * replayed screenshot through it instead of guessing the provider's layout.
+   */
+  imageHostPath?(ref: { readonly attachmentId: string }): string | undefined
 }
 
 /**
@@ -345,6 +350,24 @@ interface BlockUsage {
   readonly reasoningTokens?: number
 }
 
+/** One screenshot echoed in the ball's transcript: base64 plus the type a data URL needs. */
+export interface EchoedImage {
+  readonly mediaType: string
+  readonly data: string
+}
+
+/** Ball-only extras a transcript block carries; the model never sees them. */
+export interface BlockPayload {
+  readonly images?: readonly EchoedImage[]
+}
+
+/** A thumbnail is a convenience: past these limits the bubble keeps its text only. */
+const ECHO_MAX_IMAGES = 4
+const ECHO_MAX_IMAGE_BYTES = 1_500_000
+const ECHO_MAX_TOTAL_BYTES = 6_000_000
+/** Base64 one socket lifetime retains for replays; the oldest blocks drop theirs first. */
+const ECHO_RETAIN_BYTES = 32_000_000
+
 interface BlockMessage {
   readonly type: 'block'
   readonly key: string
@@ -355,6 +378,8 @@ interface BlockMessage {
   /** Part of the turn's final answer: the only text a folded turn keeps visible. */
   readonly response?: true
   readonly detail?: ToolDetail
+  /** Ball-only echo data; never part of the model-facing transcript. */
+  readonly payload?: BlockPayload
   readonly usage?: BlockUsage
 }
 
@@ -1428,8 +1453,9 @@ export class OrbRuntime {
       if (sourceKind === 'user' || sourceKind === undefined) {
         if (!this.replaying) return
         const text = userText(data)
-        if (!text.trim()) return
-        this.block(`user:${seq}`, 'user', text, false, 'set')
+        const images = this.echoedImages(record?.content)
+        if (!text.trim() && images.length === 0) return
+        this.block(`user:${seq}`, 'user', text || '（图片）', false, 'set', undefined, images.length === 0 ? undefined : { images })
         return
       }
       // The code_agent completion report is the only notice the ball shows as
@@ -1617,7 +1643,7 @@ export class OrbRuntime {
     if (usage !== undefined) {
       const last = [...writtenKeys].reverse().find((key) => this.blocks.get(key)?.kind === 'assistant')
       const settled = last === undefined ? undefined : this.blocks.get(last)
-      if (last !== undefined && settled) this.block(last, settled.kind, settled.text, false, 'set', undefined, usage)
+      if (last !== undefined && settled) this.block(last, settled.kind, settled.text, false, 'set', undefined, undefined, usage)
     }
   }
 
@@ -1743,6 +1769,7 @@ export class OrbRuntime {
     running: boolean,
     mode: 'set' | 'append',
     detail?: Partial<ToolDetail>,
+    payload?: BlockPayload,
     usage?: BlockUsage,
   ): void {
     if (kind === 'tool' && (name as string | undefined)?.startsWith('knowledge_graph_') === true) this.graphTouchedThisTurn = true
@@ -1762,12 +1789,14 @@ export class OrbRuntime {
       ...mergedDetail,
       ...(mergedDetail.error === undefined ? {} : { error: mergedDetail.error }),
     }
+    const mergedPayload = payload ?? previous?.payload
     const mergedUsage = usage === undefined ? previous?.usage : usage
     const message: BlockMessage = {
       type: 'block', key, kind, text: next, running,
       ...(this.turnInterrupted && kind === 'assistant' && !running ? { interrupted: true } : {}),
       ...(this.responseKeys.includes(key) ? { response: true as const } : {}),
       ...(merged === undefined ? {} : { detail: merged }),
+      ...(mergedPayload === undefined ? {} : { payload: mergedPayload }),
       ...(mergedUsage === undefined ? {} : { usage: mergedUsage }),
     }
     if (!this.blocks.has(key)) {
@@ -1791,6 +1820,7 @@ export class OrbRuntime {
       }
     }
     this.blocks.set(key, message)
+    if (mergedPayload?.images !== undefined && mergedPayload.images.length > 0) this.trimEcho()
     if (!this.replaying && kind === 'assistant') this.voice.noteAssistant(key, next)
     if (!this.replaying && kind === 'tool' && previous?.kind !== 'tool') this.voice.tool()
     if (running) {
@@ -2414,10 +2444,13 @@ export class OrbRuntime {
       // A staging failure only costs the copy; the upload below still runs.
     }
     const stagedPaths: string[] = []
+    const echoed: EchoedImage[] = []
+    let echoedBytes = 0
     for (const item of list) {
       const record = asRecord(item)
       try {
-        const data = Buffer.from(String(record?.data ?? ''), 'base64')
+        const base64 = String(record?.data ?? '')
+        const data = Buffer.from(base64, 'base64')
         // The page may hand over an empty slot or a screenshot far past the upload limit.
         if (data.length === 0 || data.length > 4_000_000) continue
         const declared = record?.mediaType === 'image/png' ? 'image/png' : 'image/jpeg'
@@ -2447,6 +2480,13 @@ export class OrbRuntime {
             name: saved.name ?? 'composer-image',
           },
         })
+        if (echoed.length < ECHO_MAX_IMAGES
+          && base64 !== ''
+          && data.length <= ECHO_MAX_IMAGE_BYTES
+          && echoedBytes + data.length <= ECHO_MAX_TOTAL_BYTES) {
+          echoedBytes += data.length
+          echoed.push({ mediaType: saved.mediaType ?? mediaType, data: base64 })
+        }
       } catch (error) {
         const raw = String(record?.data ?? '')
         let head = ''
@@ -2471,7 +2511,7 @@ export class OrbRuntime {
     this.pendingImages = { sessionId, blocks: imageBlocks, paths: stagedPaths }
     imageDebug(`pending images=${imageBlocks.length} session=${sessionId}`)
     const key = `user:${randomUUID()}`
-    this.block(key, 'user', trimmed || '（图片）', false, 'set')
+    this.block(key, 'user', trimmed || '（图片）', false, 'set', undefined, echoed.length === 0 ? undefined : { images: echoed })
     await this.submitPrompt(trimmed)
   }
 
@@ -2507,6 +2547,68 @@ export class OrbRuntime {
       // A Host without the service keeps the composer text-only.
     }
     return undefined
+  }
+
+  /**
+   * A replayed message's screenshots, read through the official attachment store.
+   * Replay walks the session snapshot synchronously, so each read is bounded by the
+   * reference's own byte count: anything pruned, oversized, or past the budget just
+   * leaves the bubble without a thumbnail.
+   */
+  private echoedImages(content: unknown): EchoedImage[] {
+    let service: AttachmentService | undefined
+    try {
+      service = this.attachmentService()
+    } catch {
+      return []
+    }
+    if (service?.imageHostPath === undefined) return []
+    const images: EchoedImage[] = []
+    let total = 0
+    for (const item of Array.isArray(content) ? content : []) {
+      if (images.length >= ECHO_MAX_IMAGES) break
+      const block = asRecord(item)
+      if (block?.type !== 'image') continue
+      const ref = asRecord(block.attachment)
+      if (ref === undefined || typeof ref.attachmentId !== 'string') continue
+      const bytes = typeof ref.bytes === 'number' ? ref.bytes : 0
+      if (bytes <= 0 || bytes > ECHO_MAX_IMAGE_BYTES) continue
+      if (total + bytes > ECHO_MAX_TOTAL_BYTES) break
+      try {
+        const path = service.imageHostPath({ attachmentId: ref.attachmentId })
+        if (path === undefined) continue
+        const data = readFileSync(path)
+        if (data.length === 0 || data.length > ECHO_MAX_IMAGE_BYTES) continue
+        total += data.length
+        images.push({
+          mediaType: typeof ref.mediaType === 'string' ? ref.mediaType : 'image/png',
+          data: data.toString('base64'),
+        })
+      } catch {
+        // A pruned object or a backend without host paths costs the thumbnail only.
+      }
+    }
+    return images
+  }
+
+  /** Retained echo images are a cache, not the transcript: the oldest blocks lose theirs first. */
+  private trimEcho(): void {
+    const total = (): number => {
+      let bytes = 0
+      for (const message of this.blocks.values()) {
+        for (const image of message.payload?.images ?? []) bytes += image.data.length
+      }
+      return bytes
+    }
+    if (total() <= ECHO_RETAIN_BYTES) return
+    for (const key of this.blockOrder) {
+      const message = this.blocks.get(key)
+      if (message?.payload?.images === undefined) continue
+      const kept: BlockMessage = { ...message }
+      delete (kept as { payload?: BlockPayload }).payload
+      this.blocks.set(key, kept)
+      if (total() <= ECHO_RETAIN_BYTES) return
+    }
   }
 
   cleanHistory(): void {
