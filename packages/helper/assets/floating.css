@@ -1616,10 +1616,7 @@ body.expand-down #minimize {
   line-height: var(--prompt-line);
 }
 
-/* Pause rides inside the composer, just left of the avatar. */
-#composer {
-  position: relative;
-}
+/* Pause rides inside the composer (already an absolute box), just left of the avatar. */
 #pause {
   position: absolute;
   right: 8px;
