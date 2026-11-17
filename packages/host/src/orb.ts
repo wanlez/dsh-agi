@@ -454,6 +454,8 @@ export class OrbRuntime {
   private halted = false
   private generation = 0
   private replaying = false
+  /** True while a replay builds the transcript in memory; the page hears only the window. */
+  private silentReplay = false
   /**
    * True once a panel has connected. The 400ms poll starts before that and reads the whole
    * stored transcript as if it were live — which is how a turn the previous process left
@@ -1002,53 +1004,41 @@ export class OrbRuntime {
   }
 
   /**
-   * The sequence a fresh panel's rebuild starts from: just before the newest blocks, so the
-   * ball opens on the exchange it is part of instead of the conversation's first message.
-   */
-  private windowStart(events: readonly { readonly type: string; readonly seq: number }[]): number {
-    let seen = 0
-    for (let index = events.length - 1; index >= 0; index -= 1) {
-      const event = events[index]
-      if (event === undefined || !REPLAY_BLOCK_EVENTS.has(event.type)) continue
-      seen += 1
-      if (seen >= REPLAY_WINDOW_BLOCKS) return Math.max(0, Number(event.seq) - 1)
-    }
-    return 0
-  }
-
-  /**
-   * Rebuild one panel's transcript from the replay window. A panel that connects before the
-   * session is back in the store waits for it instead of replaying from the top.
+   * Rebuild one panel's transcript. The whole log is read into memory first (the block cap
+   * keeps the newest), and only then is its last window sent to the page: the panel can never
+   * show the conversation's opening, and the page is never told about blocks already trimmed.
+   * A panel that connects before the session is back in the store waits for it.
    */
   private replayInto(socket: Socket): void {
     const sessionId = this.sessionId
     if (sessionId === undefined) return
-    const session = this.ctx.sessions.get(sessionId)
-    if (session === undefined) {
+    if (this.ctx.sessions.get(sessionId) === undefined) {
       imageDebug('accept replay deferred: session not in the store yet')
       setTimeout(() => {
         if (!this.halted && this.sockets.has(socket)) this.replayInto(socket)
       }, 300)
       return
     }
-    let events: readonly { readonly type: string; readonly seq: number }[]
-    try {
-      events = session.snapshotEvents()
-    } catch (error) {
-      imageDebug(`accept replay failed: ${error instanceof Error ? error.message : String(error)}`)
-      return
-    }
-    const from = this.windowStart(events)
     this.clearDirty()
     this.blocks.clear()
     this.blockOrder.length = 0
-    this.watermark = from
+    this.watermark = 0
+    this.silentReplay = true
     this.replaying = true
-    this.drain()
-    this.replaying = false
+    try {
+      this.drain()
+    } finally {
+      this.replaying = false
+      this.silentReplay = false
+    }
+    const keys = this.blockOrder.slice(-REPLAY_WINDOW_BLOCKS)
+    for (const key of keys) {
+      const block = this.blocks.get(key)
+      if (block !== undefined) this.send(socket, block)
+    }
     // A transcript can never prove a turn is live: the process that ran it may be gone.
     // Only live events from here on — and the ball's own prompt — start a turn.
-    imageDebug(`accept replay blocks=${this.blockOrder.length} from=${from} events=${events.length}`)
+    imageDebug(`accept replay built=${this.blockOrder.length} sent=${keys.length}`)
   }
 
   private accept(socket: Socket, hello: unknown): void {
@@ -2010,6 +2000,9 @@ export class OrbRuntime {
   }
 
   private broadcast(message: unknown): void {
+    // A replay builds the transcript in memory and then sends one window of it, so the page
+    // never paints events it is about to be trimmed away from.
+    if (this.silentReplay) return
     for (const socket of this.sockets) this.send(socket, message)
   }
 
@@ -2973,11 +2966,18 @@ export class OrbRuntime {
     if (!(await this.openConversation(sessionId))) return
     await this.adopt(sessionId)
     this.resetTranscript()
-    const opened = this.ctx.sessions.get(sessionId)
-    if (opened !== undefined) this.watermark = this.windowStart(opened.snapshotEvents())
+    this.silentReplay = true
     this.replaying = true
-    this.drain()
-    this.replaying = false
+    try {
+      this.drain()
+    } finally {
+      this.replaying = false
+      this.silentReplay = false
+    }
+    for (const key of this.blockOrder.slice(-REPLAY_WINDOW_BLOCKS)) {
+      const block = this.blocks.get(key)
+      if (block !== undefined) this.broadcast(block)
+    }
     // A row's running flag is stored state, not evidence: live events start the turn.
     if (row.running) this.watch()
   }
