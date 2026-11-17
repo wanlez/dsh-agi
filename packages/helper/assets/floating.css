@@ -688,6 +688,7 @@ body.expand-up #transcript {
   font-size: 12px;
   color: var(--pin);
   cursor: pointer;
+  transform: translateX(18px);
 }
 
 #mode-track {
@@ -1645,38 +1646,38 @@ body.docked #pause{
 
 body.expand-left #pause{
 
-  left: calc(var(--chrome) + 14px + 52px);
+  left: calc(var(--chrome) + 14px + 88px);
 }
 
 
 body.expand-right #pause{
 
-  right: calc(var(--chrome) + 14px + 52px);
+  right: calc(var(--chrome) + 14px + 88px);
 }
 
 
 /* Strip-side anchors: the stop cap rides the panel, not the widened window. */
 body.has-strip.strip-left #pause{
 
-  left: calc(var(--strip-w) + var(--chrome) + 14px + 52px);
+  left: calc(var(--strip-w) + var(--chrome) + 14px + 88px);
 }
 
 
 body.has-strip.strip-right #pause{
 
-  right: calc(var(--strip-w) + var(--chrome) + 14px + 52px);
+  right: calc(var(--strip-w) + var(--chrome) + 14px + 88px);
 }
 
 
 body.expand-up #pause{
 
-  bottom: calc(var(--chrome) + 14px + 52px);
+  bottom: calc(var(--chrome) + 14px + 88px);
 }
 
 
 body.expand-down #pause{
 
-  top: calc(var(--chrome) + 14px + 52px);
+  top: calc(var(--chrome) + 14px + 88px);
 }
 
 

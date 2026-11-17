@@ -520,7 +520,7 @@ let expandedAt = 0
     if (pageClosed()) return
     document.body.classList.toggle('running', running)
     stop.hidden = !stopShown()
-    pauseButton.hidden = !stopShown()
+    pauseButton.hidden = !(stopShown() || paused)
     setWorkLocked(running)
     syncPromptPlaceholder()
     // The mode switch is a per-turn choice: lock it while the ball is working.
@@ -720,7 +720,7 @@ let expandedAt = 0
       expandedAt = Date.now()
       document.body.classList.add('expanded')
       stop.hidden = !stopShown()
-      pauseButton.hidden = !stopShown()
+      pauseButton.hidden = !(stopShown() || paused)
       renderAgentStrip()
       syncGif()
       renderVoiceMeter()
@@ -2690,12 +2690,13 @@ let expandedAt = 0
     pauseButton.setAttribute('aria-label', paused ? messages.resume : messages.pause)
   }
   pauseButton.addEventListener('click', () => {
-    if (!running) return
     paused = !paused
     applyPauseCopy()
+    // Pause rides the current turn as a steer; resume has to open a new turn when the agent
+    // already stopped, so it uses the interrupt path.
     api.send(paused
       ? '暂停一下：先停下手上的操作，不要继续点击或输入，等我下一步指示。'
-      : '继续刚才的任务，从断点接着做。', 'steer')
+      : '继续刚才的任务，从断点接着做。', paused ? 'steer' : 'interrupt')
   })
   historyButton.addEventListener('click', () => {
     if (sessionMode === 'shared') {
