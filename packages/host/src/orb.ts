@@ -1013,7 +1013,6 @@ export class OrbRuntime {
     const sessionId = this.sessionId
     if (sessionId === undefined) return
     if (this.ctx.sessions.get(sessionId) === undefined) {
-      imageDebug('accept replay deferred: session not in the store yet')
       setTimeout(() => {
         if (!this.halted && this.sockets.has(socket)) this.replayInto(socket)
       }, 300)
@@ -1038,7 +1037,6 @@ export class OrbRuntime {
     }
     // A transcript can never prove a turn is live: the process that ran it may be gone.
     // Only live events from here on — and the ball's own prompt — start a turn.
-    imageDebug(`accept replay built=${this.blockOrder.length} sent=${keys.length}`)
   }
 
   private accept(socket: Socket, hello: unknown): void {
