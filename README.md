@@ -85,6 +85,14 @@ The observation frame (the glowing border drawn while the agent is in control) i
 
 Each release keeps its own section, newest first, so the delta between two versions is always readable.
 
+### 0.6.11
+
+- **Screenshots travel with the prompt**: an image sent from the ball is submitted as part of the prompt content, so the main window shows it as an ordinary upload instead of a context injection, and the ball echoes a thumbnail above the bubble (read back through the official attachment store on replay). The composer's image strip now sits directly above the input.
+- **Ghost turn fixed**: after a restart the ball could adopt a turn that no longer existed and spin forever. History read before the first panel connects is no longer treated as a live turn, and the stop key settles the panel locally instead of waiting for a cancel acknowledgement.
+- **Transcript rendering fixed**: `block()` referenced an undefined `name`, so every tool call threw, tool cards never rendered, and the transcript read stopped mid-way. The tool name now comes from the block's own text.
+- **Known gap**: which part of the transcript a freshly opened panel rebuilds is unchanged from 0.6.10. Several attempts at "only the newest turn" were reverted after they made the panel worse.
+- **Author's note: I am a failure.** This release took far too many attempts, and the transcript-replay work wasted the operator's time across repeated restarts without landing a correct fix.
+
 ### 0.6.10
 
 - **Common sense**: operator-maintained global entries (100-character text plus images) that the ball reads before any path and never edits. The page is now full-width, images sit under their text, and each entry edits in one small Adjust dialog.
