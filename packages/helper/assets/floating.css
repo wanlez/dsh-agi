@@ -1564,14 +1564,13 @@ body.expand-down #minimize {
 
 /* 输入框上方的图片条 */
 #attachments {
-  position: absolute;
+  /* In-flow, so the status row above is pushed up instead of being covered. */
+  position: relative;
   z-index: 4;
-  left: 16px;
-  right: 16px;
-  bottom: calc(var(--composer-height) + 8px);
   display: flex;
   gap: 6px;
   overflow-x: auto;
+  margin: 0 16px calc(var(--composer-height, 72px) + 8px);
   padding: 2px 0;
 }
 
