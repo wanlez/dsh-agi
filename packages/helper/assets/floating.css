@@ -1615,3 +1615,85 @@ body.expand-down #minimize {
 #prompt.prompt-empty::after {
   line-height: var(--prompt-line);
 }
+
+/* Pause sits beside the stop cap and shares its anchored positions. */
+
+
+body.docked #ball,
+body.docked #panel,
+body.docked #pause{
+
+  visibility: hidden;
+  pointer-events: none;
+}
+
+
+#pause{
+
+  /* Opposite 72px cap of the input pill from #ball; 14px is (72-44)/2. */
+  position: absolute;
+  z-index: 2;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--pin);
+  border-radius: 50%;
+  padding: 0;
+  background: var(--white);
+  cursor: pointer;
+}
+
+
+body.expand-left #pause{
+
+  left: calc(var(--chrome) + 14px + 52px);
+}
+
+
+body.expand-right #pause{
+
+  right: calc(var(--chrome) + 14px + 52px);
+}
+
+
+/* Strip-side anchors: the stop cap rides the panel, not the widened window. */
+body.has-strip.strip-left #pause{
+
+  left: calc(var(--strip-w) + var(--chrome) + 14px + 52px);
+}
+
+
+body.has-strip.strip-right #pause{
+
+  right: calc(var(--strip-w) + var(--chrome) + 14px + 52px);
+}
+
+
+body.expand-up #pause{
+
+  bottom: calc(var(--chrome) + 14px + 52px);
+}
+
+
+body.expand-down #pause{
+
+  top: calc(var(--chrome) + 14px + 52px);
+}
+
+
+body:not(.expanded) #pause,
+body:not(.running):not(.voice-hold) #pause{
+
+  display: none;
+}
+#pause:empty { display: none; }
+
+/* Pause glyph sits centred in its own anchored cap. */
+#pause {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--black);
+  line-height: 1;
+}

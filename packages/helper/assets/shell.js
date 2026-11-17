@@ -39,6 +39,8 @@ const AGENT_ALERT_ICON = '<path d="M8 2.2L14.6 13.4H1.4L8 2.2Z" stroke="currentC
 const zh = {
   title: '桌面 agent',
   stop: '停止',
+  pause: '暂停',
+  resume: '继续',
   fresh: '新建',
   history: '历史',
   historyEmpty: '还没有 Computer Use 对话。',
@@ -103,6 +105,8 @@ const zh = {
 const en = {
   title: 'Desktop agent',
   stop: 'Stop',
+  pause: 'Pause',
+  resume: 'Resume',
   fresh: 'New',
   history: 'History',
   historyEmpty: 'No Computer Use chats yet.',
@@ -269,6 +273,7 @@ function permissionText(preset) {
 function main() {
   document.documentElement.lang = messages === zh ? 'zh' : 'en'
   const stop = document.querySelector('#stop')
+  const pauseButton = document.querySelector('#pause')
   const newConversation = document.querySelector('#new-conversation')
 const minimizeButton = document.querySelector('#minimize')
 const attachmentsBox = document.querySelector('#attachments')
@@ -356,6 +361,7 @@ let expandedAt = 0
   let permission = 'danger-full-access'
   let permissionOpen = false
   let historyOpen = false
+  let paused = false
   let sessionMode = 'isolated'
   let agentItems = []
   let agentClock
@@ -394,6 +400,7 @@ let expandedAt = 0
     const stopButton = document.querySelector('#stop')
     stopButton.setAttribute('aria-label', messages.stop)
     stopButton.title = messages.stop
+    applyPauseCopy()
     const newConversationButton = document.querySelector('#new-conversation')
     newConversationButton.setAttribute('aria-label', messages.fresh)
     newConversationButton.title = messages.fresh
@@ -513,6 +520,7 @@ let expandedAt = 0
     if (pageClosed()) return
     document.body.classList.toggle('running', running)
     stop.hidden = !stopShown()
+    pauseButton.hidden = !stopShown()
     setWorkLocked(running)
     syncPromptPlaceholder()
     // The mode switch is a per-turn choice: lock it while the ball is working.
@@ -712,6 +720,7 @@ let expandedAt = 0
       expandedAt = Date.now()
       document.body.classList.add('expanded')
       stop.hidden = !stopShown()
+      pauseButton.hidden = !stopShown()
       renderAgentStrip()
       syncGif()
       renderVoiceMeter()
@@ -724,6 +733,7 @@ let expandedAt = 0
     renderAgentStrip()
     if (docked !== undefined) dockTab.hidden = false
     stop.hidden = true
+    pauseButton.hidden = true
     syncGif()
     renderVoiceMeter()
     if (force) {
@@ -2671,6 +2681,21 @@ let expandedAt = 0
   })
   historyButton.addEventListener('pointerenter', () => {
     if (sessionMode === 'shared') showHint(messages.historyShared)
+  })
+  // A pause is a steer message the agent itself honours: it stops where it is and waits for the
+  // resume steer. No kernel hook is involved, so nothing can deadlock mid-tool-call.
+  function applyPauseCopy() {
+    pauseButton.textContent = paused ? '▶' : '‖'
+    pauseButton.title = paused ? messages.resume : messages.pause
+    pauseButton.setAttribute('aria-label', paused ? messages.resume : messages.pause)
+  }
+  pauseButton.addEventListener('click', () => {
+    if (!running) return
+    paused = !paused
+    applyPauseCopy()
+    api.send(paused
+      ? '暂停一下：先停下手上的操作，不要继续点击或输入，等我下一步指示。'
+      : '继续刚才的任务，从断点接着做。', 'steer')
   })
   historyButton.addEventListener('click', () => {
     if (sessionMode === 'shared') {
