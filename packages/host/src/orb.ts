@@ -1827,7 +1827,9 @@ export class OrbRuntime {
     payload?: BlockPayload,
     usage?: BlockUsage,
   ): void {
-    if (kind === 'tool' && (name as string | undefined)?.startsWith('knowledge_graph_') === true) this.graphTouchedThisTurn = true
+    // A tool block's text is its tool name; `name` is not in scope here and threw for every
+    // tool call, which silently broke the transcript read.
+    if (kind === 'tool' && text.startsWith('knowledge_graph_')) this.graphTouchedThisTurn = true
     const previous = this.blocks.get(key)
     const previousText = previous?.text ?? ''
     const next = clip(mode === 'append' ? `${previousText}${text}` : text, 20_000)
