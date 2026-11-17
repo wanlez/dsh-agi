@@ -192,6 +192,8 @@ export interface OrbContext {
       readonly reasoningEffort?: string
     }): Promise<unknown>
     cancel(request: { readonly sessionId: string }): Promise<unknown>
+    /** The Host's own passive session state; `running` is what the ball reconciles against. */
+    state?(request: { readonly sessionId: string }): Promise<{ readonly running?: boolean; readonly active?: boolean }>
     modelCatalog(): unknown
   }
   readonly sessions: {
@@ -829,6 +831,10 @@ export class OrbRuntime {
     })
     if (!await this.beginRuntime(generation)) return
     await sessionTask
+    if (this.halted || generation !== this.generation) return
+    // A restart can resume a conversation whose last turn never wrote its turn/end, and the
+    // replayed transcript would then leave the ball spinning on a turn nobody is running.
+    await this.clearStaleTurn('boot')
     if (this.halted || generation !== this.generation) return
     this.userData = helperDataDirectory(this.store.dir)
     await mkdir(this.userData, { recursive: true })
@@ -2806,6 +2812,36 @@ export class OrbRuntime {
     this.status('安全模式：检测到人工输入，已停止')
   }
 
+  /** The Host's own view of the turn; undefined when the read is unavailable or fails. */
+  private async officialRunning(): Promise<boolean | undefined> {
+    const read = this.ctx.sessionController.state
+    const sessionId = this.sessionId
+    if (read === undefined || sessionId === undefined) return undefined
+    try {
+      const state = await read.call(this.ctx.sessionController, { sessionId })
+      const running = state?.running
+      return typeof running === 'boolean' ? running : undefined
+    } catch {
+      // An unreadable state keeps whatever the transcript said.
+      return undefined
+    }
+  }
+
+  /**
+   * Drop a turn this ball only believes in. A restart mid-turn, or a cancel that never
+   * produced its turn/end, otherwise leaves the panel spinning on a turn nobody runs.
+   * The Host's state is the authority; an unreadable state keeps today's behaviour.
+   */
+  private async clearStaleTurn(where: string): Promise<boolean> {
+    if (!this.turnRunning) return false
+    if (await this.officialRunning() !== false) return false
+    const epoch = this.turnEpoch
+    console.error(`dsh-agi: clearing stale turn (${where})`)
+    if (this.turnEpoch !== epoch) return false
+    this.finishTurn()
+    return true
+  }
+
   private async stopTurn(epoch: number): Promise<void> {
     // Stop and dismiss own the turn now; a command waiting for its turn/end must not
     // start a new task after this.
@@ -2816,9 +2852,11 @@ export class OrbRuntime {
       await this.ctx.sessionController.cancel({ sessionId })
     } catch (error) {
       // A failing cancel must not paint the ball as stopped: the turn keeps running and
-      // its own turn/end stays the authoritative close.
+      // its own turn/end stays the authoritative close — unless the Host says it is idle,
+      // in which case that end will never come and the panel would spin forever.
       const message = error instanceof Error ? error.message : String(error)
       console.error(`dsh-agi: cancel failed: ${message}`)
+      if (await this.clearStaleTurn('cancel-failed')) return
       this.status(message)
       return
     }
@@ -2829,6 +2867,7 @@ export class OrbRuntime {
     // drain() can synchronously process the old turn/end, which starts a pending new
     // prompt. Re-check before closing: that new turn is not ours to finish.
     if (this.turnEpoch !== epoch || this.sessionId !== sessionId) return
+    if (await this.clearStaleTurn('stop')) return
     this.finishTurn()
   }
 
@@ -2916,6 +2955,8 @@ export class OrbRuntime {
     if (row.running) {
       this.beginTurn()
       this.watch()
+      // A history row can still say running after a restart; the Host settles it.
+      await this.clearStaleTurn('switch')
     }
   }
 
