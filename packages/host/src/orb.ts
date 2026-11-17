@@ -466,6 +466,8 @@ export class OrbRuntime {
   /** Newer version waiting to be installed, or null once none is known. */
   private updateAvailable: string | null = null
   private idleWarned = false
+  /** Quiet polls since the last transcript event, counted while a turn is believed running. */
+  private quietPolls = 0
   private sessionId: string | undefined
   private sessionError: string | undefined
   private creating: Promise<string> | undefined
@@ -1009,6 +1011,9 @@ export class OrbRuntime {
     }
     imageDebug(`accept state turn=${this.turnRunning} hold=${this.voice.holdState()} speech=${this.voice.speaking()} mode=${this.voice.listenMode()}`)
     this.send(socket, { type: 'turn', running: this.turnRunning })
+    // A page that arrives while the ball believes in a turn nobody runs gets a spinning
+    // panel; the Host's own state settles it right after the first paint.
+    void this.clearStaleTurn('accept')
     this.send(socket, { type: 'safe-mode', enabled: this.store.safeMode() })
     this.send(socket, { type: 'mode', mode: this.store.mode() })
     // A closing line or a queued question prompt may still be playing from before a page
@@ -1455,6 +1460,13 @@ export class OrbRuntime {
     if (fresh && this.turnRunning) {
       this.idleWarned = false
       this.armIdle()
+    }
+    // The ball only mirrors the conversation: a turn it still believes in while the
+    // transcript has gone quiet is re-checked against the Host about every ten seconds.
+    if (fresh) this.quietPolls = 0
+    else if (this.turnRunning && ++this.quietPolls >= 25) {
+      this.quietPolls = 0
+      void this.clearStaleTurn('quiet')
     }
   }
 
