@@ -4,7 +4,7 @@
  */
 
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
-import { appendFileSync, existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer, type Server, type Socket } from 'node:net'
 import { dirname, join, resolve } from 'node:path'
@@ -1035,7 +1035,6 @@ export class OrbRuntime {
       const block = this.blocks.get(key)
       if (block !== undefined) this.send(socket, block)
     }
-    imageDebug(`replay start=${start} built=${this.blockOrder.length}`)
     // A transcript can never prove a turn is live: the process that ran it may be gone.
     // Only live events from here on — and the ball's own prompt — start a turn.
   }
@@ -1061,8 +1060,10 @@ export class OrbRuntime {
     if (typeof pid === 'number' && Number.isInteger(pid) && pid > 0) this.helperPid = pid
     this.sockets.add(socket)
     if (this.sessionId) this.send(socket, { type: 'session', sessionId: this.sessionId })
-    // A fresh page always rebuilds from the window rather than from whatever this process
-    // happens to hold: a trimmed or half-built map used to leave the panel showing one turn.
+    // Clear the page before handing it the window. A panel that has stayed connected since
+    // the conversation's first turn keeps that DOM otherwise, and every rebuild only upsets
+    // the blocks it already had — which is why the opening exchange never went away.
+    this.send(socket, { type: 'reset' })
     this.replayInto(socket)
     this.panelConnected = true
     imageDebug(`accept state turn=${this.turnRunning} hold=${this.voice.holdState()} speech=${this.voice.speaking()} mode=${this.voice.listenMode()}`)
