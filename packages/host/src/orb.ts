@@ -192,8 +192,6 @@ export interface OrbContext {
       readonly reasoningEffort?: string
     }): Promise<unknown>
     cancel(request: { readonly sessionId: string }): Promise<unknown>
-    /** The Host's own passive session state; `running` is what the ball reconciles against. */
-    state?(request: { readonly sessionId: string }): Promise<{ readonly running?: boolean; readonly active?: boolean }>
     modelCatalog(): unknown
   }
   readonly sessions: {
@@ -447,8 +445,6 @@ export class OrbRuntime {
   private halted = false
   private generation = 0
   private replaying = false
-  /** A replay saw a turn/start it never sees closed; only the Host can settle it. */
-  private replayedOpenTurn = false
   /**
    * True once a panel has connected. The 400ms poll starts before that and reads the whole
    * stored transcript as if it were live — which is how a turn the previous process left
@@ -474,8 +470,6 @@ export class OrbRuntime {
   /** Newer version waiting to be installed, or null once none is known. */
   private updateAvailable: string | null = null
   private idleWarned = false
-  /** Quiet polls since the last transcript event, counted while a turn is believed running. */
-  private quietPolls = 0
   private sessionId: string | undefined
   private sessionError: string | undefined
   private creating: Promise<string> | undefined
@@ -842,10 +836,6 @@ export class OrbRuntime {
     if (!await this.beginRuntime(generation)) return
     await sessionTask
     if (this.halted || generation !== this.generation) return
-    // A restart can resume a conversation whose last turn never wrote its turn/end, and the
-    // replayed transcript would then leave the ball spinning on a turn nobody is running.
-    await this.clearStaleTurn('boot')
-    if (this.halted || generation !== this.generation) return
     this.userData = helperDataDirectory(this.store.dir)
     await mkdir(this.userData, { recursive: true })
     this.launch()
@@ -1008,14 +998,11 @@ export class OrbRuntime {
     this.sockets.add(socket)
     if (this.sessionId) this.send(socket, { type: 'session', sessionId: this.sessionId })
     if (this.blockOrder.length === 0 && this.sessionId) {
-      this.replayedOpenTurn = false
       this.replaying = true
       this.drain()
       this.replaying = false
-      // A transcript can never prove a turn is live: after a restart the process that ran
-      // it is gone, and the Host's own state can still claim it runs. So a replay never
-      // adopts a running turn at all — only live events and the ball's own prompt do.
-      if (this.replayedOpenTurn) imageDebug('replay left a turn open; staying idle')
+      // A transcript can never prove a turn is live: the process that ran it may be gone.
+      // Only live events from here on — and the ball's own prompt — start a turn.
     } else {
       for (const key of this.blockOrder) {
         const block = this.blocks.get(key)
@@ -1025,9 +1012,6 @@ export class OrbRuntime {
     this.panelConnected = true
     imageDebug(`accept state turn=${this.turnRunning} hold=${this.voice.holdState()} speech=${this.voice.speaking()} mode=${this.voice.listenMode()}`)
     this.send(socket, { type: 'turn', running: this.turnRunning })
-    // A page that arrives while the ball believes in a turn nobody runs gets a spinning
-    // panel; the Host's own state settles it right after the first paint.
-    void this.clearStaleTurn('accept')
     this.send(socket, { type: 'safe-mode', enabled: this.store.safeMode() })
     this.send(socket, { type: 'mode', mode: this.store.mode() })
     // A closing line or a queued question prompt may still be playing from before a page
@@ -1480,13 +1464,6 @@ export class OrbRuntime {
       this.idleWarned = false
       this.armIdle()
     }
-    // The ball only mirrors the conversation: a turn it still believes in while the
-    // transcript has gone quiet is re-checked against the Host about every ten seconds.
-    if (fresh) this.quietPolls = 0
-    else if (this.turnRunning && ++this.quietPolls >= 25) {
-      this.quietPolls = 0
-      void this.clearStaleTurn('quiet')
-    }
   }
 
   private consume(type: string, data: unknown, seq: number): void {
@@ -1512,10 +1489,7 @@ export class OrbRuntime {
     if (type === 'turn/start') {
       // A wake turn (e.g. the code_agent completion followup) starts without a
       // ball prompt; the ball still shows it as running, stop button included.
-      if (this.replaying || !this.panelConnected) {
-        this.replayedOpenTurn = true
-        return
-      }
+      if (this.replaying || !this.panelConnected) return
       if (this.turnRunning) return
       this.turnInterrupted = false
       this.beginTurn()
@@ -1548,11 +1522,8 @@ export class OrbRuntime {
       return
     }
     if (type === 'turn/end') {
-      // A replayed turn that closes inside the transcript was never running here.
-      if (this.replaying || !this.panelConnected) {
-        this.replayedOpenTurn = false
-        return
-      }
+      // A turn that closes inside the replayed transcript was never running here.
+      if (this.replaying || !this.panelConnected) return
       this.finishTurn()
       // The old turn is really gone; now the pending command can become the next turn.
       this.startPendingPrompt()
@@ -2852,36 +2823,6 @@ export class OrbRuntime {
     this.status('安全模式：检测到人工输入，已停止')
   }
 
-  /** The Host's own view of the turn; undefined when the read is unavailable or fails. */
-  private async officialRunning(): Promise<boolean | undefined> {
-    const read = this.ctx.sessionController.state
-    const sessionId = this.sessionId
-    if (read === undefined || sessionId === undefined) return undefined
-    try {
-      const state = await read.call(this.ctx.sessionController, { sessionId })
-      const running = state?.running
-      return typeof running === 'boolean' ? running : undefined
-    } catch {
-      // An unreadable state keeps whatever the transcript said.
-      return undefined
-    }
-  }
-
-  /**
-   * Drop a turn this ball only believes in. A restart mid-turn, or a cancel that never
-   * produced its turn/end, otherwise leaves the panel spinning on a turn nobody runs.
-   * The Host's state is the authority; an unreadable state keeps today's behaviour.
-   */
-  private async clearStaleTurn(where: string): Promise<boolean> {
-    if (!this.turnRunning) return false
-    if (await this.officialRunning() !== false) return false
-    const epoch = this.turnEpoch
-    console.error(`dsh-agi: clearing stale turn (${where})`)
-    if (this.turnEpoch !== epoch) return false
-    this.finishTurn()
-    return true
-  }
-
   private async stopTurn(epoch: number): Promise<void> {
     // Stop and dismiss own the turn now; a command waiting for its turn/end must not
     // start a new task after this.
@@ -2983,12 +2924,8 @@ export class OrbRuntime {
     this.replaying = true
     this.drain()
     this.replaying = false
-    if (row.running) {
-      this.beginTurn()
-      this.watch()
-      // A history row can still say running after a restart; the Host settles it.
-      await this.clearStaleTurn('switch')
-    }
+    // A row's running flag is stored state, not evidence: live events start the turn.
+    if (row.running) this.watch()
   }
 
   private async sendHistory(): Promise<void> {
