@@ -377,7 +377,7 @@ const ECHO_RETAIN_BYTES = 32_000_000
  * Blocks one fresh panel rebuilds. A page load has no DOM of its own, so the host replays the
  * conversation into it; replaying the whole log made the ball open on its first message.
  */
-const REPLAY_WINDOW_BLOCKS = 60
+const REPLAY_WINDOW_BLOCKS = 200
 
 /** Event types that become transcript blocks; the replay window is measured in these. */
 const REPLAY_BLOCK_EVENTS = new Set(['user/message', 'assistant/message', 'tool/call'])
