@@ -203,6 +203,18 @@ export function apply(ctx: OrbContext, config: { autoStart?: boolean } = {}): vo
           }],
           source: { kind: 'computer-use', form: 'notice', summary: 'Library maintenance rules' },
         })
+        // One reflection nudge after a finished turn: the agent decides whether it learned anything.
+        if (runtime.takeReflectionDue()) {
+          extras.push({
+            role: 'user',
+            id: randomUUID(),
+            content: [{
+              type: 'text',
+              text: '【自动反思】上一轮任务已经结束。先按【节点自学习】检查：这一轮走过的节点里，有没有值得写回的坑、更准的提示、目标截图？有就用 knowledge_graph_learn_node 写回（ai_notes ≤600 字、每个节点图片 ≤10 张），没有就跳过，然后回答用户。',
+            }],
+            source: { kind: 'computer-use', form: 'notice', summary: 'Reflection' },
+          })
+        }
         // The operator's common sense is global guidance for every path; it is read-only here.
         const commonSense = readCommonSenseText(knowledgeGraphDirFor(store.dir))
         if (commonSense !== '') {

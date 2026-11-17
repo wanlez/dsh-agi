@@ -454,6 +454,7 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
   <div class="topActions">
     <span class="dirtyFlag" id="dirtyFlag" hidden>● 未保存</span>
     <button class="btn" data-action="open-stats">统计看板</button>
+    <button class="btn" data-action="common-sense">常识区</button>
     <button class="btn" data-action="import-node">导入节点</button>
     <button class="btn" data-action="import-path">导入路径</button>
     <button class="btn" data-action="new-path">+ 新建路径</button>
@@ -1243,6 +1244,74 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
   }
 
   // ---------- stats ----------
+  function openCommonSense() {
+    api("/api/common-sense").then(function (data) { renderCommonSense(data.commonSense); }).catch(function (error) { toast(error.message, "bad"); });
+  }
+  function renderCommonSense(commonSense) {
+    var entries = (commonSense && commonSense.entries) || [];
+    showModal("常识区", '<p class="muted">全局常识：球执行任何路径前都会读它。只允许人工编辑，球不会自己改。</p><div id="csList"></div><button class="btn" data-action="cs-add">+ 添加常识</button><div class="insertFoot"><button class="btn primary" data-action="cs-save">保存</button></div>');
+    renderCommonSenseList(entries);
+  }
+  function renderCommonSenseList(entries) {
+    var box = $("csList");
+    if (!box) return;
+    box.innerHTML = entries.map(function (entry) {
+      var images = (entry.images || []).map(function (image) {
+        return '<span class="csImage"><img src="/.dsh-agi/knowledge-graph/api/common-sense/images/' + encodeURIComponent(image.file) + '" alt=""><button class="btn small" data-action="cs-image-remove" data-id="' + esc(entry.id) + '" data-file="' + esc(image.file) + '">删图</button></span>';
+      }).join("");
+      return '<div class="csEntry" data-id="' + esc(entry.id) + '">'
+        + '<textarea class="csText" maxlength="100" placeholder="一条常识（100 字以内）">' + esc(entry.text) + '</textarea>'
+        + '<div class="csImages">' + images + '<input type="file" accept="image/*" data-action="cs-image-add" data-id="' + esc(entry.id) + '"></div>'
+        + '<button class="btn small danger" data-action="cs-remove">删除这条</button></div>';
+    }).join("");
+    box.dataset.entries = JSON.stringify(entries);
+    box.querySelectorAll("input[type=file]").forEach(function (input) {
+      input.addEventListener("change", function () {
+        var file = input.files && input.files[0];
+        if (!file) return;
+        var entryId = input.getAttribute("data-id") || "";
+        var reader = new FileReader();
+        reader.onload = function () {
+          var result = String(reader.result || "");
+          var comma = result.indexOf(",");
+          if (comma < 0) return;
+          uploadCommonSenseImage(entryId, result.slice(comma + 1));
+        };
+        reader.readAsDataURL(file);
+      });
+    });
+  }
+  function collectCommonSense() {
+    var known = {};
+    var box = $("csList");
+    try { (JSON.parse(box.dataset.entries || "[]") || []).forEach(function (entry) { known[entry.id] = entry; }); } catch (error) { known = {}; }
+    var list = [];
+    document.querySelectorAll("#csList .csEntry").forEach(function (row) {
+      var text = row.querySelector(".csText").value.trim();
+      if (text === "") return;
+      var id = row.getAttribute("data-id") || "";
+      var previous = known[id];
+      list.push({ text: text, ...id ? { id: id } : {}, ...previous && previous.images ? { images: previous.images } : {} });
+    });
+    return list;
+  }
+  function saveCommonSense() {
+    api("/api/common-sense", { method: "POST", body: { entries: collectCommonSense() } }).then(function (data) {
+      toast("常识已保存。");
+      renderCommonSense(data.commonSense);
+    }).catch(function (error) { toast(error.message, "bad"); });
+  }
+  function uploadCommonSenseImage(entryId, base64) {
+    api("/api/common-sense", { method: "POST", body: { entries: collectCommonSense() } }).then(function (saved) {
+      var entries = (saved.commonSense && saved.commonSense.entries) || [];
+      var target = entryId || (entries[entries.length - 1] && entries[entries.length - 1].id) || "";
+      if (target === "") { toast("先填一条常识再传图。", "warn"); return; }
+      return api("/api/common-sense/" + encodeURIComponent(target) + "/images", { method: "POST", body: { data: base64, caption: "常识截图" } }).then(function (data) {
+        toast("图片已加入常识。");
+        renderCommonSense(data.commonSense);
+      });
+    }).catch(function (error) { toast(error.message, "bad"); });
+  }
   function openStats() {
     api("/api/stats").then(function (data) {
       var stats = data.stats || {};
@@ -1417,6 +1486,26 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
         toast("已恢复。");
         loadFavorites();
         return openDetail(id);
+      }).catch(function (error) { toast(error.message, "bad"); });
+      return;
+    }
+    if (action === "common-sense") { event.preventDefault(); openCommonSense(); return; }
+    if (action === "cs-add") {
+      event.preventDefault();
+      var listBox = $("csList");
+      if (listBox) listBox.insertAdjacentHTML("beforeend", '<div class="csEntry"><textarea class="csText" maxlength="100" placeholder="一条常识（100 字以内）"></textarea><div class="csImages"><input type="file" accept="image/*" data-action="cs-image-add"></div><button class="btn small danger" data-action="cs-remove">删除这条</button></div>');
+      return;
+    }
+    if (action === "cs-remove") { event.preventDefault(); var row = el.closest(".csEntry"); if (row) row.remove(); return; }
+    if (action === "cs-save") { event.preventDefault(); saveCommonSense(); return; }
+    if (action === "cs-image-remove") {
+      event.preventDefault();
+      var entryId = el.getAttribute("data-id");
+      var file = el.getAttribute("data-file");
+      if (!entryId || !file) return;
+      api("/api/common-sense/" + encodeURIComponent(entryId) + "/images?file=" + encodeURIComponent(file), { method: "DELETE" }).then(function (data) {
+        toast("图片已删除。");
+        renderCommonSense(data.commonSense);
       }).catch(function (error) { toast(error.message, "bad"); });
       return;
     }

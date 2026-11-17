@@ -439,6 +439,8 @@ export class OrbRuntime {
   /** Mode the current conversation was elected under; another one re-elects on the next start. */
   private adoptedSessionMode: SessionMode | undefined
   private watermark = 0
+  /** Set when a turn ends; the next pre-step injects one reflection instruction and clears it. */
+  private reflectionDue = false
   private missingLogged = false
   private timer: ReturnType<typeof setInterval> | undefined
   private giveUp: ReturnType<typeof setTimeout> | undefined
@@ -1668,7 +1670,20 @@ export class OrbRuntime {
     this.setPhase('thinking')
   }
 
+  private markReflection(): void {
+    this.reflectionDue = true
+  }
+
+  /** Consume the "a turn just ended" mark; the Host injects one reflection message then. */
+  takeReflectionDue(): boolean {
+    const due = this.reflectionDue
+    this.reflectionDue = false
+    return due
+  }
+
   private finishTurn(): void {
+    // The next turn opens with one reflection nudge, then the flag clears.
+    this.markReflection()
     this.turnRunning = false
     this.setPhase('stopped')
     // The screenshots belonged to this turn; the next one starts from what the user sends.
