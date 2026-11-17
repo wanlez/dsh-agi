@@ -373,6 +373,15 @@ const ECHO_MAX_TOTAL_BYTES = 6_000_000
 /** Base64 one socket lifetime retains for replays; the oldest blocks drop theirs first. */
 const ECHO_RETAIN_BYTES = 32_000_000
 
+/**
+ * Blocks one fresh panel rebuilds. A page load has no DOM of its own, so the host replays the
+ * conversation into it; replaying the whole log made the ball open on its first message.
+ */
+const REPLAY_WINDOW_BLOCKS = 60
+
+/** Event types that become transcript blocks; the replay window is measured in these. */
+const REPLAY_BLOCK_EVENTS = new Set(['user/message', 'assistant/message', 'tool/call'])
+
 interface BlockMessage {
   readonly type: 'block'
   readonly key: string
@@ -992,12 +1001,35 @@ export class OrbRuntime {
     return given.length === expected.length && timingSafeEqual(given, expected)
   }
 
+  /**
+   * The sequence a fresh panel's rebuild starts from: just before the newest blocks, so the
+   * ball opens on the exchange it is part of instead of the conversation's first message.
+   */
+  private replayStart(session: { snapshotEvents(): readonly { readonly type: string; readonly seq: number }[] }): number {
+    let events: readonly { readonly type: string; readonly seq: number }[]
+    try {
+      events = session.snapshotEvents()
+    } catch {
+      return this.watermark
+    }
+    let seen = 0
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const event = events[index]
+      if (event === undefined || !REPLAY_BLOCK_EVENTS.has(event.type)) continue
+      seen += 1
+      if (seen >= REPLAY_WINDOW_BLOCKS) return Math.max(0, Number(event.seq) - 1)
+    }
+    return 0
+  }
+
   private accept(socket: Socket, hello: unknown): void {
     const pid = asRecord(hello)?.pid
     if (typeof pid === 'number' && Number.isInteger(pid) && pid > 0) this.helperPid = pid
     this.sockets.add(socket)
     if (this.sessionId) this.send(socket, { type: 'session', sessionId: this.sessionId })
     if (this.blockOrder.length === 0 && this.sessionId) {
+      const session = this.ctx.sessions.get(this.sessionId)
+      if (session !== undefined) this.watermark = this.replayStart(session)
       this.replaying = true
       this.drain()
       this.replaying = false
@@ -2921,6 +2953,8 @@ export class OrbRuntime {
     if (!(await this.openConversation(sessionId))) return
     await this.adopt(sessionId)
     this.resetTranscript()
+    const opened = this.ctx.sessions.get(sessionId)
+    if (opened !== undefined) this.watermark = this.replayStart(opened)
     this.replaying = true
     this.drain()
     this.replaying = false
