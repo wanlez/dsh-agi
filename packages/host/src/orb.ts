@@ -449,6 +449,12 @@ export class OrbRuntime {
   private replaying = false
   /** A replay saw a turn/start it never sees closed; only the Host can settle it. */
   private replayedOpenTurn = false
+  /**
+   * True once a panel has connected. The 400ms poll starts before that and reads the whole
+   * stored transcript as if it were live — which is how a turn the previous process left
+   * open got adopted as running. Before the first panel, history is history.
+   */
+  private panelConnected = false
   private workspaceTask: Promise<string> | undefined
   private ballWorkspaceTask: Promise<string> | undefined
   private retry: ReturnType<typeof setTimeout> | undefined
@@ -1016,6 +1022,7 @@ export class OrbRuntime {
         if (block) this.send(socket, block)
       }
     }
+    this.panelConnected = true
     imageDebug(`accept state turn=${this.turnRunning} hold=${this.voice.holdState()} speech=${this.voice.speaking()} mode=${this.voice.listenMode()}`)
     this.send(socket, { type: 'turn', running: this.turnRunning })
     // A page that arrives while the ball believes in a turn nobody runs gets a spinning
@@ -1505,7 +1512,7 @@ export class OrbRuntime {
     if (type === 'turn/start') {
       // A wake turn (e.g. the code_agent completion followup) starts without a
       // ball prompt; the ball still shows it as running, stop button included.
-      if (this.replaying) {
+      if (this.replaying || !this.panelConnected) {
         this.replayedOpenTurn = true
         return
       }
@@ -1542,7 +1549,7 @@ export class OrbRuntime {
     }
     if (type === 'turn/end') {
       // A replayed turn that closes inside the transcript was never running here.
-      if (this.replaying) {
+      if (this.replaying || !this.panelConnected) {
         this.replayedOpenTurn = false
         return
       }
