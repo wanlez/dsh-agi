@@ -780,7 +780,8 @@ body.work-locked #new-conversation {
   position: absolute;
   z-index: 2;
   box-sizing: border-box;
-  left: 16px;
+  /* Leave the stop cap its own column on the left so it cannot sit over the text. */
+  left: 72px;
   right: 16px;
   height: var(--composer-height);
   padding: 0 12px;
@@ -1616,12 +1617,16 @@ body.expand-down #minimize {
   line-height: var(--prompt-line);
 }
 
-/* Pause rides inside the composer (already an absolute box), just left of the avatar. */
+
+/* A hidden pause must never be display:inline-flex; the rule above would override [hidden]. */
+#pause[hidden] {
+  display: none;
+}
+
+/* Pause sits above the composer's right corner, mirroring the stop cap. */
 #pause {
   position: absolute;
-  right: 56px;
-  top: 50%;
-  transform: translateY(-50%);
+  z-index: 2;
   width: 26px;
   height: 26px;
   border: 1px solid var(--pin);
@@ -1636,10 +1641,11 @@ body.expand-down #minimize {
   color: var(--black);
   line-height: 1;
   cursor: pointer;
-  z-index: 2;
+  right: 24px;
 }
-
-/* A hidden pause must never be display:inline-flex; the rule above would override [hidden]. */
-#pause[hidden] {
-  display: none;
+body.expand-up #pause {
+  bottom: calc(var(--composer-height, 72px) + 14px);
+}
+body.expand-down #pause {
+  top: calc(var(--composer-height, 72px) + 14px);
 }
