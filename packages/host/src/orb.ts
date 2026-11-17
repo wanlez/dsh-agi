@@ -1027,19 +1027,20 @@ export class OrbRuntime {
     if (typeof pid === 'number' && Number.isInteger(pid) && pid > 0) this.helperPid = pid
     this.sockets.add(socket)
     if (this.sessionId) this.send(socket, { type: 'session', sessionId: this.sessionId })
-    if (this.blockOrder.length === 0 && this.sessionId) {
+    // A fresh page always rebuilds from the window rather than from whatever this process
+    // happens to hold: a trimmed or half-built map used to leave the panel showing one turn.
+    if (this.sessionId) {
       const session = this.ctx.sessions.get(this.sessionId)
+      this.clearDirty()
+      this.blocks.clear()
+      this.blockOrder.length = 0
       if (session !== undefined) this.watermark = this.replayStart(session)
       this.replaying = true
       this.drain()
       this.replaying = false
       // A transcript can never prove a turn is live: the process that ran it may be gone.
       // Only live events from here on — and the ball's own prompt — start a turn.
-    } else {
-      for (const key of this.blockOrder) {
-        const block = this.blocks.get(key)
-        if (block) this.send(socket, block)
-      }
+      imageDebug(`accept replay blocks=${this.blockOrder.length} from=${this.watermark}`)
     }
     this.panelConnected = true
     imageDebug(`accept state turn=${this.turnRunning} hold=${this.voice.holdState()} speech=${this.voice.speaking()} mode=${this.voice.listenMode()}`)
