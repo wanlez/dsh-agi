@@ -1638,3 +1638,8 @@ body.expand-down #minimize {
   cursor: pointer;
   z-index: 2;
 }
+
+/* A hidden pause must never be display:inline-flex; the rule above would override [hidden]. */
+#pause[hidden] {
+  display: none;
+}
