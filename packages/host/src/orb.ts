@@ -4,7 +4,7 @@
  */
 
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync } from 'node:fs'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer, type Server, type Socket } from 'node:net'
 import { dirname, join, resolve } from 'node:path'
@@ -1019,7 +1019,10 @@ export class OrbRuntime {
     this.clearDirty()
     this.blocks.clear()
     this.blockOrder.length = 0
-    this.watermark = this.newestTurnsStart(session) - 1
+    const start = this.newestTurnsStart(session)
+    // Never replay from the conversation's opening: with no turn boundary to anchor on, the
+    // panel opens empty instead of scrolling the user back to the first message.
+    this.watermark = start > 0 ? start - 1 : Number.MAX_SAFE_INTEGER
     this.silentReplay = true
     this.replaying = true
     try {
@@ -1032,6 +1035,7 @@ export class OrbRuntime {
       const block = this.blocks.get(key)
       if (block !== undefined) this.send(socket, block)
     }
+    imageDebug(`replay start=${start} built=${this.blockOrder.length}`)
     // A transcript can never prove a turn is live: the process that ran it may be gone.
     // Only live events from here on — and the ball's own prompt — start a turn.
   }
