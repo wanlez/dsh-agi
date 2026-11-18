@@ -354,19 +354,19 @@ export class FloatingPlacement {
       this.docked = undefined
       const next = expandedOverlayBounds(origin, display.workArea, this.stripWidth)
       this.direction = { horizontal: next.horizontal, vertical: next.vertical }
-      // A repeat request for the geometry already applied must not move the window: the panel
-      // asks to expand on every layout change, and each needless setBounds flickered the page.
-      const moved = Math.abs(bounds.x - next.x) > 1 || Math.abs(bounds.y - next.y) > 1
-        || Math.abs(bounds.width - next.width) > 1 || Math.abs(bounds.height - next.height) > 1
-      if (moved) this.window.setBounds({ x: next.x, y: next.y, width: next.width, height: next.height })
+      this.window.setBounds({ x: next.x, y: next.y, width: next.width, height: next.height })
       return { expanded: true, ...this.direction, docked: undefined, strip: this.stripWidth }
     }
+    // Read the ball origin before clearing it: while expanded the window is the panel, so its
+    // own bounds cannot say where the ball belongs. This is the whole fix — clearing first made
+    // the collapse re-derive the origin from the panel and put the ball somewhere else entirely.
+    const ballOrigin = this.currentBallOrigin()
     this.expandedOrigin = undefined
     if (this.docked) {
       this.applyTab(this.docked.side, this.docked.y, display.workArea)
       return { expanded: false, ...this.direction, docked: this.docked.side, strip: this.stripWidth }
     }
-    const origin = clampedBallOrigin(this.expandedOrigin ?? this.currentBallOrigin(), display.workArea)
+    const origin = clampedBallOrigin(ballOrigin, display.workArea)
     this.window.setBounds(collapsedWindowBounds(origin))
     return { expanded: false, ...this.direction, docked: undefined, strip: this.stripWidth }
   }
