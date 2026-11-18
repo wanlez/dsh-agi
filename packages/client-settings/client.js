@@ -1822,9 +1822,13 @@ window.__ModuleLoader__.load({
         if (!space || !Array.isArray(space.groups)) return null
         const groupLabel = (id) => (text.spaceGroups && text.spaceGroups[id]) || id
         const itemLabel = (item) => (text.spaceItems && text.spaceItems[item.id]) || item.label || item.id
+        // A fresh install has none of these directories: show only what exists, except the log
+        // group, whose empty state is itself useful information.
+        const groups = space.groups.filter((group) => group.items.length > 0 || group.id === 'logs')
+        if (groups.length === 0) return null
         return h('div', { className: 'dsh-agi-set-space-detail' },
           h('p', { className: 'dsh-agi-set-muted dsh-agi-set-space-note' }, text.spaceOnlyLogs),
-          space.groups.map((group) => h('section', { key: group.id, className: 'dsh-agi-set-space-group' },
+          groups.map((group) => h('section', { key: group.id, className: 'dsh-agi-set-space-group' },
             h('div', { className: 'dsh-agi-set-space-group-head' },
               h('span', { className: 'dsh-agi-set-space-group-name' }, groupLabel(group.id)),
               h('span', { className: 'dsh-agi-set-space-size' }, formatSpaceBytes(group.bytes)),
