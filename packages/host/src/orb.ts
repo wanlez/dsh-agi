@@ -1846,8 +1846,10 @@ export class OrbRuntime {
     }
     this.blocks.set(key, message)
     if (mergedPayload?.images !== undefined && mergedPayload.images.length > 0) this.trimEcho()
-    if (!this.replaying && kind === 'assistant') this.voice.noteAssistant(key, next)
-    if (!this.replaying && kind === 'tool' && previous?.kind !== 'tool') this.voice.tool()
+    // Voice follows the live conversation only. Reading the stored transcript at startup
+    // must stay silent: otherwise the speaker reads the history's first answer out loud.
+    if (!this.replaying && this.panelConnected && kind === 'assistant') this.voice.noteAssistant(key, next)
+    if (!this.replaying && this.panelConnected && kind === 'tool' && previous?.kind !== 'tool') this.voice.tool()
     if (running) {
       this.dirty.add(key)
       this.dirtyTimer ??= setTimeout(() => this.flushDirty(), 60)
