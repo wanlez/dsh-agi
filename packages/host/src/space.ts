@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
+import { knowledgeGraphDirFor } from './knowledge-graph/store.ts'
 
 /** One measured path. `id` is stable so the page can localize its own label. */
 export interface SpaceFile {
@@ -89,16 +90,20 @@ export function packageRoot(): string {
 }
 
 /**
- * Every profile's library directory. The graph lives next to the profile manifest, not in the
- * shared data directory, so one deployment can have several of them.
+ * Every library this machine actually uses, resolved the way the plugin resolves it: the
+ * profile's `agi-knowledge-graph.json` may point anywhere, and only falls back to the default
+ * folder when no override is recorded.
  */
 async function libraryDirs(): Promise<string[]> {
   const profiles = dshHomePath('profiles')
   const entries = await readdir(profiles, { withFileTypes: true }).catch(() => undefined)
   if (entries === undefined) return []
-  return entries
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => join(profiles, entry.name, 'dsh-agi', 'knowledge-graph'))
+  const dirs = new Set<string>()
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    dirs.add(knowledgeGraphDirFor(join(profiles, entry.name)))
+  }
+  return [...dirs]
 }
 
 /** One log file in the temp directory, newest first. */
