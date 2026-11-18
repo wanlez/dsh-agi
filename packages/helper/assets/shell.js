@@ -21,11 +21,7 @@ window.addEventListener('unhandledrejection', (event) => {
 })
 
 const api = window.dshAgi
-// A panel that closes on every cursor twitch is what the operator sees as the ball blinking:
-// leaving the window is not leaving the task.
-const COLLAPSE_MS = 900
-/** Recent transcript or turn activity keeps the panel up this long after it lands. */
-const COLLAPSE_IDLE_MS = 1600
+const COLLAPSE_MS = 180
 const ANIMATION_MS = 300
 /** 展开动画期间（含 hover 触发）的一次点击只当“打开面板”。 */
 const EXPAND_GRACE_MS = 500
@@ -346,8 +342,8 @@ let expandedAt = 0
   let skipClick = false
   let skipDockCommit = false
   let suppressExpand = false
-  /** Last time the transcript or the turn changed; keeps the panel from blinking shut. */
-  let lastActivityAt = 0
+  /** A turn is in flight, including the short gaps between its steps. */
+  let working = false
   let docked
   let dockHoverArmed = true
   let dockPointerInside = false
@@ -527,7 +523,7 @@ let expandedAt = 0
   }
 
   function setRunning(next, interrupted = false) {
-    lastActivityAt = Date.now()
+    working = next
     running = next
     if (pageClosed()) return
     document.body.classList.toggle('running', running)
@@ -761,20 +757,17 @@ let expandedAt = 0
     }, ANIMATION_MS)
   }
 
+  /**
+   * While the ball is working the panel stays open: leaving the pointer is not leaving the task.
+   * Only a settled, unpinned panel folds itself away.
+   */
   function scheduleCollapse() {
-    if (pinned || running || asking() || dragging || voiceHold) return
+    if (pinned || running || working || asking() || dragging || voiceHold) return
     if (collapseTimer !== undefined) clearTimeout(collapseTimer)
-    const waited = Date.now() - lastActivityAt
-    const delay = waited >= COLLAPSE_IDLE_MS ? COLLAPSE_MS : COLLAPSE_IDLE_MS - waited + COLLAPSE_MS
     collapseTimer = setTimeout(() => {
       collapseTimer = undefined
-      // A block that landed while the timer ran is activity too: re-check before closing.
-      if (Date.now() - lastActivityAt < COLLAPSE_IDLE_MS) {
-        scheduleCollapse()
-        return
-      }
       void setExpanded(false)
-    }, delay)
+    }, COLLAPSE_MS)
   }
 
   /**
@@ -1946,7 +1939,6 @@ let expandedAt = 0
   const staged = []
   let stagedFrame
   function stage(message) {
-    lastActivityAt = Date.now()
     staged.push(message)
     stagedFrame ??= requestAnimationFrame(() => {
       stagedFrame = undefined
