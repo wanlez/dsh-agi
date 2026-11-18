@@ -212,6 +212,8 @@ window.__ModuleLoader__.load({
       spaceCleanFailed: '清理失败，请重试。',
       spaceOnlyLogs: '只有日志可以清理；模型、经验库和程序本身只显示大小。',
       spaceNoLogs: '当前没有日志文件。',
+      spaceWarnJson: '经验库配置读不出来（JSON 损坏），当前用的是默认目录。配置文件：{path}',
+      spaceWarnDir: '经验库配置里的路径无效（不是绝对路径），当前用的是默认目录。配置文件：{path}',
       spaceGroups: {
         logs: '日志与临时文件',
         state: '数据与经验库',
@@ -524,6 +526,8 @@ window.__ModuleLoader__.load({
       spaceCleanFailed: 'Could not clear the logs. Try again.',
       spaceOnlyLogs: 'Only logs can be cleared; models, the library, and the program itself are size only.',
       spaceNoLogs: 'There are no log files right now.',
+      spaceWarnJson: 'The library config cannot be parsed (broken JSON); the default folder is in use. Config: {path}',
+      spaceWarnDir: 'The library config points at an invalid path; the default folder is in use. Config: {path}',
       spaceGroups: {
         logs: 'Logs and scratch',
         state: 'Data and library',
@@ -2079,6 +2083,12 @@ window.__ModuleLoader__.load({
                   'aria-expanded': spaceOpen ? 'true' : 'false',
                   onClick: () => { setSpaceOpen((open) => !open) },
                 }, spaceOpen ? text.spaceHide : text.spaceDetails))),
+            space && Array.isArray(space.warnings) && space.warnings.length > 0
+              ? h('div', { className: 'dsh-agi-set-space-warn' },
+                space.warnings.map((warning) => h('p', { key: `${warning.id}:${warning.detail}`, role: 'status' },
+                  (warning.id === 'library-invalid-json' ? text.spaceWarnJson : text.spaceWarnDir)
+                    .replaceAll('{path}', String(warning.detail || '')))))
+              : null,
             spaceOpen ? spaceDetail() : null,
             spaceError ? h('p', { className: 'dsh-agi-set-error', role: 'alert' }, `${text.spaceFailed}${spaceError}`) : null,
             spaceNote ? h('p', { className: 'dsh-agi-set-muted dsh-agi-set-space-note' }, spaceNote) : null),
@@ -3252,6 +3262,8 @@ window.__ModuleLoader__.load({
 .dsh-agi-set-space-head h4 { margin: 0 0 3px; font-size: 12.5px; font-weight: 600; }
 .dsh-agi-set-space-head p { margin: 0; font-size: 11.5px; line-height: 1.55; color: color-mix(in srgb, currentColor 55%, transparent); }
 .dsh-agi-set-space-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.dsh-agi-set-space-warn { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
+.dsh-agi-set-space-warn p { margin: 0; padding: 7px 10px; border-radius: 9px; font-size: 11.5px; line-height: 1.5; color: color-mix(in srgb, currentColor 78%, transparent); background: color-mix(in srgb, #f79009 12%, transparent); overflow-wrap: anywhere; }
 .dsh-agi-set-space-detail { margin-top: 12px; display: flex; flex-direction: column; gap: 12px; }
 .dsh-agi-set-space-note { margin: 0; font-size: 11.5px; line-height: 1.55; }
 .dsh-agi-set-space-group { display: flex; flex-direction: column; gap: 6px; }

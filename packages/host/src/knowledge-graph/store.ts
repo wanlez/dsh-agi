@@ -77,6 +77,28 @@ export function knowledgeGraphDirFor(baseDir: string): string {
   return resolve(join(baseDir, 'dsh-agi', GRAPH_FOLDER))
 }
 
+/**
+ * Why a recorded library path is being ignored, or undefined when the config is absent or fine.
+ * The silent fallback otherwise looks like the operator's change simply did not take.
+ */
+export function knowledgeGraphConfigIssue(baseDir: string): 'invalid-json' | 'invalid-dir' | undefined {
+  let text: string
+  try {
+    text = readFileSync(join(baseDir, GRAPH_CONFIG), 'utf8')
+  } catch {
+    return undefined
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return 'invalid-json'
+  }
+  const dir = (parsed as { dir?: unknown } | null)?.dir
+  if (typeof dir !== 'string' || !isAbsolute(dir)) return 'invalid-dir'
+  return undefined
+}
+
 /** A missing or unreadable file is treated as an empty library. */
 async function readText(file: string): Promise<string | undefined> {
   try {

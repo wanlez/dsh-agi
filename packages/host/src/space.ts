@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
-import { knowledgeGraphDirFor } from './knowledge-graph/store.ts'
+import { knowledgeGraphConfigIssue, knowledgeGraphDirFor } from './knowledge-graph/store.ts'
 
 /** One measured path. `id` is stable so the page can localize its own label. */
 export interface SpaceFile {
@@ -38,6 +38,8 @@ export interface SpaceReport {
   readonly files: number
   readonly computedAt: number
   readonly groups: readonly SpaceGroup[]
+  /** Non-fatal problems worth showing: e.g. a library config that is ignored. */
+  readonly warnings?: readonly { readonly id: string, readonly detail: string }[]
 }
 
 export interface SpaceClean {
@@ -107,16 +109,22 @@ export function packageRoot(): string {
  * profile's `agi-knowledge-graph.json` may point anywhere, and only falls back to the default
  * folder when no override is recorded.
  */
-async function libraryDirs(): Promise<string[]> {
+async function libraryDirs(): Promise<{ dirs: string[], warnings: { id: string, detail: string }[] }> {
   const profiles = dshHomePath('profiles')
   const entries = await readdir(profiles, { withFileTypes: true }).catch(() => undefined)
-  if (entries === undefined) return []
+  if (entries === undefined) return { dirs: [], warnings: [] }
   const dirs = new Set<string>()
+  const warnings: { id: string, detail: string }[] = []
   for (const entry of entries) {
     if (!entry.isDirectory()) continue
-    dirs.add(knowledgeGraphDirFor(join(profiles, entry.name)))
+    const profile = join(profiles, entry.name)
+    const issue = knowledgeGraphConfigIssue(profile)
+    if (issue !== undefined) {
+      warnings.push({ id: `library-${issue}`, detail: join(profile, 'agi-knowledge-graph.json') })
+    }
+    dirs.add(knowledgeGraphDirFor(profile))
   }
-  return [...dirs]
+  return { dirs: [...dirs], warnings }
 }
 
 /** One log file in the temp directory, newest first. */
@@ -152,7 +160,7 @@ interface Target {
 
 async function targets(): Promise<readonly (readonly [group: string, list: readonly Target[]])[]> {
   const plugin = packageRoot()
-  const libraries = await libraryDirs()
+  const { dirs: libraries } = await libraryDirs()
   return [
     ['logs', []],
     ['state', [
@@ -207,6 +215,7 @@ async function measureTargets(list: readonly Target[]): Promise<SpaceFile[]> {
 
 /** Measure everything the ball keeps, grouped for one settings card. */
 export async function collectSpace(): Promise<SpaceReport> {
+  const { warnings } = await libraryDirs()
   const [logs, ...groups] = await targets()
   const files = await logFiles()
   const logBytes = files.reduce((sum, file) => sum + file.bytes, 0)
@@ -232,6 +241,7 @@ export async function collectSpace(): Promise<SpaceReport> {
     files: built.reduce((sum, group) => sum + group.files, 0),
     computedAt: Date.now(),
     groups: built,
+    ...(warnings.length === 0 ? {} : { warnings }),
   }
 }
 
