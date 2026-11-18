@@ -85,6 +85,15 @@ The observation frame (the glowing border drawn while the agent is in control) i
 
 Each release keeps its own section, newest first, so the delta between two versions is always readable.
 
+### 0.6.12
+
+- **Disk usage**: a new settings card reports the plugin's footprint — one total, a file count, a Recalculate button, and a Details view that expands in place with one row per item (name / path / size). It covers the experience library, voice models, ball runtime, workspace, conversation archive, and the installed program. **Only logs can be cleared**; everything else is size only. The official attachment store is not counted (it belongs to every conversation in Harness); the program is measured at its installed size, with development dependencies on their own line and only on a dev machine; items that do not exist on a fresh install are simply not shown; a broken library config now says so instead of falling back silently.
+- **Ball panel**: collapsing no longer drops the ball in the wrong place (the origin is remembered while expanded and reused when collapsing); the question card caps at 55% of the panel and its options at 35vh, so the transcript above stays readable.
+- **Voice**: reading the stored transcript at startup no longer feeds the speech queue, so the ball cannot read the conversation's first answer aloud on launch.
+- **Pause**: the host now cancels the running turn through the official `sessionController`; resume opens a new turn. A pause used to be a steer message the model could ignore.
+- **Experience library**: a finished flow reports its own line — `Ns | search x% write y%`; the write rule now says "when unsure, call the tool once and pass its error along" instead of hinting the agent has no permission; new tests cover the write path (the AI note survives a fresh store, operator text is untouched, notes over 600 characters are refused).
+- **Housekeeping**: the sync script keeps only the newest three `dsh-agi.bak-*` copies instead of leaving a 145 MB duplicate behind on every sync.
+
 ### 0.6.11
 
 - **Screenshots travel with the prompt**: an image sent from the ball is submitted as part of the prompt content, so the main window shows it as an ordinary upload instead of a context injection, and the ball echoes a thumbnail above the bubble (read back through the official attachment store on replay). The composer's image strip now sits directly above the input.
