@@ -88,6 +88,19 @@ export function packageRoot(): string {
   return current
 }
 
+/**
+ * Every profile's library directory. The graph lives next to the profile manifest, not in the
+ * shared data directory, so one deployment can have several of them.
+ */
+async function libraryDirs(): Promise<string[]> {
+  const profiles = dshHomePath('profiles')
+  const entries = await readdir(profiles, { withFileTypes: true }).catch(() => undefined)
+  if (entries === undefined) return []
+  return entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => join(profiles, entry.name, 'dsh-agi', 'knowledge-graph'))
+}
+
 /** One log file in the temp directory, newest first. */
 async function logFiles(): Promise<SpaceFile[]> {
   const dir = tmpdir()
@@ -119,14 +132,21 @@ interface Target {
   readonly paths?: readonly string[]
 }
 
-function targets(): readonly (readonly [group: string, list: readonly Target[]])[] {
+async function targets(): Promise<readonly (readonly [group: string, list: readonly Target[]])[]> {
   const plugin = packageRoot()
+  const libraries = await libraryDirs()
   return [
     ['logs', []],
     ['state', [
       { id: 'records', label: 'Session archive', group: 'state', path: dshHomePath('dsh-agi', 'records') },
       { id: 'workspace', label: 'Ball workspace', group: 'state', path: dshHomePath('dsh-agi', 'workspace') },
-      { id: 'library', label: 'Experience library', group: 'state', path: dshHomePath('dsh-agi', 'knowledge') },
+      {
+        id: 'library',
+        label: 'Experience library',
+        group: 'state',
+        path: libraries[0] ?? dshHomePath('dsh-agi', 'knowledge'),
+        paths: libraries.length === 0 ? [dshHomePath('dsh-agi', 'knowledge')] : libraries,
+      },
       { id: 'helper-data', label: 'Helper cache', group: 'state', path: dshHomePath('dsh-agi', 'helper-data') },
       { id: 'native', label: 'Native helpers', group: 'state', path: dshHomePath('dsh-agi', 'native') },
     ]],
@@ -169,7 +189,7 @@ async function measureTargets(list: readonly Target[]): Promise<SpaceFile[]> {
 
 /** Measure everything the ball keeps, grouped for one settings card. */
 export async function collectSpace(): Promise<SpaceReport> {
-  const [logs, ...groups] = targets()
+  const [logs, ...groups] = await targets()
   const files = await logFiles()
   const logBytes = files.reduce((sum, file) => sum + file.bytes, 0)
   const built: SpaceGroup[] = [{
