@@ -16,6 +16,7 @@ import type { ModelCatalog } from './catalog.ts'
 import { cancelRuntimeDownload, isRuntimeDownloadCancelled, purgeRuntimeArtifacts, resolveElectronBinary } from './electron-runtime.ts'
 import { helperMain } from './helper-path.ts'
 import { imageDebug } from './debug-log.ts'
+import { cleanSpaceLogs as removeSpaceLogs, collectSpace, type SpaceClean, type SpaceReport } from './space.ts'
 import { startUserInputWatch, type UserInputWatch } from './input-watch.ts'
 import { detectImageType, imageSizeOf } from './image-bytes.ts'
 import {
@@ -2659,6 +2660,16 @@ export class OrbRuntime {
 
   cleanHistory(): void {
     this.history.startClean()
+  }
+
+  /** Everything this plugin keeps on disk; measured when the settings page asks. */
+  async spaceReport(): Promise<SpaceReport> {
+    return await collectSpace()
+  }
+
+  /** Diagnostic logs only — the one thing on that page the operator may clear. */
+  async cleanSpaceLogs(): Promise<SpaceClean> {
+    return await removeSpaceLogs()
   }
 
   private onControl(message: unknown, socket: Socket): void {

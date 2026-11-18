@@ -11,6 +11,7 @@ import { AVATAR_PRESETS, avatarPresetPath, isAvatarPresetId } from './avatar-pre
 import { normalizeCatalog, type ModelCatalog } from './catalog.ts'
 import { imageDebug } from './debug-log.ts'
 import { EMPTY_HISTORY_STATE, type HistoryPreview, type HistoryState } from './history.ts'
+import type { SpaceClean, SpaceReport } from './space.ts'
 import { graphCompletionFrom, type GraphAttachmentStore } from './knowledge-graph/llm.ts'
 import { graphLibraryState, openGraphFolder, setGraphLibraryDir } from './knowledge-graph/library.ts'
 import { openGraphEditorUrl, startGraphEditorServer } from './knowledge-graph/editor-server.ts'
@@ -133,6 +134,10 @@ export interface OrbControl {
   previewHistory?(days: number): Promise<HistoryPreview>
   /** Starts the cleanup and returns at once; the page polls `historyState`. */
   cleanHistory?(): void
+  /** What this plugin keeps on disk, measured when the settings page asks. */
+  spaceReport?(): Promise<SpaceReport>
+  /** Deletes the diagnostic logs only; nothing else is removable from that page. */
+  cleanSpaceLogs?(): Promise<SpaceClean>
   workspaceState?(): WorkspaceState
   /** Changes the ball Agent's workspace and returns after the switch is applied. */
   setWorkspaceDirectory?(path: string): Promise<void>
@@ -437,6 +442,15 @@ async function handle(deps: RouteDeps, req: IncomingMessage, res: ServerResponse
     }
     deps.control.cleanHistory?.()
     sendJson(res, 200, await snapshot(deps))
+    return
+  }
+  if (method === 'GET' && path === `${PREFIX}/space`) {
+    sendJson(res, 200, { space: await deps.control.spaceReport?.() ?? null })
+    return
+  }
+  if (method === 'POST' && path === `${PREFIX}/space/clean-logs`) {
+    const clean = await deps.control.cleanSpaceLogs?.() ?? { removed: 0, bytes: 0 }
+    sendJson(res, 200, { clean, space: await deps.control.spaceReport?.() ?? null })
     return
   }
   if (method === 'POST' && path === `${PREFIX}/workspace/pick`) {

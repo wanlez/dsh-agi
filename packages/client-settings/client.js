@@ -197,6 +197,40 @@ window.__ModuleLoader__.load({
       historyDialogConfirm: '确定',
       historyPreviewFailed: '无法计算要清理的会话，请重试。',
       historyLast: '上次清理：{sessions} 个会话。',
+      spaceTitle: '磁盘占用',
+      spaceDescription: '这个插件在磁盘上占用的全部空间，每次打开设置都重新计算。',
+      spaceTotal: '总占用 {size}',
+      spaceFiles: '{files} 个文件',
+      spaceRefresh: '重新计算',
+      spaceDetails: '详细信息',
+      spaceHide: '收起明细',
+      spaceLoading: '正在计算…',
+      spaceFailed: '无法计算占用：',
+      spaceClean: '清理',
+      spaceCleaning: '清理中…',
+      spaceCleaned: '已清理 {count} 个日志文件，释放 {size}。',
+      spaceCleanFailed: '清理失败，请重试。',
+      spaceOnlyLogs: '只有日志可以清理；模型、经验库和程序本身只显示大小。',
+      spaceNoLogs: '当前没有日志文件。',
+      spaceGroups: {
+        logs: '日志与临时文件',
+        state: '数据与经验库',
+        voice: '语音模型与运行时',
+        shared: '附件与程序',
+      },
+      spaceItems: {
+        records: '会话截图留档',
+        workspace: '球工作区',
+        library: '经验库（节点 / 路径 / 截图）',
+        'helper-data': '悬浮球缓存数据',
+        native: '原生辅助组件',
+        'wake-model': '唤醒词模型',
+        'tts-model': '本地语音合成模型',
+        'asr-model': '语音识别模型',
+        'runtime': '悬浮球运行时',
+        attachments: '共享附件库',
+        code: '插件程序本体',
+      },
       historyCleaning: '正在清理…',
       historyRestoring: '正在从系统回收站还原…',
       historyUnavailable: '当前 Harness 或系统回收站不支持清理会话。',
@@ -475,6 +509,40 @@ window.__ModuleLoader__.load({
       historyDialogConfirm: 'Confirm',
       historyPreviewFailed: 'Could not calculate what to clean. Try again.',
       historyLast: 'Last cleanup: {sessions} conversations.',
+      spaceTitle: 'Disk usage',
+      spaceDescription: 'Everything this plugin keeps on disk, recalculated every time this page opens.',
+      spaceTotal: 'Total {size}',
+      spaceFiles: '{files} files',
+      spaceRefresh: 'Recalculate',
+      spaceDetails: 'Details',
+      spaceHide: 'Hide details',
+      spaceLoading: 'Measuring…',
+      spaceFailed: 'Could not measure the disk usage: ',
+      spaceClean: 'Clear',
+      spaceCleaning: 'Clearing…',
+      spaceCleaned: 'Cleared {count} log files, freed {size}.',
+      spaceCleanFailed: 'Could not clear the logs. Try again.',
+      spaceOnlyLogs: 'Only logs can be cleared; models, the library, and the program itself are size only.',
+      spaceNoLogs: 'There are no log files right now.',
+      spaceGroups: {
+        logs: 'Logs and scratch',
+        state: 'Data and library',
+        voice: 'Voice models and runtime',
+        shared: 'Attachments and program',
+      },
+      spaceItems: {
+        records: 'Session screenshot archive',
+        workspace: 'Ball workspace',
+        library: 'Experience library (nodes / paths / screenshots)',
+        'helper-data': 'Ball cache data',
+        native: 'Native helpers',
+        'wake-model': 'Wake word model',
+        'tts-model': 'Local speech synthesis model',
+        'asr-model': 'Speech recognition model',
+        'runtime': 'Ball runtime',
+        attachments: 'Shared attachments',
+        code: 'Plugin program',
+      },
       historyCleaning: 'Cleaning…',
       historyRestoring: 'Restoring from the system trash…',
       historyUnavailable: 'This Harness build or the system trash cannot clean up conversations.',
@@ -1689,6 +1757,20 @@ window.__ModuleLoader__.load({
      * finite window previews and confirms, then saves the policy and starts the
      * cleanup; choosing forever saves a zero policy and deletes nothing.
      */
+    /** Sizes on this page are read at a glance, so one unit with one decimal is enough. */
+    function formatSpaceBytes(bytes) {
+      const value = Number(bytes)
+      if (!Number.isFinite(value) || value <= 0) return '0 B'
+      const units = ['B', 'KB', 'MB', 'GB', 'TB']
+      let scaled = value
+      let unit = 0
+      while (scaled >= 1024 && unit < units.length - 1) {
+        scaled /= 1024
+        unit += 1
+      }
+      return `${scaled >= 100 || unit === 0 ? Math.round(scaled) : scaled.toFixed(1)} ${units[unit]}`
+    }
+
     function HistoryCard({ text, snap, mutate, refreshHistory }) {
       const history = snap.history
       const current = history && HISTORY_RETENTION_DAYS.includes(history.retentionDays)
@@ -1700,6 +1782,11 @@ window.__ModuleLoader__.load({
       const [dialog, setDialog] = React.useState(null)
       const scanRef = React.useRef(0)
       const abortRef = React.useRef(null)
+      const [space, setSpace] = React.useState(null)
+      const [spaceOpen, setSpaceOpen] = React.useState(false)
+      const [spaceBusy, setSpaceBusy] = React.useState(false)
+      const [spaceError, setSpaceError] = React.useState('')
+      const [spaceNote, setSpaceNote] = React.useState('')
       React.useEffect(() => {
         if (!history || history.cleaning !== true) return undefined
         const timer = setInterval(() => { void refreshHistory() }, 2000)
@@ -1708,6 +1795,9 @@ window.__ModuleLoader__.load({
       React.useEffect(() => () => {
         scanRef.current += 1
         abortRef.current?.abort()
+      }, [])
+      React.useEffect(() => {
+        void loadSpace()
       }, [])
       React.useEffect(() => {
         if (!dialog) return undefined
@@ -1727,8 +1817,68 @@ window.__ModuleLoader__.load({
           h('div', { className: 'dsh-agi-set-card-body' },
             h('p', { className: 'dsh-agi-set-banner', role: 'status' }, text.historyUnavailable)))
       }
+      /** One labelled row per measured path; the file name is the label for plain logs. */
+      function spaceDetail() {
+        if (!space || !Array.isArray(space.groups)) return null
+        const groupLabel = (id) => (text.spaceGroups && text.spaceGroups[id]) || id
+        const itemLabel = (item) => (text.spaceItems && text.spaceItems[item.id]) || item.label || item.id
+        return h('div', { className: 'dsh-agi-set-space-detail' },
+          h('p', { className: 'dsh-agi-set-muted dsh-agi-set-space-note' }, text.spaceOnlyLogs),
+          space.groups.map((group) => h('section', { key: group.id, className: 'dsh-agi-set-space-group' },
+            h('div', { className: 'dsh-agi-set-space-group-head' },
+              h('span', { className: 'dsh-agi-set-space-group-name' }, groupLabel(group.id)),
+              h('span', { className: 'dsh-agi-set-space-size' }, formatSpaceBytes(group.bytes)),
+              group.id === 'logs' && group.items.length > 0
+                ? h('button', {
+                  type: 'button',
+                  className: 'dsh-agi-set-button dsh-agi-set-ghost dsh-agi-set-space-clean',
+                  disabled: spaceBusy,
+                  onClick: () => { void clearLogs() },
+                }, spaceBusy ? text.spaceCleaning : text.spaceClean)
+                : null),
+            group.items.length === 0
+              ? h('p', { className: 'dsh-agi-set-muted dsh-agi-set-space-row-empty' }, text.spaceNoLogs)
+              : group.items.map((item) => h('div', { key: item.id, className: 'dsh-agi-set-space-row' },
+                h('div', { className: 'dsh-agi-set-space-row-text' },
+                  h('span', { className: 'dsh-agi-set-space-name' }, itemLabel(item)),
+                  h('span', { className: 'dsh-agi-set-space-path', title: item.path }, item.path)),
+                h('span', { className: 'dsh-agi-set-space-size' }, formatSpaceBytes(item.bytes)))))))
+      }
+
       const cleaning = history.cleaning === true
       const pending = busy || cleaning || dialog !== null
+
+      async function loadSpace() {
+        setSpaceBusy(true)
+        setSpaceError('')
+        setSpaceNote('')
+        try {
+          const response = await request('/.dsh-agi/space')
+          setSpace(response && response.space ? response.space : null)
+        } catch (cause) {
+          setSpaceError(cause instanceof Error ? cause.message : String(cause))
+        } finally {
+          setSpaceBusy(false)
+        }
+      }
+
+      async function clearLogs() {
+        setSpaceBusy(true)
+        setSpaceError('')
+        setSpaceNote('')
+        try {
+          const response = await request('/.dsh-agi/space/clean-logs', { method: 'POST' })
+          if (response && response.space) setSpace(response.space)
+          const clean = response && response.clean
+          setSpaceNote(clean
+            ? text.spaceCleaned.replaceAll('{count}', String(clean.removed)).replaceAll('{size}', formatSpaceBytes(clean.bytes))
+            : '')
+        } catch {
+          setSpaceError(text.spaceCleanFailed)
+        } finally {
+          setSpaceBusy(false)
+        }
+      }
 
       async function saveRetention(days) {
         await request('/.dsh-agi/history/retention', {
@@ -1904,6 +2054,30 @@ window.__ModuleLoader__.load({
                   },
                     HISTORY_RETENTION_DAYS.map((days) => h('option', { key: days, value: String(days) },
                       days === 0 ? text.historyForever : text.historyDaysOption.replaceAll('{days}', String(days))))))))),
+          h('div', { className: 'dsh-agi-set-space' },
+            h('div', { className: 'dsh-agi-set-space-head' },
+              h('div', { className: 'dsh-agi-set-panel-text' },
+                h('h4', null, text.spaceTitle),
+                h('p', null, space
+                  ? `${text.spaceTotal.replaceAll('{size}', formatSpaceBytes(space.total))} · ${text.spaceFiles.replaceAll('{files}', String(space.files))}`
+                  : text.spaceLoading)),
+              h('div', { className: 'dsh-agi-set-space-actions' },
+                h('button', {
+                  type: 'button',
+                  className: 'dsh-agi-set-button dsh-agi-set-ghost',
+                  disabled: spaceBusy,
+                  onClick: () => { void loadSpace() },
+                }, text.spaceRefresh),
+                h('button', {
+                  type: 'button',
+                  className: 'dsh-agi-set-button',
+                  disabled: spaceBusy || space === null,
+                  'aria-expanded': spaceOpen ? 'true' : 'false',
+                  onClick: () => { setSpaceOpen((open) => !open) },
+                }, spaceOpen ? text.spaceHide : text.spaceDetails))),
+            spaceOpen ? spaceDetail() : null,
+            spaceError ? h('p', { className: 'dsh-agi-set-error', role: 'alert' }, `${text.spaceFailed}${spaceError}`) : null,
+            spaceNote ? h('p', { className: 'dsh-agi-set-muted dsh-agi-set-space-note' }, spaceNote) : null),
           h('p', { className: 'dsh-agi-set-history-hint' }, text.historyRestoreHint),
           error ? h('p', { className: 'dsh-agi-set-error', role: 'alert' }, error) : null,
           cleaning ? h('p', { className: 'dsh-agi-set-banner', role: 'status' }, history.phase === 'restoring' ? text.historyRestoring : text.historyCleaning) : null,
@@ -3067,6 +3241,29 @@ window.__ModuleLoader__.load({
 .dsh-agi-set .dsh-agi-set-history-last::before { content: ''; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--dsw-alias-state-success-primary, #12b76a); box-shadow: 0 0 0 3px color-mix(in srgb, #12b76a 14%, transparent); }
 .dsh-agi-set-history > .dsh-agi-set-card-body > .dsh-agi-set-banner { display: flex; align-items: center; gap: 7px; margin-top: 10px; font-size: 12px; }
 .dsh-agi-set-history > .dsh-agi-set-card-body > .dsh-agi-set-banner::before { content: ''; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--dsh-agi-accent); }
+
+/* Disk usage: one total on the head line, the per-file list behind Details. */
+.dsh-agi-set-space { margin-top: 16px; padding-top: 14px; border-top: 1px solid color-mix(in srgb, currentColor 8%, transparent); }
+.dsh-agi-set-space-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.dsh-agi-set-space-head h4 { margin: 0 0 3px; font-size: 12.5px; font-weight: 600; }
+.dsh-agi-set-space-head p { margin: 0; font-size: 11.5px; line-height: 1.55; color: color-mix(in srgb, currentColor 55%, transparent); }
+.dsh-agi-set-space-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.dsh-agi-set-space-detail { margin-top: 12px; display: flex; flex-direction: column; gap: 12px; }
+.dsh-agi-set-space-note { margin: 0; font-size: 11.5px; line-height: 1.55; }
+.dsh-agi-set-space-group { display: flex; flex-direction: column; gap: 6px; }
+.dsh-agi-set-space-group-head { display: flex; align-items: center; gap: 8px; font-size: 11.5px; font-weight: 600; color: color-mix(in srgb, currentColor 70%, transparent); }
+.dsh-agi-set-space-group-name { flex: 1 1 auto; }
+.dsh-agi-set-space-size { flex: none; font-size: 11.5px; font-variant-numeric: tabular-nums; color: color-mix(in srgb, currentColor 60%, transparent); }
+.dsh-agi-set-space-row { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 9px; background: color-mix(in srgb, currentColor 4%, transparent); }
+.dsh-agi-set-space-row-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dsh-agi-set-space-name { font-size: 11.5px; }
+.dsh-agi-set-space-path { font-size: 10.5px; line-height: 1.45; color: color-mix(in srgb, currentColor 46%, transparent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-agi-set-space-row-empty { margin: 0; font-size: 11.5px; }
+.dsh-agi-set-space-clean { flex: none; }
+@media (max-width: 640px) {
+  .dsh-agi-set-space-head { align-items: flex-start; flex-direction: column; }
+  .dsh-agi-set-space-actions { width: 100%; justify-content: flex-end; }
+}
 
 /* Dialogs */
 .dsh-agi-set-dialog-backdrop { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--dsw-alias-bg-mask-1, rgba(0, 0, 0, 0.32)); backdrop-filter: blur(2px); }
