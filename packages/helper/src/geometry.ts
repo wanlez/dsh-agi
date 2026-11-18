@@ -366,7 +366,7 @@ export class FloatingPlacement {
       this.applyTab(this.docked.side, this.docked.y, display.workArea)
       return { expanded: false, ...this.direction, docked: this.docked.side, strip: this.stripWidth }
     }
-    const origin = clampedBallOrigin(this.currentBallOrigin(), display.workArea)
+    const origin = clampedBallOrigin(this.expandedOrigin ?? this.currentBallOrigin(), display.workArea)
     this.window.setBounds(collapsedWindowBounds(origin))
     return { expanded: false, ...this.direction, docked: undefined, strip: this.stripWidth }
   }
@@ -513,6 +513,8 @@ export class FloatingPlacement {
   }
 
   private currentBallOrigin(): Point {
+    // While expanded the window is the panel; its bounds say nothing about where the ball is.
+    if (this.expandedOrigin !== undefined) return this.expandedOrigin
     const bounds = this.window.getBounds()
     // A docked window at rest is the thin tab. While the slide-off still draws the
     // full ball window, the ball is wherever that window is, not at its docked pose.

@@ -342,8 +342,6 @@ let expandedAt = 0
   let skipClick = false
   let skipDockCommit = false
   let suppressExpand = false
-  /** A turn is in flight, including the short gaps between its steps. */
-  let working = false
   let docked
   let dockHoverArmed = true
   let dockPointerInside = false
@@ -523,7 +521,6 @@ let expandedAt = 0
   }
 
   function setRunning(next, interrupted = false) {
-    working = next
     running = next
     if (pageClosed()) return
     document.body.classList.toggle('running', running)
@@ -757,12 +754,8 @@ let expandedAt = 0
     }, ANIMATION_MS)
   }
 
-  /**
-   * While the ball is working the panel stays open: leaving the pointer is not leaving the task.
-   * Only a settled, unpinned panel folds itself away.
-   */
   function scheduleCollapse() {
-    if (pinned || running || working || asking() || dragging || voiceHold) return
+    if (pinned || running || asking() || dragging || voiceHold) return
     if (collapseTimer !== undefined) clearTimeout(collapseTimer)
     collapseTimer = setTimeout(() => {
       collapseTimer = undefined
