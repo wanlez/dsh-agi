@@ -106,12 +106,17 @@ async function logFiles(): Promise<SpaceFile[]> {
   return found
 }
 
-/** One target of the report: a directory tree, or the plugin's own logs. */
+/**
+ * One target of the report: a directory tree, the plugin's own logs, or a set of paths that
+ * together make up one installed artifact.
+ */
 interface Target {
   readonly id: string
   readonly label: string
   readonly group: string
   readonly path: string
+  /** Measured together as one row; `path` is then just the row's caption. */
+  readonly paths?: readonly string[]
 }
 
 function targets(): readonly (readonly [group: string, list: readonly Target[]])[] {
@@ -131,19 +136,35 @@ function targets(): readonly (readonly [group: string, list: readonly Target[]])
       { id: 'asr-model', label: 'ASR model', group: 'voice', path: dshHomePath('speech-to-text', 'sensevoice') },
       { id: 'runtime', label: 'Helper runtime', group: 'voice', path: dshHomePath('dsh-agi', 'electron-runtime') },
     ]],
+    // The official attachment store is shared with every other conversation in Harness, so it
+    // is not this plugin's footprint and is not reported here.
     ['shared', [
-      { id: 'attachments', label: 'Shared attachments', group: 'shared', path: dshHomePath('attachments', 'v1', 'objects') },
-      { id: 'code', label: 'Installed code', group: 'shared', path: plugin },
+      {
+        id: 'code',
+        label: 'Installed code',
+        group: 'shared',
+        path: plugin,
+        paths: [join(plugin, 'dist'), join(plugin, 'lib'), join(plugin, 'client.js')],
+      },
+      // Only a development checkout carries its dependencies next to the bundle.
+      { id: 'deps', label: 'Development dependencies', group: 'shared', path: join(plugin, 'node_modules') },
     ]],
   ]
 }
 
 async function measureTargets(list: readonly Target[]): Promise<SpaceFile[]> {
   const measured = await Promise.all(list.map(async (target) => {
-    const size = await measure(target.path)
-    return { id: target.id, label: target.label, path: target.path, bytes: size.bytes, files: size.files }
+    let bytes = 0
+    let files = 0
+    for (const path of target.paths ?? [target.path]) {
+      const size = await measure(path)
+      bytes += size.bytes
+      files += size.files
+    }
+    return { id: target.id, label: target.label, path: target.path, bytes, files }
   }))
-  return measured
+  // A path that does not exist on this machine is not a row: nothing to report, nothing to see.
+  return measured.filter((item) => item.files > 0)
 }
 
 /** Measure everything the ball keeps, grouped for one settings card. */
