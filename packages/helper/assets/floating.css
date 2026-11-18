@@ -480,11 +480,8 @@ body.expand-down #question {
 }
 
 #question {
-  flex: 0 1 auto;
-  /* Half the panel at most, and never more than a fixed slice: the annotation text above the
-   * card must stay readable while the card is up. */
-  max-height: min(50%, 380px);
-  min-height: 0;
+  flex: 0 0 auto;
+  max-height: 55%;
 }
 
 #transcript iframe {
@@ -1004,7 +1001,7 @@ body.expand-down #selection-chip {
   flex-direction: column;
   gap: 8px;
   /* Keep the answer above readable: options scroll inside their own slice, not 45% of the screen. */
-  max-height: min(45vh, 220px);
+  max-height: 35vh;
   overflow-y: auto;
 }
 
