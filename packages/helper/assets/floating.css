@@ -480,8 +480,10 @@ body.expand-down #question {
 }
 
 #question {
-  flex: 0 0 auto;
-  max-height: 55%;
+  flex: 0 1 auto;
+  /* Half the panel at most: the annotation text above the card must stay readable while it is up. */
+  max-height: 50%;
+  min-height: 0;
 }
 
 #transcript iframe {

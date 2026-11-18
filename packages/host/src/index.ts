@@ -199,7 +199,8 @@ export function apply(ctx: OrbContext, config: { autoStart?: boolean } = {}): vo
               + '【节点自学习】按节点执行完一步后（成功或失败），如果你对这一步有了更可靠的信息（目标截图、坑、更准确的提示词），用 knowledge_graph_learn_node 更新该节点的 AI 部分：\n'
               + '- 只写 AI 部分（ai_notes / AI 截图）；人的说明和人的截图只读不改，人的截图是核心评判标准，AI 截图只做指导。\n'
               + '- 精简：最多 3 条要点、总长 600 字以内；重复或已完备就跳过，不要为了更新而更新。\n'
-              + '- 执行时先读人的说明打底，但以 AI 补充的要点为准；看图片先看人的截图做评判，再看 AI 截图辅助定位。',
+              + '- 执行时先读人的说明打底，但以 AI 补充的要点为准；看图片先看人的截图做评判，再看 AI 截图辅助定位。\n'
+              + '7. 你有写库权限：knowledge_graph_create_node / knowledge_graph_create_path / knowledge_graph_learn_node 都会直接写入磁盘，不需要用户去编辑页手工填。禁止说「我没有写节点权限」或「只能在编辑页里写」。唯一不能改的是已有节点里由人写的标题、说明和人的截图。',
           }],
           source: { kind: 'computer-use', form: 'notice', summary: 'Library maintenance rules' },
         })

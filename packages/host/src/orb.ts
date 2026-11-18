@@ -430,6 +430,12 @@ export class OrbRuntime {
   private turnInterrupted = false
   /** Bumped every time a turn starts; stopTurn uses it to spot a turn that replaced its own. */
   private turnEpoch = 0
+  /** Wall clock of the running turn, for the one-line cost report of a library flow. */
+  private flowStartedAt = 0
+  /** Milliseconds spent inside tools this turn, per category. */
+  private readonly flowSpent = new Map<string, number>()
+  /** Tool calls still running, by call id. */
+  private readonly toolStartedAt = new Map<string, number>()
   /** The old turn is being stopped; send this text as a new task after its turn/end. */
   private pendingPrompt: { text: string; key: string; sessionId?: string } | undefined
   /** Steps whose first tool-call delta already told voice that the preceding text was mid-turn. */
@@ -1509,6 +1515,7 @@ export class OrbRuntime {
       const name = toolName(data)
       if (!name) return
       const id = callId(data)
+      if (id) this.toolStartedAt.set(id, Date.now())
       const existing = id ? undefined : this.runningTool(name)
       const key = id ? `tool:${id}` : existing ?? `tool:${seq}`
       this.block(key, 'tool', name, false, 'set', {
@@ -1518,6 +1525,7 @@ export class OrbRuntime {
       return
     }
     if (type === 'tool/result') {
+      this.timeTool(data)
       this.onToolResult(data)
       if (this.turnRunning) this.setPhase('thinking')
       return
@@ -1532,6 +1540,37 @@ export class OrbRuntime {
   }
 
   /** Join a settled result to its call by id, carrying error state and meta. */
+  /**
+   * One line after a library flow: how long the whole turn took and where the tool time went.
+   * The operator asked for this because "it felt slow" was otherwise unanswerable.
+   */
+  private reportFlowTime(): void {
+    if (this.flowStartedAt === 0) return
+    const total = Date.now() - this.flowStartedAt
+    const parts = [...this.flowSpent.entries()]
+      .filter(([, ms]) => ms >= 500)
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 2)
+      .map(([name, ms]) => `${name} ${Math.round((ms / total) * 100)}%`)
+    const seconds = Math.max(1, Math.round(total / 1000))
+    this.block(`flow:${randomUUID()}`, 'notice', `耗时 ${seconds}s${parts.length === 0 ? '' : `｜${parts.join(' ')}`}`, false, 'set')
+  }
+
+  /** Attribute one finished tool call to its category so {@link reportFlowTime} can split it. */
+  private timeTool(data: unknown): void {
+    const record = asRecord(data)
+    const id = callId(record)
+    if (!id) return
+    const started = this.toolStartedAt.get(id)
+    if (started === undefined) return
+    this.toolStartedAt.delete(id)
+    const name = toolName(record) || this.blocks.get(`tool:${id}`)?.text || ''
+    const category = name.startsWith('knowledge_graph_search') || name.startsWith('knowledge_graph_list')
+      ? '检索'
+      : name.startsWith('knowledge_graph_') ? '写入' : '工具'
+    this.flowSpent.set(category, (this.flowSpent.get(category) ?? 0) + (Date.now() - started))
+  }
+
   private onToolResult(data: unknown): void {
     const record = asRecord(data)
     if (!record) return
@@ -1715,6 +1754,9 @@ export class OrbRuntime {
    */
   private beginTurn(): void {
     this.turnEpoch += 1
+    this.flowStartedAt = Date.now()
+    this.flowSpent.clear()
+    this.toolStartedAt.clear()
     this.turnRunning = true
     this.selection.setSessionRunning(true)
     this.broadcast({ type: 'turn', running: true })
@@ -1738,7 +1780,9 @@ export class OrbRuntime {
     // never went through the experience-library loop and has nothing to write back).
     // Reflection belongs to the experience-library loop only: a plain desktop or chat turn never
     // ran a knowledge_graph tool, so there is nothing to write back and no nudge is injected.
+    if (this.graphTouchedThisTurn) this.reportFlowTime()
     if (this.graphTouchedThisTurn) this.markReflection()
+    this.flowStartedAt = 0
     this.graphTouchedThisTurn = false
     this.turnRunning = false
     this.setPhase('stopped')
@@ -2727,6 +2771,20 @@ export class OrbRuntime {
     if (record.type === 'silence') {
       // The page hides the speaking indicator: drop the rest of the line without touching the turn.
       this.voice.haltSpeech()
+      return
+    }
+    if (record.type === 'pause') {
+      // A steer only asks the model to stop; it kept going a few steps later. Pause has to
+      // settle the turn itself, and resume opens a new turn that continues from the break.
+      this.voice.haltSpeech()
+      if (this.turnRunning) {
+        const epoch = this.turnEpoch
+        this.run('stop', () => this.stopTurn(epoch))
+      }
+      return
+    }
+    if (record.type === 'resume') {
+      void this.onPrompt('继续刚才的任务，从断点接着做。', 'interrupt')
       return
     }
     if (record.type === 'stop') {

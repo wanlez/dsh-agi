@@ -184,6 +184,16 @@ ipcMain.handle('orb:unsnap', async (event) => {
   return placement.unsnap()
 })
 
+ipcMain.on('orb:pause', (event) => {
+  if (!fromBall(event)) return
+  write({ type: 'pause' })
+})
+
+ipcMain.on('orb:resume', (event) => {
+  if (!fromBall(event)) return
+  write({ type: 'resume' })
+})
+
 ipcMain.on('orb:prompt', (event, payload) => {
   if (!fromBall(event)) return
   // The page sends { text, mode } since the composer can steer a live turn; a bare

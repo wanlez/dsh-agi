@@ -2726,11 +2726,10 @@ let expandedAt = 0
   pauseButton.addEventListener('click', () => {
     paused = !paused
     applyPauseCopy()
-    // Pause rides the current turn as a steer; resume has to open a new turn when the agent
-    // already stopped, so it uses the interrupt path.
-    api.send(paused
-      ? '暂停一下：先停下手上的操作，不要继续点击或输入，等我下一步指示。'
-      : '继续刚才的任务，从断点接着做。', paused ? 'steer' : 'interrupt')
+    // A steer only asked the model to stop and it walked on a few steps later. Pause now
+    // settles the turn on the host side; resume opens a new turn that continues from there.
+    if (paused) api.pauseTurn()
+    else api.resumeTurn()
   })
   historyButton.addEventListener('click', () => {
     if (sessionMode === 'shared') {

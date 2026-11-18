@@ -323,6 +323,12 @@ export class FloatingPlacement {
    * edge it was aimed at.
    */
   private placedOrigin: Point | undefined
+  /**
+   * Ball origin the panel was expanded from. While expanded, the window is the panel, so the
+   * origin can no longer be derived from its bounds: deriving it made every repeated expand
+   * request compute a slightly different rectangle and shove the window around (the jitter).
+   */
+  private expandedOrigin: Point | undefined
 
   constructor(private readonly window: {
     getBounds(): Rect
@@ -343,13 +349,19 @@ export class FloatingPlacement {
     const bounds = this.window.getBounds()
     const display = this.displayAt(center(bounds))
     if (expanded) {
-      const origin = this.currentBallOrigin()
+      const origin = this.expandedOrigin ?? this.currentBallOrigin()
+      this.expandedOrigin = origin
       this.docked = undefined
       const next = expandedOverlayBounds(origin, display.workArea, this.stripWidth)
       this.direction = { horizontal: next.horizontal, vertical: next.vertical }
-      this.window.setBounds({ x: next.x, y: next.y, width: next.width, height: next.height })
+      // A repeat request for the geometry already applied must not move the window: the panel
+      // asks to expand on every layout change, and each needless setBounds flickered the page.
+      const moved = Math.abs(bounds.x - next.x) > 1 || Math.abs(bounds.y - next.y) > 1
+        || Math.abs(bounds.width - next.width) > 1 || Math.abs(bounds.height - next.height) > 1
+      if (moved) this.window.setBounds({ x: next.x, y: next.y, width: next.width, height: next.height })
       return { expanded: true, ...this.direction, docked: undefined, strip: this.stripWidth }
     }
+    this.expandedOrigin = undefined
     if (this.docked) {
       this.applyTab(this.docked.side, this.docked.y, display.workArea)
       return { expanded: false, ...this.direction, docked: this.docked.side, strip: this.stripWidth }

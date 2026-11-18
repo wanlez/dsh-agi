@@ -23,6 +23,12 @@ contextBridge.exposeInMainWorld('dshAgi', {
   syncStrip() {
     return ipcRenderer.invoke('orb:sync-strip')
   },
+  pauseTurn() {
+    ipcRenderer.send('orb:pause')
+  },
+  resumeTurn() {
+    ipcRenderer.send('orb:resume')
+  },
   send(text, mode) {
     ipcRenderer.send('orb:prompt', { text: String(text ?? ''), mode: mode === 'steer' ? 'steer' : 'interrupt' })
   },
