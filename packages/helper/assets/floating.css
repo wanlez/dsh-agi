@@ -481,8 +481,9 @@ body.expand-down #question {
 
 #question {
   flex: 0 1 auto;
-  /* Half the panel at most: the annotation text above the card must stay readable while it is up. */
-  max-height: 50%;
+  /* Half the panel at most, and never more than a fixed slice: the annotation text above the
+   * card must stay readable while the card is up. */
+  max-height: min(50%, 380px);
   min-height: 0;
 }
 
@@ -1002,8 +1003,8 @@ body.expand-down #selection-chip {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  /* Keep the answer above readable: options scroll inside their own half. */
-  max-height: 45vh;
+  /* Keep the answer above readable: options scroll inside their own slice, not 45% of the screen. */
+  max-height: min(45vh, 220px);
   overflow-y: auto;
 }
 
