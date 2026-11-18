@@ -7,6 +7,7 @@
  * code are measured and reported, never touched.
  */
 
+import { readFileSync } from 'node:fs'
 import { readdir, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -79,14 +80,26 @@ async function measure(path: string): Promise<{ bytes: number, files: number }> 
   return { bytes, files }
 }
 
-/** The installed package root, found by walking up for this plugin's package.json. */
+/**
+ * The installed package root: the nearest ancestor whose package.json is this plugin's.
+ * Matching on the manifest (not on directory names) keeps the reported code size right whether
+ * the module runs from `dist/host` or straight from `src`.
+ */
 export function packageRoot(): string {
   let current = dirname(fileURLToPath(import.meta.url))
   for (let step = 0; step < 6; step += 1) {
+    const manifest = join(current, 'package.json')
+    try {
+      const parsed = JSON.parse(readFileSync(manifest, 'utf8')) as { name?: unknown, private?: unknown }
+      // The installable package is the bundle; a monorepo root also calls itself dsh-agi but is
+      // private, and measuring that root would report the repository's dependencies instead.
+      if (typeof parsed.name === 'string' && parsed.name === 'dsh-agi' && parsed.private !== true) return current
+    } catch {
+      // Not a package boundary; keep walking.
+    }
     current = dirname(current)
-    if (!current.endsWith('host') && !current.endsWith('dist') && !current.endsWith('src')) return current
   }
-  return current
+  return dirname(dirname(fileURLToPath(import.meta.url)))
 }
 
 /**
