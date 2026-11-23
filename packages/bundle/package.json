@@ -1,6 +1,6 @@
 {
   "name": "dsh-agi",
-  "version": "0.6.14",
+  "version": "0.6.15",
   "type": "module",
   "description": "Installable Orb bundle. Inserts the Computer Use preset and the floating-ball host.",
   "keywords": [
@@ -51,7 +51,9 @@
     "lib",
     "client.js",
     "dist",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "uninstall.mjs",
+    "uninstall.cmd"
   ],
   "scripts": {
     "build": "node ./scripts/assemble.mjs",

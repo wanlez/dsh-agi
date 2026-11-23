@@ -85,6 +85,13 @@ The observation frame (the glowing border drawn while the agent is in control) i
 
 Each release keeps its own section, newest first, so the delta between two versions is always readable.
 
+### 0.6.15
+
+- **Ships its own uninstaller**: the package now contains `uninstall.cmd` (double-click on Windows) and `uninstall.mjs`. It prints exactly what will be deleted and what will be kept, and only proceeds after typing `yes`; if DeepSeek Harness is still running it stops instead of half-removing anything.
+- **Removes everything it owns**: the package itself, the `dsh-agi` dependency and bundle entries in the profile manifest (loader entries first, so a half-removed install cannot load), the voice models and ball runtime cache, the helper cache, plugin settings such as `agi-voice.json`, and the temporary logs.
+- **Touches nothing else**: the experience library (`profiles/<profile>/dsh-agi/knowledge-graph` plus its `agi-knowledge-graph.json` binding), the ball workspace, the conversation screenshot archive, DSH itself, other plugins, sessions and attachments all stay. Every delete is confined to the plugin directory and `~/.dsh/dsh-agi`.
+- **Reinstallable**: install again from the plugin manager afterwards and the library is picked up where it left off.
+
 ### 0.6.14
 
 - **Any recent pnpm works**: the updater no longer demands the exact major the profile was linked with. Version 9 or newer is accepted from the app runtime, the plugin cache, or PATH — a matching major is preferred, a different one still installs.
