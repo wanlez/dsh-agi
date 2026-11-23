@@ -2737,6 +2737,11 @@ export class OrbRuntime {
     return this.web === undefined ? { error: 'web-unavailable' } : await this.web.pickChrome()
   }
 
+  /** Restart the operator's own Chrome with a debug port and attach (operator-authorized). */
+  async takeoverChrome(): Promise<WebState | { error: string }> {
+    return this.web === undefined ? { error: 'web-unavailable' } : await this.web.takeoverChrome()
+  }
+
   /** Apply a settings-page change; the tools appear or disappear at once. */
   async setWebSettings(patch: Record<string, unknown>): Promise<WebState | { error: string }> {
     return this.web?.update(patch as Parameters<WebControl['update']>[0]) ?? { error: 'web-unavailable' }

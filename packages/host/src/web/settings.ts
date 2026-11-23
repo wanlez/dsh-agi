@@ -26,6 +26,8 @@ export interface WebSettings {
   chromiumDir: string
   /** CDP endpoint for `attach`, for a browser the operator started themselves. */
   cdpUrl: string
+  /** True when the plugin restarted Chrome itself, so closing the channel may close it. */
+  cdpOwned: boolean
   /** Where each mode keeps its persistent profile; empty means the default under the plugin data. */
   profileDir: string
 }
@@ -34,7 +36,7 @@ const FILE = 'agi-web.json'
 
 /** The shipped defaults: off, bundled Chromium, nothing filled in. */
 export function defaultWebSettings(): WebSettings {
-  return { enabled: false, mode: 'chromium', chromePath: '', chromiumPath: '', chromiumDir: '', cdpUrl: '', profileDir: '' }
+  return { enabled: false, mode: 'chromium', chromePath: '', chromiumPath: '', chromiumDir: '', cdpUrl: '', cdpOwned: false, profileDir: '' }
 }
 
 function isMode(value: unknown): value is WebMode {
@@ -53,6 +55,7 @@ export function readWebSettings(profileDir: string): WebSettings {
       chromiumPath: typeof parsed.chromiumPath === 'string' ? parsed.chromiumPath : fallback.chromiumPath,
       chromiumDir: typeof parsed.chromiumDir === 'string' ? parsed.chromiumDir : fallback.chromiumDir,
       cdpUrl: typeof parsed.cdpUrl === 'string' ? parsed.cdpUrl : fallback.cdpUrl,
+      cdpOwned: typeof parsed.cdpOwned === 'boolean' ? parsed.cdpOwned : fallback.cdpOwned,
       profileDir: typeof parsed.profileDir === 'string' ? parsed.profileDir : fallback.profileDir,
     }
   } catch {
@@ -74,6 +77,7 @@ export function mergeWebSettings(current: WebSettings, patch: Partial<WebSetting
   const next: WebSettings = { ...current }
   if (typeof patch.enabled === 'boolean') next.enabled = patch.enabled
   if (isMode(patch.mode)) next.mode = patch.mode
+  if (typeof patch.cdpOwned === 'boolean') next.cdpOwned = patch.cdpOwned
   for (const key of ['chromePath', 'chromiumPath', 'chromiumDir', 'cdpUrl', 'profileDir'] as const) {
     const value = patch[key]
     if (typeof value === 'string') next[key] = value

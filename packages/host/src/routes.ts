@@ -142,6 +142,7 @@ export interface OrbControl {
   downloadChromium?(): Promise<unknown>
   /** Ask the operator for chrome.exe with the system dialog. */
   pickChrome?(): Promise<unknown>
+  takeoverChrome?(): Promise<unknown>
   /** Ask the operator where Chromium builds should live; moves an existing build there. */
   pickChromiumDir?(): Promise<unknown>
   /** Move an existing Chromium build to an explicit directory. */
@@ -500,6 +501,14 @@ async function handle(deps: RouteDeps, req: IncomingMessage, res: ServerResponse
       return
     }
     sendJson(res, 200, await deps.control.moveChromium(dir))
+    return
+  }
+  if (method === 'POST' && path === `${PREFIX}/web/takeover`) {
+    if (typeof deps.control.takeoverChrome !== 'function') {
+      sendJson(res, 409, { error: 'web-unavailable' })
+      return
+    }
+    sendJson(res, 200, await deps.control.takeoverChrome())
     return
   }
   if (method === 'POST' && path === `${PREFIX}/web/pick-chrome`) {

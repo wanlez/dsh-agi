@@ -188,7 +188,10 @@ window.__ModuleLoader__.load({
       webChromiumPickDir: '选择目录…',
       webChromiumDirHint: '换目录会把已下载的浏览器一起迁移过去，不会重复下载。',
       webChromeHint: '必须由你手动选 chrome.exe，程序不会自动查找。',
-      webAttachHint: '连接你自己已经启动、并且带调试端口运行的浏览器。程序不会替你启动它，也不会重启它。终端示例：chrome.exe --remote-debugging-port=9222',
+      webAttachHint: '两条路：① 你给一个已经在跑的调试端口浏览器（下面的地址）；② 用「接管当前 Chrome」——程序会先关掉 Chrome，再用你原来的配置带调试端口重启并连上，登录态和扩展都还在。',
+      webTakeover: '接管当前 Chrome',
+      webTakeoverConfirm: '会先关闭 Chrome，未保存的页面内容可能丢失；随后用你的原配置重启并接管。继续吗？',
+      webTakeoverNeedsChrome: '先到「系统 Chrome」里选好 chrome.exe，再回来接管。',
       webErrorPrefix: '操作失败：',
       workspaceChanged: '工作区已切换。',
       workspaceInvalidPath: '请输入绝对路径。',
@@ -530,7 +533,10 @@ window.__ModuleLoader__.load({
       webChromiumPickDir: 'Choose folder…',
       webChromiumDirHint: 'Changing the folder moves the downloaded browser there; nothing is downloaded twice.',
       webChromeHint: 'Pick chrome.exe yourself; it is never discovered automatically.',
-      webAttachHint: 'Attach to a browser you already started with a debugging port. The plugin never launches or restarts it. Example: chrome.exe --remote-debugging-port=9222',
+      webAttachHint: 'Two ways: ① a browser already running with a debug port (address below); ② Take over Chrome — the plugin asks Chrome to close, then restarts it on your own profile with a debug port, so logins and extensions come back.',
+      webTakeover: 'Take over Chrome',
+      webTakeoverConfirm: 'Chrome will be closed first, so unsaved page content may be lost; then it restarts on your own profile and the plugin attaches. Continue?',
+      webTakeoverNeedsChrome: 'Pick chrome.exe under System Chrome first, then come back.',
       webErrorPrefix: 'Failed: ',
       workspaceUseDefault: 'Restore default workspace',
       workspaceChanged: 'Workspace changed.',
@@ -1919,6 +1925,7 @@ window.__ModuleLoader__.load({
         body: h('div', { className: 'dsh-agi-set-panel' },
           h('span', hint, status),
           state.error !== '' ? h('span', { className: 'dsh-agi-set-error', style: { display: 'block', marginTop: '6px' } }, `${text.webErrorPrefix}${state.error}`) : null,
+          state.notice ? h('span', hint, String(state.notice)) : null,
           h('div', { className: 'dsh-agi-set-voice-seg', role: 'radiogroup', 'aria-label': text.webMode, style: { marginTop: '10px' } },
             option('chromium', text.webModeChromium),
             option('chrome', text.webModeChrome),
@@ -1953,6 +1960,17 @@ window.__ModuleLoader__.load({
             h('span', hint, text.webChromeHint)) : null,
           mode === 'attach' ? h('div', null,
             h('span', hint, text.webAttachHint),
+            row(
+              h('span', { className: 'dsh-agi-set-field-label' }, settings.chromePath || text.webTakeoverNeedsChrome),
+              h('button', {
+                type: 'button',
+                className: 'dsh-agi-set-button',
+                disabled: busy !== '' || !settings.chromePath,
+                onClick: () => {
+                  if (!window.confirm(text.webTakeoverConfirm)) return
+                  void send('/.dsh-agi/web/takeover', {}, 'takeover')
+                },
+              }, busy === 'takeover' ? '…' : text.webTakeover)),
             row(
               h('span', { className: 'dsh-agi-set-field-label' }, text.webCdpLabel),
               h('input', {

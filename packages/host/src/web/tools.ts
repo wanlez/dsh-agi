@@ -502,7 +502,9 @@ export class BrowserChannel {
     this.knownPages = new Set()
     this.opened = []
     if (context === undefined) return { ok: true, closed: false }
-    if (this.settings().mode === 'attach') return { ok: true, closed: false, detached: true }
+    if (this.settings().mode === 'attach' && this.settings().cdpOwned !== true) {
+      return { ok: true, closed: false, detached: true }
+    }
     await context.close().catch(() => undefined)
     return { ok: true, closed: true }
   }

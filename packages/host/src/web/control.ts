@@ -13,6 +13,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { CHROMIUM_VERSION, chromiumStatus, installChromium, type ChromiumStatus } from './chromium.ts'
 import { detectRemoteEnvironment, type RemoteEnvironment } from './env.ts'
+import { prepareTakeover } from './handoff.ts'
 import { defaultWebSettings, mergeWebSettings, readWebSettings, writeWebSettings, type WebSettings } from './settings.ts'
 import { BrowserChannel, registerWebTools } from './tools.ts'
 
@@ -31,6 +32,8 @@ export interface WebState {
   readonly chromiumDir: string
   /** The last failure from enabling or downloading, for the page to show instead of silence. */
   readonly error: string
+  /** The last successful action's summary (takeover, move, download), for the page to show. */
+  readonly notice: string
 }
 
 /** A tool registry as the Host exposes it. */
@@ -46,6 +49,8 @@ export class WebControl {
   private env: RemoteEnvironment | undefined
   /** Last enable failure; cleared by the next successful refresh. */
   private lastError = ''
+  /** Last successful action's summary, shown once by the page. */
+  private lastNotice = ''
 
   constructor(
     private readonly registry: ToolRegistry,
@@ -107,7 +112,7 @@ export class WebControl {
         : settings.enabled && !active
           ? '网页通道未能启用，请查看日志'
           : ''
-    return { settings, active, blockedReason, evidence: env.evidence, chromium, chromiumDir: this.baseDir(), error: this.lastError }
+    return { settings, active, blockedReason, evidence: env.evidence, chromium, chromiumDir: this.baseDir(), error: this.lastError, notice: this.lastNotice }
   }
 
   /**
@@ -178,6 +183,35 @@ export class WebControl {
    * Ask the operator for a chrome.exe with the system dialog. Nothing is discovered: whatever
    * the dialog returns is what gets used.
    */
+  /**
+   * Restart the operator's own Chrome with a loopback debug port and attach to it.
+   *
+   * This is the one flow the operator authorized that touches their browser: Chrome is asked to
+   * close politely, its own profile is reused (so logins and extensions come back), and the port
+   * lives only for this attached session. Nothing is copied or deleted.
+   */
+  async takeoverChrome(): Promise<WebState> {
+    const settings = this.settings()
+    const chromePath = settings.chromePath
+    if (chromePath === '') {
+      this.lastError = '先选择 chrome.exe，再用「接管当前 Chrome」。'
+      return this.state()
+    }
+    try {
+      const prepared = await prepareTakeover(chromePath)
+      if (prepared.ok !== true) {
+        this.lastError = prepared.reason
+        return this.state()
+      }
+      this.lastNotice = `已用你的 Chrome 配置重启并接管（端口 ${String(prepared.port)}）。关闭网页通道时会一并关掉这个实例。`
+      this.lastError = ''
+      return await this.update({ mode: 'attach', cdpUrl: `http://127.0.0.1:${String(prepared.port)}`, cdpOwned: true, enabled: true })
+    } catch (error) {
+      this.lastError = `接管失败：${error instanceof Error ? error.message : String(error)}`
+      return this.state()
+    }
+  }
+
   async pickChrome(): Promise<WebState> {
     const script = [
       'Add-Type -AssemblyName System.Windows.Forms',
