@@ -33,8 +33,21 @@ import { createRequire } from 'node:module'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-/** The folder whose `node_modules` holds the koffi copy every loader in the bundle uses. */
+/// The folder whose `node_modules` holds the koffi copy every loader in the bundle uses.
 export const KOFFI_DIR_ENV = 'DSH_AGI_KOFFI_DIR'
+
+/**
+ * The koffi platform package that carries the prebuilt addon. The `koffi` package itself
+ * ships no binary and builds one in an install script; pnpm's strict build policy turns that
+ * script being ignored into a failed install, so the prebuilt platform package is what this
+ * plugin depends on. `koffi` stays as the legacy fallback for older installs.
+ */
+export function koffiPackage(): string {
+  if (process.platform === 'win32') return '@koromix/koffi-win32-x64'
+  if (process.platform === 'darwin') return process.arch === 'arm64' ? '@koromix/koffi-darwin-arm64' : '@koromix/koffi-darwin-x64'
+  if (process.platform === 'linux') return process.arch === 'arm64' ? '@koromix/koffi-linux-arm64' : '@koromix/koffi-linux-x64'
+  return 'koffi'
+}
 
 /** Written last into a copy, so a folder without it is a copy that never finished. */
 const READY_MARKER = '.ready'
@@ -49,15 +62,16 @@ const IMAGE_EXTENSIONS = new Set(['.node', '.dll', '.exe'])
  * @param from - module URL the in-package fallback resolves from.
  */
 export function requireKoffi<T>(from: string = import.meta.url): T {
+  const specifier = koffiPackage()
   const dir = process.env[KOFFI_DIR_ENV]
   if (dir !== undefined && dir !== '') {
     try {
-      return createRequire(join(dir, 'index.js'))('koffi') as T
+      return createRequire(join(dir, 'index.js'))(specifier) as T
     } catch (error) {
       console.error(`dsh-agi: koffi copy unusable, loading the packaged one: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
-  return createRequire(from)('koffi') as T
+  return createRequire(from)(specifier) as T
 }
 
 /**
@@ -76,11 +90,11 @@ export function ownPackageRoot(url: string = import.meta.url): string {
  */
 export function stageKoffi(packageRoot: string, cacheRoot: string): string | undefined {
   const modules = join(packageRoot, 'node_modules')
-  const manifest = join(modules, 'koffi', 'package.json')
+  const manifest = join(modules, ...koffiPackage().split('/'), 'package.json')
   if (!existsSync(manifest)) return undefined
   const version = (JSON.parse(readFileSync(manifest, 'utf8')) as { version?: unknown }).version
   if (typeof version !== 'string' || !/^[\w.+-]+$/.test(version)) return undefined
-  const target = join(cacheRoot, `koffi-${version}`)
+  const target = join(cacheRoot, `koffi-${version}-${process.platform}-${process.arch}`)
   if (existsSync(join(target, READY_MARKER))) return target
   const partial = `${target}.partial-${process.pid}`
   rmSync(partial, { recursive: true, force: true })

@@ -20,9 +20,15 @@ importers:
 
   packages/bundle:
     dependencies:
-      koffi:
-        specifier: ^3.1.0
-        version: 3.3.1
+      '@koromix/koffi-darwin-arm64':
+        specifier: 3.3.8
+        version: 3.3.8
+      '@koromix/koffi-darwin-x64':
+        specifier: 3.3.8
+        version: 3.3.8
+      '@koromix/koffi-win32-x64':
+        specifier: 3.3.8
+        version: 3.3.8
       node-cpal:
         specifier: ^1.0.0
         version: 1.0.0
@@ -1010,8 +1016,18 @@ packages:
     cpu: [arm64]
     os: [darwin]
 
+  '@koromix/koffi-darwin-arm64@3.3.8':
+    resolution: {integrity: sha512-7tzlnYSePCQW66iEIi+wgN9HgTiF431KL9wIDhH9b+32KOYZXBdA+JyDgRVi2E5AIyJ1hdkQFNg7YCAOft2mKw==}
+    cpu: [arm64]
+    os: [darwin]
+
   '@koromix/koffi-darwin-x64@3.3.1':
     resolution: {integrity: sha512-+VGqqnBQvR+AbAbRyRDsxK0D6wwAivUURWsyVX8NhR5agf+0+sSAdNMsSy+9DyO7CmioTUVwV+Do+12uWnFrmA==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@koromix/koffi-darwin-x64@3.3.8':
+    resolution: {integrity: sha512-Pw1EsCT9Yov4Szo4joLhABbQfqNgYhwfkhWZiIbEZ2b3sGyv9Yj2N0p00jOpdTfQ+u9QFFi8XhNivJbBTqMTPA==}
     cpu: [x64]
     os: [darwin]
 
@@ -1092,6 +1108,11 @@ packages:
 
   '@koromix/koffi-win32-x64@3.3.1':
     resolution: {integrity: sha512-LYoO19cTIA7xjl+3s4VeGagCAO38VNXZ969DNszb1wTwJUjrHLrAbHFkk8fYkXineM3HJkFwElW0VLmZqXcfRg==}
+    cpu: [x64]
+    os: [win32]
+
+  '@koromix/koffi-win32-x64@3.3.8':
+    resolution: {integrity: sha512-Ef9XpIn/AfnZWMI1lvA6IOjCsTVRlako+BXosp4cRaLZZXkgjwiBVqYXXhqZix1G8e+27UAv97XBTmDEyfS7jA==}
     cpu: [x64]
     os: [win32]
 
@@ -2831,8 +2852,12 @@ snapshots:
   '@koromix/koffi-darwin-arm64@3.3.1':
     optional: true
 
+  '@koromix/koffi-darwin-arm64@3.3.8': {}
+
   '@koromix/koffi-darwin-x64@3.3.1':
     optional: true
+
+  '@koromix/koffi-darwin-x64@3.3.8': {}
 
   '@koromix/koffi-freebsd-arm64@3.3.1':
     optional: true
@@ -2881,6 +2906,8 @@ snapshots:
 
   '@koromix/koffi-win32-x64@3.3.1':
     optional: true
+
+  '@koromix/koffi-win32-x64@3.3.8': {}
 
   '@oxc-project/types@0.151.0': {}
 

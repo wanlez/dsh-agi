@@ -9,14 +9,23 @@ import { join } from 'node:path'
 
 const require = createRequire(import.meta.url)
 
+/** The prebuilt platform package; `koffi` itself needs an install script a strict install skips. */
+function koffiPackage() {
+  if (process.platform === 'win32') return '@koromix/koffi-win32-x64'
+  if (process.platform === 'darwin') return process.arch === 'arm64' ? '@koromix/koffi-darwin-arm64' : '@koromix/koffi-darwin-x64'
+  if (process.platform === 'linux') return process.arch === 'arm64' ? '@koromix/koffi-linux-arm64' : '@koromix/koffi-linux-x64'
+  return 'koffi'
+}
+
 export function requireKoffi() {
+  const specifier = koffiPackage()
   const dir = process.env.DSH_AGI_KOFFI_DIR
   if (dir) {
     try {
-      return createRequire(join(dir, 'index.js'))('koffi')
+      return createRequire(join(dir, 'index.js'))(specifier)
     } catch {
       // A copy that does not load: the packaged one still works, it only blocks updates.
     }
   }
-  return require('koffi')
+  return require(specifier)
 }

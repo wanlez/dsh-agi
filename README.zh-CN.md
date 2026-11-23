@@ -85,6 +85,12 @@ Markdown 笔记会过期、会被跳过。`dsh-agi` 维护一个你真能长期�
 
 每个版本单独一节，最新的在最上面，方便直接对比「上一版到这一版改了什么」。
 
+### 0.6.19
+
+- **命令行安装不再"假失败"**：`koffi` 这个包本身不带二进制，靠 `install` 脚本现编，而 pnpm 默认拦下未授权的构建脚本（`ERR_PNPM_IGNORED_BUILDS`，退出码 1）——包其实已经装好，但 DSH 会当成安装失败。现已改为依赖 koffi 的预编译平台包（`@koromix/koffi-win32-x64` 等），没有任何安装脚本，命令行安装退出码就是 0。
+- **自带启用脚本**：`dsh plugin add` 只装包、不写 `dsh.profile.bundles`，重启后球不出现。插件目录里新增 `install.cmd` / `install.mjs`，双击即可把 loader 条目写进 profile 清单并检查原生模块，然后提示重启。
+- 三个原生加载点（宿主、键鼠工具、选区监听）统一改走预编译平台包。
+
 ### 0.6.18
 
 - **修复全新安装后启动崩溃**：语音子进程 `dist/voice/child.js` 静态引用 `pinyin-pro`，TTS 还会用 `sherpa-onnx-node`、回声消除用 `node-cpal`，但这三个包没写进包清单。开发机上因为工作区装过所以看不出，用户干净安装后语音子进程直接 `ERR_MODULE_NOT_FOUND`，连宿主一起被带崩（`dsh desktop host exited with 1`）。现已声明为运行时依赖。

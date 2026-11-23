@@ -85,6 +85,12 @@ The observation frame (the glowing border drawn while the agent is in control) i
 
 Each release keeps its own section, newest first, so the delta between two versions is always readable.
 
+### 0.6.19
+
+- **Command-line installs stop reporting a false failure**: the `koffi` package ships no binary and builds one in its `install` script, which pnpm blocks by default (`ERR_PNPM_IGNORED_BUILDS`, exit 1) — the package is actually installed but DSH treats the install as failed. The plugin now depends on koffi's prebuilt platform packages (`@koromix/koffi-win32-x64` and friends), which carry no install script, so the command exits 0.
+- **It brings its own enabler**: `dsh plugin add` installs the package but never writes `dsh.profile.bundles`, so the ball does not appear after a restart. The package now contains `install.cmd` / `install.mjs`: run it to write the loader entry into the profile manifest, check the native module, and get the restart instruction.
+- All three native loaders (host, computer-use tools, selection monitor) now read the prebuilt platform package.
+
 ### 0.6.18
 
 - **Fixes a crash on a clean install**: the voice child (`dist/voice/child.js`) imports `pinyin-pro` statically, TTS needs `sherpa-onnx-node`, and echo cancellation uses `node-cpal`, but none of the three were declared in the package manifest. A development checkout has them installed, so it looked fine; a fresh profile hit `ERR_MODULE_NOT_FOUND` and the crash took the host down with it (`dsh desktop host exited with 1`). All three are now runtime dependencies.
