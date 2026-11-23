@@ -85,6 +85,12 @@ The observation frame (the glowing border drawn while the agent is in control) i
 
 Each release keeps its own section, newest first, so the delta between two versions is always readable.
 
+### 0.6.16
+
+- **The uninstaller honours a moved library**: before deleting anything it reads `dir` from `agi-knowledge-graph.json` (falling back to `ACTIVE_GRAPH`) and protects the real location; the summary prints that real path instead of the hard-coded default folder.
+- **Protected paths are enforced, not documented**: the library, the ball workspace and the conversation archive form a guard list; any delete that lands inside one of them is refused and reported as skipped, so a future edit to the delete list cannot take them out by accident.
+- One more test: a library moved outside the profile survives the uninstall, and its real path appears in the summary.
+
 ### 0.6.15
 
 - **Ships its own uninstaller**: the package now contains `uninstall.cmd` (double-click on Windows) and `uninstall.mjs`. It prints exactly what will be deleted and what will be kept, and only proceeds after typing `yes`; if DeepSeek Harness is still running it stops instead of half-removing anything.

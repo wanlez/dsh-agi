@@ -28,7 +28,10 @@ function build() {
     dsh: { profile: { bundles: ['dsh-agi', 'other-bundle'] } },
   }, null, 2))
   writeFileSync(join(profile, 'agi-voice.json'), '{}')
-  writeFileSync(join(profile, 'agi-knowledge-graph.json'), '{"dir":"x"}')
+  const library = join(root, 'MovedLibrary')
+  mkdirSync(library, { recursive: true })
+  writeFileSync(join(library, 'node.json'), '{}')
+  writeFileSync(join(profile, 'agi-knowledge-graph.json'), JSON.stringify({ dir: library }))
   for (const dir of ['voice', 'electron-runtime', 'knowledge', 'workspace', 'records']) {
     mkdirSync(join(home, dir), { recursive: true })
     writeFileSync(join(home, dir, 'keep.txt'), 'x')
@@ -36,11 +39,11 @@ function build() {
   writeFileSync(join(home, 'helper-debug.log'), 'x')
   writeFileSync(join(home, 'ACTIVE_GRAPH'), 'x')
   writeFileSync(join(root, 'dsh-agi-image-debug.log'), 'x')
-  return { root, profile, home, dshHome, pkg }
+  return { root, profile, home, dshHome, pkg, library }
 }
 
 test('removes the plugin and its caches, keeps the library and personal data', () => {
-  const { root, profile, home, dshHome, pkg } = build()
+  const { root, profile, home, dshHome, pkg, library } = build()
   const result = spawnSync(process.execPath, [
     join(pkg, 'uninstall.mjs'),
     '--yes',
@@ -65,5 +68,8 @@ test('removes the plugin and its caches, keeps the library and personal data', (
     assert.equal(existsSync(join(home, keep)), true, `${keep} is kept`)
   }
   assert.equal(existsSync(join(home, 'ACTIVE_GRAPH')), true, 'the library pointer is kept')
+  assert.equal(existsSync(library), true, 'a moved library survives')
+  assert.match(result.stdout, new RegExp('会保留'), 'the summary is printed')
+  assert.ok(result.stdout.includes('MovedLibrary'), 'the summary names the library it kept')
   assert.equal(existsSync(root), true, 'nothing outside the profile and data dir is touched')
 })
