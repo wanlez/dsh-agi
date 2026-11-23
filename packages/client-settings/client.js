@@ -1823,9 +1823,9 @@ window.__ModuleLoader__.load({
 
     /** The browser switch and its source picker. State lives on its own route. */
     function WebCard({ text }) {
-      const [state, setState] = useState({ loading: true, settings: { enabled: false, mode: 'chromium' }, active: false, blockedReason: '', evidence: [], chromium: { present: false } })
-      const [busy, setBusy] = useState('')
-      const [cdp, setCdp] = useState('')
+      const [state, setState] = React.useState({ loading: true, settings: { enabled: false, mode: 'chromium' }, active: false, blockedReason: '', evidence: [], chromium: { present: false } })
+      const [busy, setBusy] = React.useState('')
+      const [cdp, setCdp] = React.useState('')
       const apply = (data) => {
         setState({ loading: false, ...data, settings: data.settings ?? { enabled: false, mode: 'chromium' } })
         if (typeof data.settings?.cdpUrl === 'string') setCdp(data.settings.cdpUrl)
@@ -1837,11 +1837,11 @@ window.__ModuleLoader__.load({
           setState((prev) => ({ ...prev, loading: false }))
         }
       }
-      useEffect(() => { void load() }, [])
+      React.useEffect(() => { void load() }, [])
       const chromium = state.chromium ?? { present: false }
       const phase = chromium.phase ?? 'idle'
       // While a download runs, follow the status file the Host writes.
-      useEffect(() => {
+      React.useEffect(() => {
         if (phase !== 'downloading' && phase !== 'extracting') return undefined
         const timer = setTimeout(() => { void load() }, 1500)
         return () => clearTimeout(timer)
