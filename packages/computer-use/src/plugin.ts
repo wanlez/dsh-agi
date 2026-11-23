@@ -1439,8 +1439,10 @@ export function applyComputerUse(
       'List the frontmost window\'s UI Automation controls (name, type, physical rectangle, and a center in '
       + '0–1000 fractions of the window that click/input_text accept directly). Read-only: it never invokes a '
       + 'control, never sets or reads a value, and skips password fields. Use it before aiming blind; when the '
-      + 'node count is small or unusable=true, the window has no useful tree (Qt, Flutter, old Win32) — '
-      + 'fall back to a screenshot.',
+      + 'node count is small or unusable=true, the window has no useful tree (Qt, Flutter, old Win32, or a target '
+      + 'running elevated without this process) — fall back to a screenshot. Staged: the OS version is checked '
+      + 'without any process spawn, the probe runs inside the same read, a failed read is remembered for a minute, '
+      + 'and the first call of a session is slower (~2.8s cold, ~0.7s warm).',
     parameters: {
       limit: {
         type: 'integer',

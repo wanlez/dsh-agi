@@ -13,6 +13,7 @@
  */
 
 import { execFile } from 'node:child_process'
+import { release } from 'node:os'
 import { promisify } from 'node:util'
 
 const run = promisify(execFile)
@@ -53,7 +54,7 @@ const SENSITIVE = /game|anticheat|anti-cheat|nprotect|xigncode|bank|金融|证�
  * rectangle, and reports fractions relative to that window so the click tool can use them.
  */
 const SCRIPT = `$ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+try { Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes } catch { '{"error":"uia-assembly-missing"}'; exit 0 }
 $csharp = @'
 using System;
 using System.Runtime.InteropServices;
@@ -123,6 +124,27 @@ $payload = [pscustomobject]@{
 $payload | ConvertTo-Json -Depth 6 -Compress
 `
 
+/** How long a failure is remembered before the next call tries again. */
+const FAILURE_TTL_MS = 60_000
+
+/** A missing .NET surface is a property of the machine: remember it far longer than a timeout. */
+let capability: { reason: string; at: number } | undefined
+/** Last snapshot failure, so a broken window costs one spawn per minute, not one per call. */
+let lastFailure: { reason: string; at: number } | undefined
+
+/**
+ * First rung, free: the OS gate. `System.Windows.Automation` through PowerShell needs Windows 10
+ * or newer here — the desktop app itself does not run below that — so an older build answers
+ * immediately instead of paying for a PowerShell start that would fail.
+ */
+function osGate(): string {
+  if (process.platform !== 'win32') return 'uia-unavailable'
+  const major = Number(release().split('.')[0] ?? '0')
+  // NT 10.0 covers Windows 10, 11 and Server 2016+; 6.x is 8.1 and older.
+  if (!Number.isFinite(major) || major < 10) return 'uia-os-too-old'
+  return ''
+}
+
 /** Probe timeout: a busy target can block a cross-process accessibility call. */
 const TIMEOUT_MS = 2500
 
@@ -131,7 +153,14 @@ const TIMEOUT_MS = 2500
  * @param limit - maximum controls returned; the tree itself is still counted in full.
  */
 export async function uiaSnapshot(limit = 200): Promise<UiaSnapshot | { error: string }> {
-  if (process.platform !== 'win32') return { error: 'uia-unavailable' }
+  const gated = osGate()
+  if (gated !== '') return { error: gated }
+  if (capability !== undefined && Date.now() - capability.at < 10 * 60_000) {
+    return { error: capability.reason }
+  }
+  if (lastFailure !== undefined && Date.now() - lastFailure.at < FAILURE_TTL_MS) {
+    return { error: lastFailure.reason }
+  }
   const bounded = Math.max(10, Math.min(limit, 300))
   const script = SCRIPT.replace('__LIMIT__', String(bounded))
   let stdout = ''
@@ -145,7 +174,9 @@ export async function uiaSnapshot(limit = 200): Promise<UiaSnapshot | { error: s
     stdout = result.stdout
   } catch (error) {
     const timeout = (error as { killed?: boolean; signal?: string } | undefined)?.killed === true
-    return { error: timeout ? 'uia-timeout' : 'uia-probe-failed' }
+    const reason = timeout ? 'uia-timeout' : 'uia-probe-failed'
+    lastFailure = { reason, at: Date.now() }
+    return { error: reason }
   }
   const line = stdout.trim().split('\n').filter((item) => item.trim().startsWith('{')).pop()
   if (line === undefined) return { error: 'uia-empty-output' }
@@ -163,11 +194,19 @@ export async function uiaSnapshot(limit = 200): Promise<UiaSnapshot | { error: s
   } catch {
     return { error: 'uia-bad-json' }
   }
-  if (parsed.error !== undefined) return { error: parsed.error }
+  if (parsed.error !== undefined) {
+    if (parsed.error === 'uia-assembly-missing' || parsed.error === 'uia-powershell-missing') {
+      capability = { reason: parsed.error, at: Date.now() }
+    } else {
+      lastFailure = { reason: parsed.error, at: Date.now() }
+    }
+    return { error: parsed.error }
+  }
   const process_ = parsed.process ?? ''
   if (SENSITIVE.test(process_) || SENSITIVE.test(parsed.window ?? '')) {
     return { error: 'uia-sensitive-window' }
   }
+  lastFailure = undefined
   const controls = Array.isArray(parsed.controls) ? parsed.controls : []
   const password = controls.some((control) => control.password === true)
   const unusable = password || controls.length < 8
@@ -182,7 +221,7 @@ export async function uiaSnapshot(limit = 200): Promise<UiaSnapshot | { error: s
     notice: password
       ? '这个窗口有密码框，UIA 只读也按敏感处理：不返回密码字段，其余字段仅供粗定位。'
       : unusable
-        ? '这个窗口的 UIA 树太小（Qt/Flutter/旧 Win32 常见），按名字定位不可用，请改用截图。'
+        ? '这个窗口的 UIA 树太小（Qt/Flutter/旧 Win32 常见，或目标以管理员运行而本进程没有同等权限），按名字定位不可用，请改用截图。'
         : 'center 是相对窗口的 0–1000 比例，可直接作为 click 的 position；点击仍走两段瞄准。',
   }
 }
