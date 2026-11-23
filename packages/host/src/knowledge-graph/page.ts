@@ -1744,6 +1744,21 @@ export const KNOWLEDGE_GRAPH_PAGE = String.raw`<!doctype html>
   }).catch(function () {});
   loadFavorites();
   loadLog();
+
+  // Deep links: the host hands the operator a local URL such as #/path/<id>, so an edit can be
+  // checked by one click. Applied once on load and again on every hash change.
+  function applyDeepLink() {
+    var match = /^#\/(node|path)\/(.+)$/.exec(location.hash || "");
+    if (!match) return;
+    var kind = match[1];
+    var id = decodeURIComponent(match[2]);
+    setTimeout(function () {
+      if (kind === "path") openPathGuarded(id);
+      else openDetail(id);
+    }, 250);
+  }
+  applyDeepLink();
+  window.addEventListener("hashchange", applyDeepLink);
 })();
 </script>
 </body>

@@ -13,6 +13,7 @@ import { profileDirectory, ProfileStore } from './preferences.ts'
 import { registerOrbRoutes } from './routes.ts'
 import { publishGraphPointer } from './knowledge-graph/routes.ts'
 import { KnowledgeGraphStore, knowledgeGraphDirFor } from './knowledge-graph/store.ts'
+import { startGraphEditorServer } from './knowledge-graph/editor-server.ts'
 import { KnowledgeGraphService } from './knowledge-graph/service.ts'
 import { registerGraphTools } from './knowledge-graph/tools.ts'
 import { installOrbServices, watchOrbPermissions } from './services.ts'
@@ -136,7 +137,13 @@ export function apply(ctx: OrbContext, config: { autoStart?: boolean } = {}): vo
     const registry = ctx.tools
     if (registry !== undefined && typeof registry.register === 'function') {
       const graphService = (): KnowledgeGraphService => new KnowledgeGraphService(new KnowledgeGraphStore(knowledgeGraphDirFor(store.dir)))
-      registerGraphTools({ tools: registry }, graphService)
+      registerGraphTools({
+        tools: registry,
+        openEditor: async () => {
+          const editor = await startGraphEditorServer({ baseDir: store.dir })
+          return { url: editor.url, port: editor.port }
+        },
+      }, graphService)
     }
   } catch (error) {
     console.error(`dsh-agi: knowledge-graph tools failed to register: ${error instanceof Error ? error.message : String(error)}`)

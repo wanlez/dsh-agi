@@ -1087,6 +1087,9 @@ export class KnowledgeGraphService {
         .filter((problem) => problem.code === 'cycle' || problem.code === 'missing-node' || problem.code === 'broken-edge')
       if (hard.length > 0) throw new GraphError('path-invalid', `不能保存：${hard.map((problem) => problem.message).join('；')}`, 409)
       ;(snapshot.paths as GraphPath[])[index] = path
+      // The path lives in its own file: without this write the manifest and index would advance
+      // while the flow itself stayed unchanged, so a rename or reorder looked saved and was lost.
+      await this.store.savePath(path)
       await this.store.commit(snapshot, settings)
       return path
     })

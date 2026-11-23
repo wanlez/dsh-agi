@@ -151,6 +151,8 @@ function graphTool(options: {
 /** Minimal tools surface the Host context carries. */
 export interface GraphToolContext {
   readonly tools: { register(tool: unknown): void }
+  /** Start (or reuse) the local editor and hand back its base URL, for deep links. */
+  readonly openEditor?: () => Promise<{ url: string, port: number }>
 }
 
 /** Compact node row for search results. */
@@ -488,4 +490,242 @@ export function registerGraphTools(ctx: GraphToolContext, resolve: () => Knowled
       return { updated: true, node_id: node.id, title: node.title }
     },
   }))
+
+  ctx.tools.register(graphTool({
+    name: 'knowledge_graph_list',
+    description:
+      'List what the experience library contains (nodes and/or saved paths) with ids, titles and sizes. '
+      + 'Use it when the operator asks what exists, before guessing with search.',
+    parameters: schema({
+      kind: { type: 'string', enum: ['nodes', 'paths', 'all'], description: 'What to list; default all.' },
+      status: { type: 'string', description: 'Optional node status filter, e.g. active.' },
+      limit: { type: 'number', description: 'Maximum rows per kind, default 100.' },
+    }),
+    isConcurrencySafe: () => true,
+    async execute(args) {
+      const service = resolve()
+      const kind = asString(args, 'kind') ?? 'all'
+      const limit = Math.max(1, Math.min(Number(args.limit ?? 100), 500))
+      const status = asString(args, 'status') as Parameters<KnowledgeGraphService['listNodes']>[0]
+      const nodes = kind === 'paths' ? [] : (await service.listNodes(status)).slice(0, limit)
+      const paths = kind === 'nodes' ? [] : (await service.paths()).slice(0, limit)
+      return {
+        nodes: nodes.map(node => ({ node_id: node.id, title: node.title, status: node.status, description: node.description.slice(0, 120) })),
+        paths: paths.map(path => ({ path_id: path.id, name: path.name, steps: path.node_count, runnable: path.runnable, description: (path.summary ?? '').slice(0, 120) })),
+      }
+    },
+  }))
+
+  ctx.tools.register(graphTool({
+    name: 'knowledge_graph_get_path',
+    description:
+      'Read one saved path completely: ordered steps with their node titles, the edges between positions, '
+      + 'any static problems, and a link that opens it in the local editor. '
+      + 'Use it to show a flow, to answer "what does this path look like", or before editing it.',
+    parameters: schema({
+      path_id: { type: 'string', description: 'Path id, or the exact path name.' },
+    }, ['path_id']),
+    isConcurrencySafe: () => true,
+    async execute(args) {
+      const service = resolve()
+      const wanted = asString(args, 'path_id') ?? ''
+      const rows = await service.paths()
+      const row = rows.find(item => item.id === wanted) ?? rows.find(item => item.name === wanted)
+      if (row === undefined) throw new GraphError('path-missing', `找不到路径「${wanted}」，先用 knowledge_graph_list 看有哪些。`, 404)
+      const detail = await service.pathDetail(row.id)
+      const byId = new Map(detail.nodes.map(node => [node.id, node]))
+      const keyToId = new Map(detail.graph.nodes.map(node => [node.key, node.node_id]))
+      return {
+        path_id: detail.path.id,
+        name: detail.path.name,
+        summary: detail.path.summary,
+        steps: detail.graph.nodes.map((instance, index) => ({
+          position: index,
+          node_id: instance.node_id,
+          title: byId.get(instance.node_id)?.title ?? '',
+          ai_notes: byId.get(instance.node_id)?.ai_notes ?? '',
+        })),
+        edges: detail.graph.edges.map(edge => ({
+          from: keyToId.get(edge.from) ?? edge.from,
+          to: keyToId.get(edge.to) ?? edge.to,
+        })),
+        problems: detail.problems,
+        link: await linkFor(ctx, 'path', detail.path.id),
+      }
+    },
+  }))
+
+  ctx.tools.register(graphTool({
+    name: 'knowledge_graph_update_path',
+    description:
+      'Rename or rewrite one saved path in place: pass the new name/summary and, when the flow itself changes, '
+      + 'the full steps list (node ids, same node may repeat) plus optional edges ([from, to] pairs of 0-based '
+      + 'positions). Omitted fields keep their current value. Cycles, out-of-range edges and missing nodes are '
+      + 'rejected, and the path is checked afterwards. Confirm the new order with the operator first, then pass '
+      + 'confirm=true.',
+    parameters: schema({
+      path_id: { type: 'string', description: 'Path id, or the exact current name.' },
+      name: { type: 'string', description: 'New name; omit to keep.' },
+      summary: { type: 'string', description: 'New one-line summary; omit to keep.' },
+      steps: { type: 'array', items: { type: 'string' }, description: 'New ordered node instances; omit to keep the current flow.' },
+      edges: { type: 'array', items: { type: 'array', items: { type: 'integer' }, minItems: 2, maxItems: 2 }, description: 'Optional new edges; omit for a straight line when steps is given.' },
+      confirm: { type: 'boolean', description: 'True only after the operator confirmed the change.' },
+    }, ['path_id']),
+    isConcurrencySafe: () => false,
+    async execute(args) {
+      const service = resolve()
+      const wanted = asString(args, 'path_id') ?? ''
+      const rows = await service.paths()
+      const row = rows.find(item => item.id === wanted) ?? rows.find(item => item.name === wanted)
+      if (row === undefined) throw new GraphError('path-missing', `找不到路径「${wanted}」。`, 404)
+      const current = await service.pathDetail(row.id)
+      const steps = asStringArray(args, 'steps').filter(step => step.trim() !== '')
+      const nextSteps = steps.length > 0 ? steps : current.graph.nodes.map(node => node.node_id)
+      const pairs = asEdgePairs(args, nextSteps.length)
+      const nextPairs = steps.length > 0
+        ? pairs
+        : current.graph.edges.map((edge) => {
+          const from = current.graph.nodes.findIndex(node => node.key === edge.from)
+          const to = current.graph.nodes.findIndex(node => node.key === edge.to)
+          return [from, to] as const
+        })
+      assertNoCycle(nextPairs, nextSteps.length)
+      if (asBoolean(args, 'confirm') !== true) {
+        return {
+          updated: false,
+          reason: '把新的名字与顺序给操作者确认，确认后再用 confirm=true 调用。',
+          name: asString(args, 'name') ?? row.name,
+          steps: nextSteps,
+          edges: nextPairs.map(([from, to]) => `${from + 1} → ${to + 1}`),
+        }
+      }
+      const updated = await service.updatePath({
+        pathId: row.id,
+        name: asString(args, 'name') ?? row.name,
+        summary: asString(args, 'summary') ?? row.summary,
+        node_sequence: nextSteps,
+        graph: {
+          nodes: nextSteps.map((id, index) => ({ key: `n${index}`, node_id: id })),
+          edges: nextPairs.map(([from, to]) => ({ from: `n${from}`, to: `n${to}` })),
+        },
+        operator: 'ball',
+      })
+      const check = await service.checkPath(updated.id)
+      return { updated: true, path_id: updated.id, name: updated.name, steps: nextSteps.length, check }
+    },
+  }))
+
+  ctx.tools.register(graphTool({
+    name: 'knowledge_graph_delete',
+    description:
+      'Delete one node or one saved path. A node that any path still uses is refused (fix or delete those paths '
+      + 'first). Requires confirm=true; renames and edits are cheap, deletion is not.',
+    parameters: schema({
+      kind: { type: 'string', enum: ['node', 'path'], description: 'What to delete.' },
+      id: { type: 'string', description: 'Node id or path id/name.' },
+      confirm: { type: 'boolean', description: 'True only after the operator said to delete it.' },
+    }, ['kind', 'id']),
+    isConcurrencySafe: () => false,
+    async execute(args) {
+      const service = resolve()
+      const kind = asString(args, 'kind') ?? ''
+      const wanted = asString(args, 'id') ?? ''
+      if (asBoolean(args, 'confirm') !== true) {
+        return { deleted: false, reason: '删除不可撤销，先向操作者确认，再传 confirm=true。' }
+      }
+      if (kind === 'path') {
+        const rows = await service.paths()
+        const row = rows.find(item => item.id === wanted) ?? rows.find(item => item.name === wanted)
+        if (row === undefined) throw new GraphError('path-missing', `找不到路径「${wanted}」。`, 404)
+        await service.deletePath(row.id)
+        return { deleted: true, kind: 'path', path_id: row.id, name: row.name }
+      }
+      const used = await pathsUsingNode(service, wanted)
+      if (used.length > 0) {
+        throw new GraphError('node-in-use', `节点仍被 ${used.length} 条路径引用：${used.map(item => item.name).join('、')}，先处理这些路径。`, 409)
+      }
+      const node = await service.deleteNode(wanted, 'ball')
+      return { deleted: true, kind: 'node', node_id: node.id, title: node.title }
+    },
+  }))
+
+  ctx.tools.register(graphTool({
+    name: 'knowledge_graph_relations',
+    description:
+      'Show where one node is used: every saved path that contains it and at which positions, plus its one-hop '
+      + 'neighbours. Use it before renaming or deleting, to answer "who depends on this".',
+    parameters: schema({
+      node_id: { type: 'string', description: 'Node id.' },
+    }, ['node_id']),
+    isConcurrencySafe: () => true,
+    async execute(args) {
+      const service = resolve()
+      const nodeId = asString(args, 'node_id') ?? ''
+      const detail = await service.nodeDetail(nodeId)
+      const used = await pathsUsingNode(service, nodeId)
+      const around = await service.neighborhood(nodeId).catch(() => undefined)
+      return {
+        node_id: detail.node.id,
+        title: detail.node.title,
+        paths: used,
+        neighbours: around === undefined ? [] : around.nodes
+          .filter(item => item.role !== 'anchor')
+          .map(item => ({ role: item.role, node_id: item.node.id, title: item.node.title })),
+        link: await linkFor(ctx, 'node', detail.node.id),
+      }
+    },
+  }))
+
+  ctx.tools.register(graphTool({
+    name: 'knowledge_graph_link',
+    description:
+      'Give the operator a local link that opens one node or one path in the experience-library editor. '
+      + 'The editor runs on this machine only; the link is http://127.0.0.1:<port>/… so it needs the same machine.',
+    parameters: schema({
+      kind: { type: 'string', enum: ['node', 'path'], description: 'What the link should open.' },
+      id: { type: 'string', description: 'Node id or path id/name.' },
+    }, ['kind', 'id']),
+    isConcurrencySafe: () => true,
+    async execute(args) {
+      const service = resolve()
+      const kind = asString(args, 'kind') === 'path' ? 'path' : 'node'
+      let id = asString(args, 'id') ?? ''
+      if (kind === 'path') {
+        const rows = await service.paths()
+        const row = rows.find(item => item.id === id) ?? rows.find(item => item.name === id)
+        if (row === undefined) throw new GraphError('path-missing', `找不到路径「${id}」。`, 404)
+        id = row.id
+      } else {
+        const detail = await service.nodeDetail(id)
+        id = detail.node.id
+      }
+      const url = await linkFor(ctx, kind, id)
+      return { kind, id, link: url }
+    },
+  }))
+}
+
+/** Every saved path whose instances include this node. */
+async function pathsUsingNode(
+  service: KnowledgeGraphService,
+  nodeId: string,
+): Promise<{ path_id: string, name: string, positions: number[] }[]> {
+  const result: { path_id: string, name: string, positions: number[] }[] = []
+  for (const row of await service.paths()) {
+    const detail = await service.pathDetail(row.id).catch(() => undefined)
+    if (detail === undefined) continue
+    const positions = detail.graph.nodes
+      .map((instance, index) => instance.node_id === nodeId ? index : -1)
+      .filter(index => index >= 0)
+    if (positions.length > 0) result.push({ path_id: row.id, name: row.name, positions })
+  }
+  return result
+}
+
+/** A deep link into the running local editor, starting it when needed. */
+async function linkFor(ctx: GraphToolContext, kind: 'node' | 'path', id: string): Promise<string> {
+  if (ctx.openEditor === undefined) return `编辑器地址不可用（插件未提供启动入口）。${kind}:${id}`
+  const editor = await ctx.openEditor()
+  const base = editor.url.endsWith('/') ? editor.url : `${editor.url}/`
+  return `${base}#/${kind}/${encodeURIComponent(id)}`
 }
