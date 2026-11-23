@@ -1860,7 +1860,7 @@ window.__ModuleLoader__.load({
       }
       const load = async () => {
         try {
-          apply(await (await request('/.dsh-agi/web')).json())
+          apply(await request('/.dsh-agi/web'))
         } catch {
           setState((prev) => ({ ...prev, loading: false }))
         }
@@ -1878,11 +1878,11 @@ window.__ModuleLoader__.load({
       const send = async (path, body, tag) => {
         setBusy(tag)
         try {
-          const data = await (await request(path, { method: 'POST', body: JSON.stringify(body ?? {}) })).json()
+          const data = await request(path, { method: 'POST', body: JSON.stringify(body ?? {}) })
           if (data.error) throw new Error(data.error)
           apply(data)
         } catch (error) {
-          // Show the reason instead of springing back silently.
+          // request() throws with the server's own message on a non-2xx answer.
           setState((prev) => ({ ...prev, error: error instanceof Error ? error.message : String(error) }))
         }
         setBusy('')
