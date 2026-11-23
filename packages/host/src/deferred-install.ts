@@ -549,7 +549,10 @@ const chosen = candidates[0]
 // store, which is what a user's pnpm upgrade used to break.
 const chosenMajor = chosen === undefined ? undefined : chosen.major ?? need ?? MIN_PNPM_MAJOR
 const storeDir = chosen === undefined ? '' : join(job.profileDir, '.dsh-agi-store', 'v' + String(chosenMajor))
-const argv = chosen === undefined ? [] : [...chosen.candidate.args, 'add', job.spec, '--save-exact', '--registry=' + job.registry, '--config.store-dir=' + storeDir]
+// pnpm 12 turns an ignored dependency build script into a hard failure (ERR_PNPM_IGNORED_BUILDS)
+  // even though the package installed fine. The profile's own allowBuilds still decides what
+  // actually builds; this only stops an ignored one from failing the whole update.
+  const argv = chosen === undefined ? [] : [...chosen.candidate.args, 'add', job.spec, '--save-exact', '--registry=' + job.registry, '--config.store-dir=' + storeDir, '--config.strict-dep-builds=false']
 const firstError = (text) => text.split('\\n').map((line) => line.trim()).find((line) => line.includes('ERR_PNPM_')) ?? text.trim().split('\\n').pop() ?? 'pnpm failed'
 const runPnpm = () => spawnSync(chosen.candidate.command, argv, { cwd: job.profileDir, env: chosen.candidate.env, shell: chosen.candidate.shell, encoding: 'utf8', windowsHide: true, timeout: 15 * 60 * 1000 })
 let ok = false
