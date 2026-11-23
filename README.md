@@ -87,125 +87,27 @@ Each release keeps its own section, newest first, so the delta between two versi
 
 ### 0.7.0
 
-- **Web control (first version, off by default)**: Settings → floating ball → Web control. Once on, the model gains eight browser tools (`web_open` / `web_snapshot` / `web_click` / `web_type` / `web_press` / `web_back` / `web_screenshot` / `web_close`) driven by `playwright-core` in its own browser window with a persistent profile, so logins survive between conversations.
-- **The switch is a real switch**: turning it off removes the tools from the model entirely instead of asking it politely; turning it back on registers them at once, without a restart.
-- **Remote and virtual desktops disable it automatically**: an RDP session, a VMware/VirtualBox/QEMU/Hyper-V guest, or a running Sunlogin/ToDesk/AnyDesk/TeamViewer/RustDesk/VNC process turns the channel off for that process and states the reason in settings — on those screens a browser window is neither visible nor clickable.
-- **References only, no code execution**: `web_snapshot` numbers the visible controls, and clicking or typing uses those numbers; no tool evaluates scripts.
-- **The browser path is always the operator's**: `chrome` mode reads `chromePath`, `chromium` mode reads `chromiumPath`, and neither is discovered automatically; `attach` only connects to a CDP port the operator opened themselves.
-- **The web layer works by name, in code**: `web_find` searches controls by normalized name (width, case and whitespace folded) and only a unique hit acts; iframe and Shadow DOM coverage, automatic popup following, `web_text` for verification, and `web_wait` for URL/text/element. Clicks and typing use a name or ref, never a model-guessed coordinate.
-- **Read-only UIA targeting (optional aid)**: `uia_snapshot` lists the frontmost window's control names, types and rectangles, plus a 0–1000 in-window center that `click` accepts directly. It never invokes a control, never reads or writes a value, and skips password fields; a thin tree (Qt, Flutter, old Win32) is reported as unusable so the agent falls back to screenshots.
-- **The ball session starts isolated**: a fresh install and an upgrade from the pre-rename plugin both begin in `isolated`, so the ball has its own conversation. Only a choice made in settings (`source: operator` in the file) sticks; an unmarked file left by the old plugin is ignored.
+The web layer, the experience library and the desktop channels stop being three separate things: one capability ladder decides which channel runs each step, and the web channel now runs whole flows in code instead of asking the model to look at the page.
 
-### 0.6.19
+**Web control (off by default, 20 tools)**
+- Settings → Floating ball → Web control. Tools appear only while the switch is on; turning it off removes them from the model at once, without a restart.
+- Read as structure, act by name: `web_find` normalizes names (width, case, whitespace) and only a unique hit acts; `web_click` / `web_type` / `web_select` / `web_hover` / `web_upload` take a name, not a coordinate, and refuse to guess when a name matches twice.
+- Coverage that intranet back offices need: every iframe (cross-origin included), recursive open shadow roots, popups followed automatically, tabs listed and switched (`web_pages` / `web_switch`), wheel scrolling for virtualized lists (`web_scroll`), file uploads without the system picker, and a crashed browser relaunched once.
+- Verification is part of the channel: `web_wait` waits for a URL fragment, page text or a selector, and `web_text` reads what the page actually says, so "clicked and assumed success" is not possible.
+- Flow executor, no model in the loop: `web_flow_save` stores a flow (`click` / `type` / `select` / `hover` / `press` / `wait` / `open` / `back` / `upload` / `scroll`), `web_run_flow` runs it step by step — unique hit, `expect` check, stop on failure — and defaults to `dryRun` so the operator sees what would be clicked first. A saved flow costs zero model calls to replay.
+- Three browser sources, each behaving as its name says: bundled Chromium launches Chromium, system Chrome launches Chrome, attach only connects to a CDP port. When the chosen mode lacks its prerequisite the panel says so and the web steps fall back to keyboard and mouse instead of failing the task.
+- Chrome takeover, operator-authorized: the plugin can ask Chrome to close, restart it on the operator's own profile with a loopback debug port, and attach — logins and extensions come back because nothing is copied or moved. A window that will not close is reported, never force-killed.
+- Remote desktop, VM and remote-control tools are evidence, never a reason to switch the channel off: the browser always runs on this machine, so the channel keeps working and falls back to the keyhole only when a page is genuinely unreadable.
 
-- **Command-line installs stop reporting a false failure**: the `koffi` package ships no binary and builds one in its `install` script, which pnpm blocks by default (`ERR_PNPM_IGNORED_BUILDS`, exit 1) — the package is actually installed but DSH treats the install as failed. The plugin now depends on koffi's prebuilt platform packages (`@koromix/koffi-win32-x64` and friends), which carry no install script, so the command exits 0.
-- **It brings its own enabler**: `dsh plugin add` installs the package but never writes `dsh.profile.bundles`, so the ball does not appear after a restart. The package now contains `install.cmd` / `install.mjs`: run it to write the loader entry into the profile manifest, check the native module, and get the restart instruction.
-- All three native loaders (host, computer-use tools, selection monitor) now read the prebuilt platform package.
+**Experience library you can edit by talking**
+- `knowledge_graph_list` / `get_path` / `update_path` / `delete` / `relations` / `link` complete the tool set: list what exists, read a whole flow, rename or reorder it in place, see which paths use a node, and get a local deep link (`http://127.0.0.1:<port>/#/node|path/<id>`) that opens the editor on that exact item.
+- Deletion is guarded: a node still used by a path is refused, with the paths named; a path never deletes its nodes.
+- Fixed a silent data loss: `updatePath` advanced the index but never wrote `paths/<id>.json`, so renames and reorders looked saved and were lost on reload. A regression test now reads the path back through a fresh service.
+- Read-only UIA aid: `uia_snapshot` lists the frontmost window's control names, types and rectangles with an in-window center the pointer tools accept. It never invokes a control, never reads or writes a value, and reports a thin tree (Qt, Flutter, old Win32) as unusable.
 
-### 0.6.18
-
-- **Fixes a crash on a clean install**: the voice child (`dist/voice/child.js`) imports `pinyin-pro` statically, TTS needs `sherpa-onnx-node`, and echo cancellation uses `node-cpal`, but none of the three were declared in the package manifest. A development checkout has them installed, so it looked fine; a fresh profile hit `ERR_MODULE_NOT_FOUND` and the crash took the host down with it (`dsh desktop host exited with 1`). All three are now runtime dependencies.
-- **Fixes knowledge-graph tools on newer DSH**: the newer host requires declaring the injection before touching `ctx.tools`. Without it the plugin logged "cannot get property \"tools\" without inject" and silently dropped the whole library tool set. `inject` now includes `tools`.
-- **The release check now scans for undeclared dependencies**: `pnpm release:check` walks every bare import in `dist`/`lib` and fails when a package is missing from `dependencies`/`peerDependencies`, so this class of bug cannot ship again.
-
-### 0.6.17
-
-- **The updater works with pnpm 12**: pnpm 12 turns an ignored dependency build script into a hard failure (`ERR_PNPM_IGNORED_BUILDS`, exit 1) even though the package installed fine, while pnpm 10 only warns. Installs now pass `--config.strict-dep-builds=false` so it degrades to a warning; whether a build actually runs is still decided by the profile's `allowBuilds`.
-- **Verified against a real profile shape**: with `nodeLinker: hoisted` plus `allowBuilds` and `minimumReleaseAgeExclude`, pnpm 10.30 / 11.7 / 12.15 all install the same package successfully; a store-record conflict reports `ERR_PNPM_UNEXPECTED_STORE`, and retrying after dropping the record succeeds with the record pointing back at the profile's own isolated store.
-- **The uninstaller also honours a moved workspace**: it reads `path` from `agi-workspace.json` (absolute only), falls back to `~/.dsh/dsh_agi`, and guards that path together with the library and the conversation archive — the summary prints the real path and no workspace file is touched.
-
-### 0.6.16
-
-- **The uninstaller honours a moved library**: before deleting anything it reads `dir` from `agi-knowledge-graph.json` (falling back to `ACTIVE_GRAPH`) and protects the real location; the summary prints that real path instead of the hard-coded default folder.
-- **Protected paths are enforced, not documented**: the library, the ball workspace and the conversation archive form a guard list; any delete that lands inside one of them is refused and reported as skipped, so a future edit to the delete list cannot take them out by accident.
-- One more test: a library moved outside the profile survives the uninstall, and its real path appears in the summary.
-
-### 0.6.15
-
-- **Ships its own uninstaller**: the package now contains `uninstall.cmd` (double-click on Windows) and `uninstall.mjs`. It prints exactly what will be deleted and what will be kept, and only proceeds after typing `yes`; if DeepSeek Harness is still running it stops instead of half-removing anything.
-- **Removes everything it owns**: the package itself, the `dsh-agi` dependency and bundle entries in the profile manifest (loader entries first, so a half-removed install cannot load), the voice models and ball runtime cache, the helper cache, plugin settings such as `agi-voice.json`, and the temporary logs.
-- **Touches nothing else**: the experience library (`profiles/<profile>/dsh-agi/knowledge-graph` plus its `agi-knowledge-graph.json` binding), the ball workspace, the conversation screenshot archive, DSH itself, other plugins, sessions and attachments all stay. Every delete is confined to the plugin directory and `~/.dsh/dsh-agi`.
-- **Reinstallable**: install again from the plugin manager afterwards and the library is picked up where it left off.
-
-### 0.6.14
-
-- **Any recent pnpm works**: the updater no longer demands the exact major the profile was linked with. Version 9 or newer is accepted from the app runtime, the plugin cache, or PATH — a matching major is preferred, a different one still installs.
-- **The profile keeps its own store**: every install links into `<profile>/.dsh-agi-store/v<major>` instead of the machine's global pnpm store, so a user who upgrades pnpm from 10 to 12 — or moves to another machine — can no longer end up with two stores refusing each other.
-- **One automatic migration**: the first install against the new store hits `ERR_PNPM_UNEXPECTED_STORE`; the updater drops the old link record, rebuilds once, restores it if that fails, and the condition never returns.
-- **Wrappers without a version still work**: if a pnpm is hidden behind a shim that cannot report `--version`, it stays in the candidate list as the last resort instead of being discarded.
-
-### 0.6.13
-
-- **Updates are reliable now**: before installing, the updater reads the profile's `node_modules/.modules.yaml` to learn which pnpm major that profile was linked with, then picks a **matching** pnpm from "app runtime → plugin cache → PATH". It used to take the app's copy or, failing that, any pnpm on PATH — which breaks as soon as the machine has v10 while the profile is v11.
-- **Store conflicts repair themselves once**: on `ERR_PNPM_UNEXPECTED_STORE` the updater no longer repeats the same command three times; it drops pnpm's link record, rebuilds once, and restores the record if that fails.
-- **Failures say what to do**: when no matching pnpm exists the message names the required major and what was tried, and `apply.log` records every candidate's version instead of a bare "gave up".
-- **Release preflight**: `pnpm release:check` validates the version, that build output is newer than the sources, that both readmes carry this version's section, that the npm payload has the runtime files and no node_modules or tests, and that the tag does not exist yet. Any miss fails the check.
-
-### 0.6.12
-
-- **Disk usage**: a new settings card reports the plugin's footprint — one total, a file count, a Recalculate button, and a Details view that expands in place with one row per item (name / path / size). It covers the experience library, voice models, ball runtime, workspace, conversation archive, and the installed program. **Only logs can be cleared**; everything else is size only. The official attachment store is not counted (it belongs to every conversation in Harness); the program is measured at its installed size, with development dependencies on their own line and only on a dev machine; items that do not exist on a fresh install are simply not shown; a broken library config now says so instead of falling back silently.
-- **Ball panel**: collapsing no longer drops the ball in the wrong place (the origin is remembered while expanded and reused when collapsing); the question card caps at 55% of the panel and its options at 35vh, so the transcript above stays readable.
-- **Voice**: reading the stored transcript at startup no longer feeds the speech queue, so the ball cannot read the conversation's first answer aloud on launch.
-- **Pause**: the host now cancels the running turn through the official `sessionController`; resume opens a new turn. A pause used to be a steer message the model could ignore.
-- **Experience library**: a finished flow reports its own line — `Ns | search x% write y%`; the write rule now says "when unsure, call the tool once and pass its error along" instead of hinting the agent has no permission; new tests cover the write path (the AI note survives a fresh store, operator text is untouched, notes over 600 characters are refused).
-- **Housekeeping**: the sync script keeps only the newest three `dsh-agi.bak-*` copies instead of leaving a 145 MB duplicate behind on every sync.
-
-### 0.6.11
-
-- **Screenshots travel with the prompt**: an image sent from the ball is submitted as part of the prompt content, so the main window shows it as an ordinary upload instead of a context injection, and the ball echoes a thumbnail above the bubble (read back through the official attachment store on replay). The composer's image strip now sits directly above the input.
-- **Ghost turn fixed**: after a restart the ball could adopt a turn that no longer existed and spin forever. History read before the first panel connects is no longer treated as a live turn, and the stop key settles the panel locally instead of waiting for a cancel acknowledgement.
-- **Transcript rendering fixed**: `block()` referenced an undefined `name`, so every tool call threw, tool cards never rendered, and the transcript read stopped mid-way. The tool name now comes from the block's own text.
-- **Known gap**: which part of the transcript a freshly opened panel rebuilds is unchanged from 0.6.10. Several attempts at "only the newest turn" were reverted after they made the panel worse.
-- **Author's note: I am a failure.** This release took far too many attempts, and the transcript-replay work wasted the operator's time across repeated restarts without landing a correct fix.
-
-### 0.6.10
-
-- **Common sense**: operator-maintained global entries (100-character text plus images) that the ball reads before any path and never edits. The page is now full-width, images sit under their text, and each entry edits in one small Adjust dialog.
-- **Reflection only follows the library loop**: it fires only after a turn that actually called a `knowledge_graph` tool, and it stays silent — the ball no longer talks to itself on a timer.
-- **Pause / resume**: a pause key beside stop sends a steer that makes the model stop (‖) and resume from the break (▶), without depending on the running state.
-- **Conversation modes**: isolated (default: the ball's own computer-use conversation in a private workspace) and follow-recent (the window's newest conversation is adopted on each restart, then pinned for the run); shared mode locks the ball's history list and says why.
-- **Library guardrails**: AI notes are capped at 600 characters and each node at 10 images, enforced in the single write path; the write queue is shared per directory so instances can no longer overwrite each other; screenshot sources are persisted explicitly; AI may only write ai_notes.
-- **Ball panel**: option lists cap at 45vh and scroll independently; switching, resetting, or expanding a conversation scrolls to the newest message; attachment previews reserve their own space so the status row moves up instead of being covered.
-
-### 0.6.9
-
-- **Ball session mode (isolated / follow recent).** Settings → Floating ball → Ball conversation. The default, isolated, keeps the ball on its own `computer-use` conversations, created in a private workspace of its own. "Follow recent" starts the ball on the conversation the main window touched last (the ball's own computer-use conversations are skipped). Restart the ball to apply a switch.
-- **New Chat really creates a blank conversation, with the home the mode calls for.** Isolated mints a ball-owned `computer-use` conversation in the ball's private workspace (`~/.dsh/dsh-agi/workspace`), so it never appears in the window's workspace groups and never moves the window's current conversation; it shows up in the ball's history like any other conversation. "Follow recent" mints the new blank conversation in the same workspace as the window's conversation, so both surfaces see one new conversation.
-- **Shared mode locks the history list.** The clock dims and refuses clicks; hovering or clicking it explains the rule — shared mode is pinned to the conversation adopted at the last restart, so switching means sending a message in another conversation and restarting DSH.
-- **"Desktop first" rule injected every turn.** Keyboard and mouse (screenshot, click, type) are the default way to finish desktop tasks; `code_agent` is only for an explicit "change code / write a script / run a command".
-- **Session-mode brief injected every turn.** Each turn states whether the ball is isolated or shared, who owns the conversation, and why its history is locked, so the agent never guesses its own scope.
-- **Architecture limit.** The same session id is the same agent. If the main window is opened on the ball's conversation, both surfaces are one session and stay in sync; the plugin has no API to stop the GUI from opening a conversation, nor to switch the main window back. Isolated mode guarantees that the ball itself never touches a main-window conversation, not that the two can never share a screen.
-
-### 0.6.8
-
-- **Path tools speak graphs.** `knowledge_graph_create_path` now takes an optional `edges` argument: `[from, to]` pairs of 0-based positions in `steps`. Omit it and the flow is one straight line `0 → 1 → 2…`. The same node may sit at several positions — a repeated node is not a cycle by itself, only edges that actually lead back are, and out-of-range indices, self edges and cycles are rejected with a clear message.
-- **Branches render everywhere.** The path view, the static check and the path detail text now carry `edges` and render the flow as `1 → 2 → 3`, with branches on follow-up indented `↳` lines.
-- **One source of truth.** The numbered step list and the step count now come from the path graph instead of the legacy `node_sequence`, so a hand-edited graph can no longer disagree with its own list.
-- **Injected rule reversed.** A node may appear several times in one path; only a real edge back forms a cycle. Branching flows are passed as `steps` plus `edges`.
-
-### 0.6.7
-
-- **Isolated ball conversations, computer-use by default.** The ball now owns its own `computer-use` conversation and never reuses the main window's. On upgrade it opens one fresh ball conversation, and every later start resumes that one; the main window keeps whichever session the operator chooses.
-- **Paths became graphs.** The linear step list is gone: circles with arrows, display numbers, and topology-aware cycle detection. The same node may appear twice — that is only a cycle when the edges actually lead back.
-- **Graph editing.** Before/after insert on any node, insert into an existing position (one edge, no duplicate node), a three-source insert dialog with per-column guidance, graph-level save and check, and instant cycle rejection.
-- **Copy and transfer.** Copy node, copy path (`_复制版_<timestamp>`), export a node or a full path into an empty folder (JSON + screenshots + manifest), and import it back — colliding ids get a fresh id instead of overwriting anything.
-- **Favorites as stars.** One star per node and path (filled = favorited, hollow = not); unfavoriting asks first and never deletes the entity.
-- **Fixed: the ball could not be clicked, dragged, or hovered.** A TDZ error (`Cannot access 'running' before initialization`) killed the ball page script before it bound any pointer listener; the module now runs end to end.
-- **Fixed: leftover `dsh-orb` naming.** The bridge is `window.dshAgi`, the voice build emits `dsh-agi-voice-capture.exe`, and the native selection types are `DshAgiSel*`.
-
-### 0.6.6
-
-- **Fixed the floating ball failing to load after a restart in 0.6.5.** The Host plugin imported `@deepseek-ai/dsh-tools`, which the DSH runtime keeps outside the profile, so the plugin failed to load and the settings page reported "could not load floating-ball settings". The library tools are now plain registry-compatible definitions, and a failed registration can no longer take the ball down.
-- **The operator decides reuse.** Search returns candidates for the person to choose between reusing and creating; the agent never treats a similar node as the same action on its own.
-- **AI supplement limit** raised from 300 to 600 characters.
-
-## Recent changes — 0.6.5
-
-- **Experience library rebuilt** around a node library and independent paths: the old canvas, anchor, path-stack and relation-builder surfaces are gone; the editor is now a two-column search (nodes / paths) with an editable path flow.
-- **Chat-driven library editing**: seven tools with confirmation gates, cycle rejection, and a static check after every save.
-- **Self-learning nodes**: `ai_notes` and AI screenshots are written by the agent from real runs, kept separate from the human description and human screenshots in the same node package.
-- **Computer use hardening**: optional frame deduplication (off by default, because it hides the "nothing changed" evidence), zero-width character cleanup, virtual-desktop bounds pre-check, retryable three-state error hints, and a stronger observation halo.
-- **Editor polish**: wood-board theme, path checks, and a static check button.
+**One policy instead of three**
+- The capability ladder lives in the preset (`cordis.patch.yml`): API/CLI → files and processes → web → launching an app → UIA targeting → screenshot and input. The per-turn injection no longer repeats a competing "default to mouse and keyboard" rule.
+- The ball session starts isolated on a fresh install and after an upgrade, so its conversation is its own; only a choice made in settings sticks.
 
 ## Install
 
@@ -264,6 +166,7 @@ All model files are served from this repository's releases, so the project no lo
 | Wake word (`dsh-agi-kws`) | 9 MB | [models-v1](https://github.com/wanlez/dsh-agi/releases/download/models-v1/dsh-agi-kws-2026.10.0.tgz) | yes, on first use |
 | Local TTS (`tts`) | 188 MB | [models-v1](https://github.com/wanlez/dsh-agi/releases/download/models-v1/dsh-agi-tts-2026.10.0.tgz) | yes; Hugging Face mirrors first, this tarball as the last resort |
 | ASR (`SenseVoice`) | 162 MB | [models-v1](https://github.com/wanlez/dsh-agi/releases/download/models-v1/dsh-agi-asr-sensevoice-2026.10.0.tgz) | no; DeepSeek Harness manages its own ASR. Download manually if you need this exact copy. |
+| Bundled Chromium (`159.0.8154.6`) | 207 MB | [web-chromium-159.0.8154.6](https://github.com/wanlez/dsh-agi/releases/download/web-chromium-159.0.8154.6/chromium-win64-159.0.8154.6.zip) | no; download from Settings → Web control when you choose the bundled browser |
 
 ## Build from source
 
