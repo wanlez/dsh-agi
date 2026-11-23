@@ -18,6 +18,7 @@ declare module '@deepseek-ai/dsh-llm' {
   }
 }
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { uiaSnapshot } from './uia.ts'
 import type { GenericCallView, ToolExecution } from '@deepseek-ai/dsh-tools'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { CapturedScreen, ClickButton, DesktopBackend, DesktopForeground, ScreenInfo, ZoomResult } from './backend.ts'
@@ -1427,6 +1428,76 @@ export function applyComputerUse(
         waitSeconds,
         ...observedFields(sessionOf(exec), observation),
       }
+    },
+  }))
+
+  // Read-only targeting aid: it never clicks, types or invokes anything. The rung it serves
+  // says "operate controls by name", and this is the "find" half; input stays on the pointer tools.
+  ctx.tools.register(defineTool({
+    name: 'uia_snapshot',
+    description:
+      'List the frontmost window\'s UI Automation controls (name, type, physical rectangle, and a center in '
+      + '0–1000 fractions of the window that click/input_text accept directly). Read-only: it never invokes a '
+      + 'control, never sets or reads a value, and skips password fields. Use it before aiming blind; when the '
+      + 'node count is small or unusable=true, the window has no useful tree (Qt, Flutter, old Win32) — '
+      + 'fall back to a screenshot.',
+    parameters: {
+      limit: {
+        type: 'integer',
+        default: 200,
+        description: 'Maximum controls to return (10–300). The tree size is reported either way.',
+      },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          window: { type: 'string', required: true },
+          className: { type: 'string', required: true },
+          process: { type: 'string', required: true },
+          count: { type: 'number', required: true },
+          elapsedMs: { type: 'number', required: true },
+          unusable: { type: 'boolean', required: true },
+          notice: { type: 'string', required: true },
+          controls: {
+            type: 'array',
+            required: true,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                name: { type: 'string', required: true },
+                type: { type: 'string', required: true },
+                automationId: { type: 'string', required: true },
+                className: { type: 'string', required: true },
+                center: { type: 'array', required: true, items: { type: 'number' } },
+                rect: { type: 'array', required: true, items: { type: 'number' } },
+                enabled: { type: 'boolean', required: true },
+                offscreen: { type: 'boolean', required: true },
+              },
+            },
+          },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text' as const,
+        text: value.unusable
+          ? `${value.notice}\n窗口：${value.window}（${value.className}），元素总数 ${String(value.count)}。`
+          : `${value.notice}\n窗口：${value.window}（${value.className}），元素总数 ${String(value.count)}，返回 ${String(value.controls.length)} 项：\n`
+            + value.controls
+              .map((control: { name: string, type: string, center: readonly number[], enabled: boolean, offscreen: boolean }) =>
+                `- ${control.name} [${control.type}] center=${control.center.join(',')}${control.enabled ? '' : ' 已禁用'}${control.offscreen ? ' 不可见' : ''}`)
+              .join('\n'),
+      }],
+    },
+    isConcurrencySafe: () => true,
+    async execute(args) {
+      const result = await uiaSnapshot(typeof args.limit === 'number' ? args.limit : 200)
+      if ('error' in result) {
+        return { window: '', className: '', process: '', count: 0, elapsedMs: 0, unusable: true, notice: `UIA 不可用（${result.error}），请改用截图。`, controls: [] }
+      }
+      return result
     },
   }))
 

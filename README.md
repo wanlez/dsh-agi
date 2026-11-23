@@ -92,6 +92,7 @@ Each release keeps its own section, newest first, so the delta between two versi
 - **Remote and virtual desktops disable it automatically**: an RDP session, a VMware/VirtualBox/QEMU/Hyper-V guest, or a running Sunlogin/ToDesk/AnyDesk/TeamViewer/RustDesk/VNC process turns the channel off for that process and states the reason in settings — on those screens a browser window is neither visible nor clickable.
 - **References only, no code execution**: `web_snapshot` numbers the visible controls, and clicking or typing uses those numbers; no tool evaluates scripts.
 - **The browser path is always the operator's**: `chrome` mode reads `chromePath`, `chromium` mode reads `chromiumPath`, and neither is discovered automatically; `attach` only connects to a CDP port the operator opened themselves.
+- **Read-only UIA targeting (optional aid)**: `uia_snapshot` lists the frontmost window's control names, types and rectangles, plus a 0–1000 in-window center that `click` accepts directly. It never invokes a control, never reads or writes a value, and skips password fields; a thin tree (Qt, Flutter, old Win32) is reported as unusable so the agent falls back to screenshots.
 - **The ball session starts isolated**: a fresh install and an upgrade from the pre-rename plugin both begin in `isolated`, so the ball has its own conversation. Only a choice made in settings (`source: operator` in the file) sticks; an unmarked file left by the old plugin is ignored.
 
 ### 0.6.19
