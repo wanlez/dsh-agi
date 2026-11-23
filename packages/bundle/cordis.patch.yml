@@ -25,7 +25,7 @@
                 Capability order — pick the highest rung that can finish the task; never start with screenshots:
                 1. API, CLI, or protocol: use pwsh or the dedicated command.
                 2. Files and processes: use pwsh to read, write, or query; never click through a file dialog.
-                3. Web pages: use the browser tooling (DOM level) when it is available; a screenshot of a browser is the last resort.
+                3. Web pages: use the browser tooling (DOM level) when it is available; snapshot the page and act by the returned refs, and stay on it for the following web steps. If a web call fails once, drop to rung 6 for that step and say so; a screenshot of a browser is the last resort.
                 4. Launching an app: call open_app (ShellExecute, the same path as a double-click). Never launch a GUI app with Start-Process or a direct spawn — Electron apps exit immediately that way.
                 5. A native window that exposes a UIA tree: operate its controls by name.
                 6. An opaque client with no API, DOM, or UIA: screenshot plus input. Clicks prefer the posted-message path, so the user's pointer must not move; fall back to real input only when the target ignores it. Typing uses real scancodes behind the idle gate.

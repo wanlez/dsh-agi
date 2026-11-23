@@ -242,8 +242,8 @@ export function registerWebTools(
     registry.register(webTool({
       name: 'web_open',
       description:
-        '在网页模式下打开一个网址。默认请先用键盘鼠标；只有任务明确是网页操作（登录、表单、后台、'
-        + '指定站点）时才用这一组工具。打开后调用 web_snapshot 拿控件编号。',
+        '打开一个网址（网页 DOM 通道）。打开后调用 web_snapshot 拿控件编号；同一任务的后续网页步骤'
+        + '继续用这组工具，不要退回截图逐像素点击。',
       parameters: schema({ url: { type: 'string', description: '完整网址，例如 https://example.com' } }, ['url']),
       async execute(args) {
         const url = asString(args, 'url') ?? ''
@@ -255,7 +255,7 @@ export function registerWebTools(
       name: 'web_snapshot',
       description:
         '读取当前页面的标题、地址和可见控件清单（每项带编号 e1、e2…）。点击和输入都用这些编号；'
-        + '页面变化后要重新调用一次，旧编号会失效。',
+        + '页面变化后必须重新调用一次，旧编号会失效。',
       parameters: schema({}),
       async execute() { return channel.snapshot() },
     })),

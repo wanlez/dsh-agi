@@ -228,20 +228,21 @@ export function apply(ctx: OrbContext, config: { autoStart?: boolean } = {}): vo
           }],
           source: { kind: 'computer-use', form: 'notice', summary: 'Library maintenance rules' },
         })
-        // The routing policy for the browser channel, stated every step while it is on: the
-        // tools are the only thing that changes, the model still has to choose per task.
+        // The ladder in the preset says when to use the DOM; only the live source and
+        // availability are facts this process owns, so that is all this injects.
         if (webControl?.state().active === true) {
+          const state = webControl.state()
+          const source = state.settings.mode === 'chrome'
+            ? '系统 Chrome'
+            : state.settings.mode === 'attach' ? '连接已开启的浏览器' : '内置 Chromium'
           extras.push({
             role: 'user',
             id: randomUUID(),
             content: [{
               type: 'text',
-              text: '【网页控制·本轮规则】默认先用键鼠（截图、点击、输入）完成任务。只有任务明确是网页操作（登录、表单、后台、指定站点），或当前前台窗口就是浏览器时，才用 web_* 工具。\n'
-                + '一旦本轮进入网页模式，后续仍是网页步骤就继续用网页工具，不要每步重新犹豫；直到需要操作原生界面（对话框、资源管理器、别的程序）、用户要求改用键鼠、或网页工具失败一次。\n'
-                + '网页工具失败一次就立刻切回键鼠，把这一步做完，本轮不要反复试探网页通道；汇报时说明"网页通道不可用，已改用键鼠"。\n'
-                + '只用 snapshot 返回的编号点击/输入，页面变化后重新 snapshot 拿新编号。',
+              text: `【网页控制·当前状态】网页通道已启用，来源：${source}。网页任务用 web_* 工具；页面变化后重新 web_snapshot 再拿编号。`,
             }],
-            source: { kind: 'computer-use', form: 'notice', summary: 'Web control routing' },
+            source: { kind: 'computer-use', form: 'notice', summary: 'Web control state' },
           })
         }
         // One reflection nudge after a finished turn: the agent decides whether it learned anything.
