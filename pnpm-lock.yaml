@@ -11,6 +11,9 @@ importers:
       '@types/node':
         specifier: ^22.20.4
         version: 22.20.4
+      playwright-core:
+        specifier: 1.56.1
+        version: 1.56.1
       tsdown:
         specifier: ^0.22.2
         version: 0.22.14(typescript@5.9.3)
@@ -35,6 +38,9 @@ importers:
       pinyin-pro:
         specifier: ^3.29.5
         version: 3.29.5
+      playwright-core:
+        specifier: ^1.56.1
+        version: 1.56.1
       sherpa-onnx-node:
         specifier: 1.13.8
         version: 1.13.8
@@ -1767,6 +1773,11 @@ packages:
   pinyin-pro@3.29.5:
     resolution: {integrity: sha512-Fk5YoRmtdHqJWqAuzYVG/NzvzeCbaG+ZEwbY6Nbps3QAIrvQQEtcm49frcyCM8i2b5najnzPDtYqrHRYTTiuwQ==}
 
+  playwright-core@1.56.1:
+    resolution: {integrity: sha512-hutraynyn31F+Bifme+Ps9Vq59hKuUCz7H1kDOcBs+2oGguKkWTU50bBWrtz34OUWmIwpBTWDxaRPXrIXkgvmQ==}
+    engines: {node: '>=18'}
+    hasBin: true
+
   postcss@8.5.28:
     resolution: {integrity: sha512-RRuzqDtt5Y9h3quz5hWhK+TPnsmVs6WwSU6LkJMeY4HstUEDuYTG8UJSdawMRzmzAtV+KEoG8N3Qg2qLy5vM/A==}
     engines: {node: ^10 || ^12 || >=14}
@@ -3391,6 +3402,8 @@ snapshots:
   picomatch@4.0.7: {}
 
   pinyin-pro@3.29.5: {}
+
+  playwright-core@1.56.1: {}
 
   postcss@8.5.28:
     dependencies:

@@ -85,6 +85,14 @@ The observation frame (the glowing border drawn while the agent is in control) i
 
 Each release keeps its own section, newest first, so the delta between two versions is always readable.
 
+### 0.7.0
+
+- **Web control (first version, off by default)**: Settings → floating ball → Web control. Once on, the model gains eight browser tools (`web_open` / `web_snapshot` / `web_click` / `web_type` / `web_press` / `web_back` / `web_screenshot` / `web_close`) driven by `playwright-core` in its own browser window with a persistent profile, so logins survive between conversations.
+- **The switch is a real switch**: turning it off removes the tools from the model entirely instead of asking it politely; turning it back on registers them at once, without a restart.
+- **Remote and virtual desktops disable it automatically**: an RDP session, a VMware/VirtualBox/QEMU/Hyper-V guest, or a running Sunlogin/ToDesk/AnyDesk/TeamViewer/RustDesk/VNC process turns the channel off for that process and states the reason in settings — on those screens a browser window is neither visible nor clickable.
+- **References only, no code execution**: `web_snapshot` numbers the visible controls, and clicking or typing uses those numbers; no tool evaluates scripts.
+- **The browser path is always the operator's**: `chrome` mode reads `chromePath`, `chromium` mode reads `chromiumPath`, and neither is discovered automatically; `attach` only connects to a CDP port the operator opened themselves.
+
 ### 0.6.19
 
 - **Command-line installs stop reporting a false failure**: the `koffi` package ships no binary and builds one in its `install` script, which pnpm blocks by default (`ERR_PNPM_IGNORED_BUILDS`, exit 1) — the package is actually installed but DSH treats the install as failed. The plugin now depends on koffi's prebuilt platform packages (`@koromix/koffi-win32-x64` and friends), which carry no install script, so the command exits 0.

@@ -474,6 +474,12 @@ window.__ModuleLoader__.load({
       workspacePicking: 'Choosing…',
       workspacePickFailed: 'Could not open the system directory picker.',
       workspacePickerUnavailable: 'This environment cannot open a system directory picker.',
+      webTitle: 'Web control',
+      webDescription: 'Let the ball drive a browser for web tasks (login, forms, dashboards). Off by default; turning it off removes the tools immediately and keyboard/mouse keeps working.',
+      webToggle: 'Enable web control',
+      webOn: 'Enabled: browser tools are registered',
+      webOff: 'Off',
+      webBlockedPrefix: 'Disabled: ',
       workspaceUseDefault: 'Restore default workspace',
       workspaceChanged: 'Workspace changed.',
       workspaceInvalidPath: 'Enter an absolute path.',
@@ -1080,6 +1086,7 @@ window.__ModuleLoader__.load({
           h(IdleCard, { text, snap, mutate }),
           snap.tcc && snap.tcc.applicable ? tccCard(text, snap, disabled, mutate) : null),
         h(GraphLibraryCard, { text, snap, mutate }),
+        h(WebCard, { text }),
         h(PersonaCard, { text, snap, mutate }),
         h(WorkspaceCard, { text, snap, refreshSettings }),
         h(HistoryCard, { text, snap, mutate, refreshHistory }))
@@ -1775,6 +1782,41 @@ window.__ModuleLoader__.load({
       return `${scaled >= 100 || unit === 0 ? Math.round(scaled) : scaled.toFixed(1)} ${units[unit]}`
     }
 
+
+    /** The browser switch. Its state lives on its own route, not in the settings snapshot. */
+    function WebCard({ text }) {
+      const [state, setState] = useState({ loading: true, settings: { enabled: false }, active: false, blockedReason: '' })
+      const load = async () => {
+        try {
+          const response = await request('/.dsh-agi/web')
+          const data = await response.json()
+          setState({ loading: false, ...data, settings: data.settings ?? { enabled: false } })
+        } catch {
+          setState((prev) => ({ ...prev, loading: false }))
+        }
+      }
+      useEffect(() => { void load() }, [])
+      const enabled = state.settings?.enabled === true
+      const status = state.blockedReason
+        ? `${text.webBlockedPrefix}${state.blockedReason}`
+        : state.active ? text.webOn : text.webOff
+      const send = (next) => {
+        void request('/.dsh-agi/web', { method: 'POST', body: JSON.stringify({ enabled: next }) })
+          .then((response) => response.json())
+          .then((data) => setState({ loading: false, ...data, settings: data.settings ?? { enabled: next } }))
+          .catch(() => undefined)
+      }
+      return card({
+        icon: 'browser',
+        title: text.webTitle,
+        description: text.webDescription,
+        control: toggleHead(text, enabled, text.webToggle, false, (next) => {
+          if (next !== enabled) send(next)
+        }),
+        body: h('div', { className: 'dsh-agi-set-panel' }, h('p', { className: 'dsh-agi-set-note' }, status)),
+      })
+    }
+
     function HistoryCard({ text, snap, mutate, refreshHistory }) {
       const history = snap.history
       const current = history && HISTORY_RETENTION_DAYS.includes(history.retentionDays)
@@ -2229,6 +2271,13 @@ window.__ModuleLoader__.load({
           h('ellipse', { cx: 9.3, cy: 8.3, rx: 2.5, ry: 1.45, fill: 'currentColor', opacity: 0.5, transform: 'rotate(-32 9.3 8.3)' }))
       }
       const paths = {
+        browser: [
+          'M4 6.2A2.2 2.2 0 0 1 6.2 4h11.6A2.2 2.2 0 0 1 20 6.2v11.6A2.2 2.2 0 0 1 17.8 20H6.2A2.2 2.2 0 0 1 4 17.8Z',
+          'M4 9h16',
+          'M7.2 6.5h.01',
+          'M10 6.5h.01',
+          'M8.4 12.4h7.2v4.4H8.4Z',
+        ],
         update: [
           'M20 12a8 8 0 1 1-2.34-5.66',
           'M20 4.5V10h-5.5',

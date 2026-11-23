@@ -58,6 +58,8 @@ import {
 } from './selection.ts'
 import { pinSessionId } from './services.ts'
 import { validateWorkspaceSelection } from './workspace.ts'
+import type { WebControl } from './web/control.ts'
+import type { WebState } from './web/control.ts'
 import { publishScreenOwner } from './screen-owner.ts'
 import { selectModelKeepDefault } from './select-model.ts'
 import { createForegroundMemory } from './windows-foreground.ts'
@@ -553,9 +555,10 @@ export class OrbRuntime {
   constructor(
     private readonly ctx: OrbContext,
     private readonly store: ProfileStore,
-    options: { startMonitor?: SelectionStarter; tcc?: { status(): TccStatus; open(right: TccRight): Promise<void> } } = {},
+    options: { startMonitor?: SelectionStarter; tcc?: { status(): TccStatus; open(right: TccRight): Promise<void> }; web?: WebControl } = {},
   ) {
     this.tcc = options.tcc ?? new TccMonitor()
+    this.web = options.web
     const access = productionAccessibility()
     this.selection = new SelectionController({
       enabled: () => this.store.selectionEnabled(),
@@ -2704,6 +2707,19 @@ export class OrbRuntime {
 
   cleanHistory(): void {
     this.history.startClean()
+  }
+
+  /** The browser channel and its switch; absent when the Host exposes no tool registry. */
+  private readonly web?: WebControl
+
+  /** The switch state the settings card renders. */
+  async webState(): Promise<WebState | { error: string }> {
+    return this.web?.state() ?? { error: 'web-unavailable' }
+  }
+
+  /** Apply a settings-page change; the tools appear or disappear at once. */
+  async setWebSettings(patch: Record<string, unknown>): Promise<WebState | { error: string }> {
+    return this.web?.update(patch as Parameters<WebControl['update']>[0]) ?? { error: 'web-unavailable' }
   }
 
   /** Everything this plugin keeps on disk; measured when the settings page asks. */

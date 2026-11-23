@@ -21,6 +21,7 @@ import { OrbRuntime, type OrbContext, type PreStepMessage } from './orb.ts'
 import { exemptReleaseAge, ownPackage, UpdateChecker } from './update.ts'
 import { DEFERRED_INSTALL_CEILING_MS, deferredInstallInProgress } from './deferred-install.ts'
 import { KOFFI_DIR_ENV, ownPackageRoot, removeStaleStages, stageKoffi } from './native-images.ts'
+import { WebControl } from './web/control.ts'
 
 /** Cordis plugin name. */
 export const name = 'agi-host'
@@ -147,7 +148,21 @@ export function apply(ctx: OrbContext, config: { autoStart?: boolean } = {}): vo
   // rather than racing it (see the wait branch below).
   if (own !== undefined && !installing) exemptReleaseAge(store.dir, own.name)
   const tcc = new TccMonitor()
-  const runtime = new OrbRuntime(ctx, store, { tcc })
+  // The browser channel and its switch. It stays dormant until the operator turns it on, and
+  // its tools exist only while it is on and the machine is not a remote or virtual desktop.
+  const toolRegistry = ctx.tools as { register(tool: unknown): () => void } | undefined
+  const webControl = toolRegistry === undefined ? undefined : new WebControl(toolRegistry, store.dir)
+  const runtime = new OrbRuntime(ctx, store, { tcc, ...webControl === undefined ? {} : { web: webControl } })
+  if (webControl !== undefined) {
+    try {
+      const state = webControl.refresh()
+      if (state.settings.enabled) {
+        console.error(state.blockedReason === '' ? 'dsh-agi: web control on' : `dsh-agi: ${state.blockedReason}`)
+      }
+    } catch (error) {
+      console.error(`dsh-agi: web control failed to start: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
   imageDebug(`boot attachments=${typeof ctx.attachments} saveImage=${typeof ctx.attachments?.saveImage} get=${typeof ctx.get}`)
   // Character card and this turn's screenshots reach the model through this hook. Both are
   // appended to the step the rest of the plugin stack already admitted, and the card is only

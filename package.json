@@ -14,10 +14,12 @@
     "dev:graph": "node --experimental-transform-types packages/host/src/knowledge-graph/dev-server.ts",
     "import:legacy": "node --experimental-transform-types packages/host/tools/import-legacy-experience.ts",
     "smoke:graph": "node --experimental-transform-types packages/host/tools/graph-smoke.ts",
-    "release:check": "node scripts/release-check.mjs"
+    "release:check": "node scripts/release-check.mjs",
+    "test:web": "node --experimental-transform-types --disable-warning=ExperimentalWarning --test --test-isolation=none packages/host/tests/web.test.ts"
   },
   "devDependencies": {
     "@types/node": "^22.20.4",
+    "playwright-core": "1.56.1",
     "tsdown": "^0.22.2",
     "typescript": "^5.9.3"
   }

@@ -85,6 +85,14 @@ Markdown 笔记会过期、会被跳过。`dsh-agi` 维护一个你真能长期�
 
 每个版本单独一节，最新的在最上面，方便直接对比「上一版到这一版改了什么」。
 
+### 0.7.0
+
+- **网页控制（第一版，默认关闭）**：设置 → 悬浮球 → 网页控制。打开后模型多出 8 个浏览器工具（`web_open` / `web_snapshot` / `web_click` / `web_type` / `web_press` / `web_back` / `web_screenshot` / `web_close`），基于 `playwright-core` 驱动独立浏览器窗口，profile 持久化，登录态跨会话保留。
+- **开关是硬开关**：关闭时这些工具**从模型侧直接消失**，不是靠提示词劝退；重新打开立即注册，无需重启。
+- **远程/虚拟环境自动停用**：检测到 RDP 会话、VMware/VirtualBox/QEMU/Hyper-V 虚拟机、向日葵/ToDesk/AnyDesk/TeamViewer/RustDesk/VNC 等远控进程时，网页通道运行期停用并在设置里写明原因——那种屏幕上浏览器窗口既看不见也点不准。
+- **只用编号，不给代码执行**：`web_snapshot` 返回可见控件的编号与名称，点击/输入都按编号；不暴露任何"执行脚本"的工具。
+- 浏览器路径必须由操作者自己给：`chrome` 模式读设置里的 `chromePath`，`chromium` 模式读 `chromiumPath`，两者都不自动发现；`attach` 模式只连操作者自己开好的 CDP 端口。
+
 ### 0.6.19
 
 - **命令行安装不再"假失败"**：`koffi` 这个包本身不带二进制，靠 `install` 脚本现编，而 pnpm 默认拦下未授权的构建脚本（`ERR_PNPM_IGNORED_BUILDS`，退出码 1）——包其实已经装好，但 DSH 会当成安装失败。现已改为依赖 koffi 的预编译平台包（`@koromix/koffi-win32-x64` 等），没有任何安装脚本，命令行安装退出码就是 0。
