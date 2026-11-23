@@ -15,7 +15,7 @@
     "import:legacy": "node --experimental-transform-types packages/host/tools/import-legacy-experience.ts",
     "smoke:graph": "node --experimental-transform-types packages/host/tools/graph-smoke.ts",
     "release:check": "node scripts/release-check.mjs",
-    "test:web": "node --experimental-transform-types --disable-warning=ExperimentalWarning --test --test-isolation=none packages/host/tests/web.test.ts packages/host/tests/web-labels.test.ts packages/host/tests/session-mode.test.ts"
+    "test:web": "node --experimental-transform-types --disable-warning=ExperimentalWarning --test --test-isolation=none packages/host/tests/web.test.ts packages/host/tests/web-labels.test.ts packages/host/tests/web-flow.test.ts packages/host/tests/session-mode.test.ts"
   },
   "devDependencies": {
     "@types/node": "^22.20.4",

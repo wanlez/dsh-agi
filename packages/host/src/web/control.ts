@@ -6,6 +6,7 @@
  */
 
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
+import { knowledgeGraphDirFor } from '../knowledge-graph/store.ts'
 import { cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { execFile } from 'node:child_process'
@@ -77,7 +78,7 @@ export class WebControl {
       // The channel re-reads the settings per call, so a mode change applies to the next call.
       this.channel = new BrowserChannel(() => readWebSettings(this.profileDir), dshHomePath('dsh-agi', 'web'))
       try {
-        this.dispose = registerWebTools(this.registry, this.channel)
+        this.dispose = registerWebTools(this.registry, this.channel, knowledgeGraphDirFor(this.profileDir))
       } catch (error) {
         // A registry that refuses a definition must not leave the switch pretending to be on.
         this.lastError = error instanceof Error ? error.message : String(error)

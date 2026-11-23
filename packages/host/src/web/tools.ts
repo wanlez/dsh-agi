@@ -14,6 +14,7 @@ import { mkdirSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { BrowserContext, Frame, Page } from 'playwright-core'
 import type { WebSettings } from './settings.ts'
+import { findFlow, listFlows, runFlow, saveFlow, type FlowStep } from './flow.ts'
 
 interface TextBlock { readonly type: 'text'; readonly text: string }
 function block(text: string): TextBlock { return { type: 'text', text } }
@@ -31,6 +32,16 @@ export interface WebControl {
   visible: boolean
   enabled: boolean
   rect: number[]
+}
+
+/** Role aliases: a tag name and the ARIA role people type for it must meet in the middle. */
+export function canonicalRole(role: string): string {
+  const value = role.trim().toLowerCase()
+  if (value === 'select' || value === 'listbox' || value === 'dropdown') return 'combobox'
+  if (value === 'input' || value === 'textarea' || value === 'text field') return 'textbox'
+  if (value === 'a') return 'link'
+  if (value === 'btn') return 'button'
+  return value
 }
 
 /** Compare form of a label: trimmed, lowercased, full-width folded, whitespace collapsed. */
@@ -71,8 +82,21 @@ const WALK = `(() => {
         && style.visibility !== 'hidden' && style.display !== 'none' && style.opacity !== '0'
       let name = ''
       try {
-        name = (el.innerText || el.getAttribute('aria-label') || el.getAttribute('placeholder')
-          || el.getAttribute('title') || (el.value !== undefined && typeof el.value === 'string' ? el.value : '') || '')
+        const aria = el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.getAttribute('title') || ''
+        let labelled = ''
+        try {
+          if (el.labels && el.labels.length > 0) labelled = el.labels[0].innerText || ''
+          else if (el.id) {
+            const escaped = window.CSS && window.CSS.escape ? window.CSS.escape(el.id) : el.id
+            const label = document.querySelector('label[for="' + escaped + '"]')
+            if (label) labelled = label.innerText || ''
+          }
+        } catch (error) { labelled = '' }
+        // A select's innerText is its options, never its name; form fields read like fields.
+        const isField = tag === 'select' || tag === 'input' || tag === 'textarea'
+        name = (isField
+          ? (aria || labelled || (typeof el.value === 'string' ? el.value : '') || el.innerText || '')
+          : (el.innerText || aria || labelled || ''))
           .replace(/\\s+/g, ' ').trim()
       } catch (error) { name = '' }
       counter += 1
@@ -102,6 +126,8 @@ export class BrowserChannel {
   private context: BrowserContext | undefined
   private page: Page | undefined
   private knownPages = new Set<Page>()
+  /** Pages opened since the channel started, recorded by the context listener. */
+  private opened: Page[] = []
 
   constructor(
     private readonly settings: () => WebSettings,
@@ -146,9 +172,15 @@ export class BrowserChannel {
         args: ['--start-maximized', '--no-first-run', '--no-default-browser-check'],
       })
     }
-    this.knownPages = new Set(this.context.pages())
+    this.knownPages = new Set()
+    this.opened = []
+    for (const page of this.context.pages()) this.knownPages.add(page)
+    // Only pages created from now on count as "opened by an action".
+    this.context.on('page', (page: Page) => {
+      this.knownPages.add(page)
+      this.opened.push(page)
+    })
     this.page = this.context.pages()[0] ?? (await this.context.newPage())
-    this.knownPages.add(this.page)
     return this.page
   }
 
@@ -175,27 +207,20 @@ export class BrowserChannel {
 
   /**
    * Follow a popup: a page that appeared because of the action becomes the current one.
-   * A popup opens asynchronously, so this polls briefly instead of checking once.
+   * The context listener records new pages, so this only waits briefly for one to arrive.
    */
-  private async followPopup(timeoutMs = 2_000): Promise<string> {
-    const context = this.context
-    if (context === undefined) return ''
+  private async followPopup(timeoutMs = 400): Promise<string> {
     const deadline = Date.now() + timeoutMs
-    while (Date.now() < deadline) {
-      let opened: Page | undefined
-      for (const page of context.pages()) {
-        if (this.knownPages.has(page)) continue
-        this.knownPages.add(page)
-        if (!page.isClosed()) opened = page
+    while (true) {
+      const candidate = this.opened.filter((page) => !page.isClosed()).pop()
+      if (candidate !== undefined) {
+        this.page = candidate
+        await candidate.waitForLoadState('domcontentloaded').catch(() => undefined)
+        return candidate.url()
       }
-      if (opened !== undefined) {
-        this.page = opened
-        await opened.waitForLoadState('domcontentloaded').catch(() => undefined)
-        return opened.url()
-      }
-      await new Promise((resolve) => setTimeout(resolve, 150))
+      if (Date.now() >= deadline) return ''
+      await new Promise((resolve) => setTimeout(resolve, 100))
     }
-    return ''
   }
 
   /** Which frame a ref belongs to. */
@@ -242,7 +267,7 @@ export class BrowserChannel {
     const role = options.role === undefined ? '' : normalizeLabel(options.role)
     const hits = read.controls.filter((control) => {
       if (!options.includeHidden && !control.visible) return false
-      if (role !== '' && normalizeLabel(control.role) !== role) return false
+      if (role !== '' && canonicalRole(normalizeLabel(control.role)) !== canonicalRole(role)) return false
       return normalizeLabel(control.name).includes(wanted)
     })
     const exact = hits.filter((control) => normalizeLabel(control.name) === wanted)
@@ -298,6 +323,34 @@ export class BrowserChannel {
     })
   }
 
+  async hoverTarget(target: { text?: string, role?: string }): Promise<Record<string, unknown>> {
+    const control = await this.resolve(target.text ?? '', target.role)
+    return await this.withPage(async (page) => {
+      const frame = this.frameOf(page, control.ref)
+      const locator = frame.locator(`[data-agi-ref="${control.ref}"]`).first()
+      await locator.scrollIntoViewIfNeeded()
+      await locator.hover({ timeout: 15_000 })
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      return { ok: true, hovered: control.name, url: page.url() }
+    })
+  }
+
+  /** Choose an option of a `<select>` by its visible label (value as fallback). */
+  async selectTarget(target: { text?: string, role?: string, value: string }): Promise<Record<string, unknown>> {
+    const control = await this.resolve(target.text ?? '', target.role ?? 'combobox')
+    return await this.withPage(async (page) => {
+      const frame = this.frameOf(page, control.ref)
+      const locator = frame.locator(`[data-agi-ref="${control.ref}"]`).first()
+      await locator.scrollIntoViewIfNeeded()
+      try {
+        await locator.selectOption({ label: target.value }, { timeout: 15_000 })
+      } catch {
+        await locator.selectOption(target.value, { timeout: 15_000 })
+      }
+      return { ok: true, selected: target.value, control: control.name, url: page.url() }
+    })
+  }
+
   /** Visible text of the page and its frames, optionally only the parts around a phrase. */
   async text(query?: string): Promise<Record<string, unknown>> {
     return await this.withPage(async (page) => {
@@ -328,8 +381,18 @@ export class BrowserChannel {
         if (options.urlContains !== undefined && read.url.includes(options.urlContains)) {
           return { ok: true, matched: 'url', url: read.url, elapsedMs: Date.now() - started }
         }
-        if (normalizedText !== undefined && read.controls.some((control) => normalizeLabel(control.name).includes(normalizedText))) {
-          return { ok: true, matched: 'text', url: read.url, elapsedMs: Date.now() - started }
+        if (normalizedText !== undefined) {
+          // Text expectations are about what the page says, not about control names.
+          const pageText = await this.withPage(async (current) => {
+            const parts: string[] = []
+            for (const frame of current.frames()) {
+              try { parts.push(await frame.evaluate(TEXT) as string) } catch { /* detached frame */ }
+            }
+            return normalizeLabel(parts.join('\n'))
+          }).catch(() => '')
+          if (pageText.includes(normalizedText)) {
+            return { ok: true, matched: 'text', url: read.url, elapsedMs: Date.now() - started }
+          }
         }
         if (options.selector !== undefined) {
           const hit = await this.withPage(async (page) => await page.$(options.selector!)).catch(() => null)
@@ -379,6 +442,7 @@ export class BrowserChannel {
     this.context = undefined
     this.page = undefined
     this.knownPages = new Set()
+    this.opened = []
     if (context === undefined) return { ok: true, closed: false }
     if (this.settings().mode === 'attach') return { ok: true, closed: false, detached: true }
     await context.close().catch(() => undefined)
@@ -420,6 +484,7 @@ function asString(args: Record<string, unknown>, key: string): string | undefine
 export function registerWebTools(
   registry: { register(tool: unknown): () => void },
   channel: BrowserChannel,
+  flowDir: string,
 ): () => void {
   const disposers = [
     registry.register(webTool({
@@ -522,6 +587,82 @@ export function registerWebTools(
           ...asString(args, 'selector') === undefined ? {} : { selector: asString(args, 'selector') },
           ...args.timeoutMs === undefined ? {} : { timeoutMs: Number(args.timeoutMs) },
         })
+      },
+    })),
+    registry.register(webTool({
+      name: 'web_hover',
+      description: '把鼠标悬停到控件上（名字定位）。展开式菜单、tooltip、二级导航需要先悬停。',
+      parameters: schema({
+        text: { type: 'string', description: '控件名字' },
+        role: { type: 'string', description: '可选：限定角色' },
+      }, ['text']),
+      async execute(args) {
+        return channel.hoverTarget({
+          ...asString(args, 'text') === undefined ? {} : { text: asString(args, 'text') },
+          ...asString(args, 'role') === undefined ? {} : { role: asString(args, 'role') },
+        })
+      },
+    })),
+    registry.register(webTool({
+      name: 'web_select',
+      description: '选择下拉框（<select>）里的某一项：text 定位下拉框，value 给选项文字（或值）。',
+      parameters: schema({
+        text: { type: 'string', description: '下拉框的名字/标签' },
+        role: { type: 'string', description: '可选：角色，默认 combobox' },
+        value: { type: 'string', description: '要选中的选项文字或值' },
+      }, ['text', 'value']),
+      async execute(args) {
+        return channel.selectTarget({
+          text: asString(args, 'text') ?? '',
+          ...asString(args, 'role') === undefined ? {} : { role: asString(args, 'role') },
+          value: asString(args, 'value') ?? '',
+        })
+      },
+    })),
+    registry.register(webTool({
+      name: 'web_flow_save',
+      description:
+        '保存一条可反复执行的网页流程（纯代码执行，不需要模型逐步操作）。每步要有 action（click/type/select/hover/press/wait/open/back）、'
+        + 'target 和 expect 校验；没有 expect 的步骤执行器会拒绝。保存前先把步骤列给用户确认。',
+      parameters: schema({
+        name: { type: 'string', description: '流程名，例如「每日对账」' },
+        id: { type: 'string', description: '可选：更新已有流程的 id' },
+        path_id: { type: 'string', description: '可选：关联的经验库路径 id' },
+        steps: { type: 'array', description: '步骤数组：{action, target, value?, role?, expect?}' },
+      }, ['name', 'steps']),
+      async execute(args) {
+        const steps = Array.isArray(args.steps) ? args.steps as FlowStep[] : []
+        if (steps.length === 0) throw new Error('steps 不能为空')
+        const saved = saveFlow(flowDir, {
+          ...asString(args, 'id') === undefined ? {} : { id: asString(args, 'id') },
+          name: asString(args, 'name') ?? '',
+          ...asString(args, 'path_id') === undefined ? {} : { path_id: asString(args, 'path_id') },
+          steps,
+        })
+        return { ok: true, flow: saved }
+      },
+    })),
+    registry.register(webTool({
+      name: 'web_flow_list',
+      description: '列出已保存的网页流程（名字、id、步骤数、关联路径）。',
+      parameters: schema({}),
+      async execute() {
+        return { flows: listFlows(flowDir).map((flow) => ({ id: flow.id, name: flow.name, steps: flow.steps.length, path_id: flow.path_id ?? '', updatedAt: flow.updatedAt })) }
+      },
+    })),
+    registry.register(webTool({
+      name: 'web_run_flow',
+      description:
+        '纯代码执行一条已保存的流程：逐步按名字定位、唯一命中才动作、每步用 expect 校验，失败立刻停并返回现场。'
+        + 'dryRun=true 只报告“每步会点哪个控件/是否唯一命中”，不执行任何动作——先 dryRun 给人确认，再用 dryRun=false 真跑。',
+      parameters: schema({
+        name: { type: 'string', description: '流程名或 id' },
+        dryRun: { type: 'boolean', description: '默认 true：只报告不执行' },
+      }, ['name']),
+      async execute(args) {
+        const flow = findFlow(flowDir, asString(args, 'name') ?? '')
+        if (flow === undefined) throw new Error('找不到这条流程，请先 web_flow_list 看名字')
+        return runFlow(channel, flow, { dryRun: args.dryRun !== false })
       },
     })),
     registry.register(webTool({
