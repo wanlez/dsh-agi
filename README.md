@@ -198,40 +198,33 @@ Each release keeps its own section, newest first, so the delta between two versi
 
 ## Install
 
+**Recommended: Settings → Plugins**, and install `dsh-agi` there. The plugin manager writes both the dependency and `dsh.profile.bundles`, so a restart is all that is left.
+
+Command-line install (two steps, both required):
+
 ```powershell
-& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add dsh-agi
+& "<DSH install folder>\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add dsh-agi@0.6.19
 ```
 
-If npm is unreachable, install the release tarball instead: download the newest `.tgz` from [Releases](https://github.com/wanlez/dsh-agi/releases) and run `dsh plugin add "file:<path>"`.
+`dsh plugin` only forwards its arguments to pnpm and does **not** add the bundle to `dsh.profile.bundles`, so run the bundled enabler once:
 
-Then add `"dsh-agi"` to `dsh.profile.bundles` in `%USERPROFILE%\.dsh\profiles\desktop\package.json` and restart DeepSeek Harness.
+```powershell
+& "$env:USERPROFILE\.dsh\profiles\desktop\node_modules\dsh-agi\install.cmd"
+```
 
-The tarball ships the code and its runtime dependencies (koffi and friends), so an install never touches another registry; the Electron runtime and speech models still download on first use.
+It writes the loader entry, checks the native module and asks for a restart. Then quit DeepSeek Harness completely and open it again.
 
-### Install error: pnpm blocks koffi's build script
+If npm is unreachable, download the newest `.tgz` from [Releases](https://github.com/wanlez/dsh-agi/releases), install it with `dsh plugin add "<absolute path to the tgz>"`, and run the same `install.cmd`.
 
-DSH ships pnpm 11.x with `strictDepBuilds` enabled. Dependencies that declare an `install`/`postinstall` script are refused, so `dsh plugin add` exits with **code 1** when it reaches koffi. The package files are already extracted and koffi's win32-x64 prebuilt binary loads fine.
+The package ships its code and runtime dependencies (speech, native modules), so an install never touches another registry; the Electron runtime and speech models still download on first use.
 
-Current releases bundle the runtime dependencies and drop `dependencies` from the manifest, so this no longer happens; the workaround below only applies to older tarballs.
+### Older releases (0.6.18 and earlier): install exits with code 1
 
-If that is the only problem, either:
+Those packages depended on `koffi`, whose binary is built by its `install` script; pnpm's build-script policy refuses that (`ERR_PNPM_IGNORED_BUILDS`, exit 1) even though the package installed fine. From 0.6.19 the plugin depends on the prebuilt platform package (`@koromix/koffi-win32-x64`) instead: no install script, exit code 0, and no `allowBuilds` configuration needed.
 
-1. Allow (or skip) koffi's build script in the profile's `pnpm-workspace.yaml`:
+### Uninstall
 
-   ```yaml
-   allowBuilds:
-     koffi: false
-   ```
-
-   Save it and run `dsh plugin add` again; the exit code should become 0.
-
-2. Or run the bundled installer, which writes that setting first:
-
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File .\install.ps1
-   ```
-
-This only controls whether the build script runs; it does not change what the plugin does, because koffi's prebuilt binary is shipped with the dependency.
+The package also contains `uninstall.cmd`: it removes the package and its loader entries plus the speech models and runtime caches, and keeps the experience library, the ball workspace and the conversation archive.
 
 ## How to use
 

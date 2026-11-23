@@ -198,40 +198,33 @@ Markdown 笔记会过期、会被跳过。`dsh-agi` 维护一个你真能长期�
 
 ## 安装
 
+**推荐：设置 → 插件**，在那里安装 `dsh-agi`。插件管理器会同时写依赖和 `dsh.profile.bundles`，装完重启即可。
+
+命令行安装（两步，缺一不可）：
+
 ```powershell
-& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add dsh-agi
+& "<DSH 安装目录>\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add dsh-agi@0.6.19
 ```
 
-npm 不可达时改用 Release 包：从 [Releases](https://github.com/wanlez/dsh-agi/releases) 下载最新的 `.tgz`，执行 `dsh plugin add "file:<路径>"`。
+`dsh plugin` 只是把参数转发给 pnpm，**不会**把插件写进 `dsh.profile.bundles`，所以还要跑一次包里的启用脚本：
 
-然后把 `"dsh-agi"` 加到 `%USERPROFILE%\.dsh\profiles\desktop\package.json` 的 `dsh.profile.bundles` 里，重启 DeepSeek Harness。
+```powershell
+& "$env:USERPROFILE\.dsh\profiles\desktop\node_modules\dsh-agi\install.cmd"
+```
 
-安装包自带代码和运行时依赖（koffi 等），安装过程不会访问其他 registry；Electron 运行时和语音模型仍在首次使用时下载。
+它会写好 loader 条目、检查原生模块，然后提示重启。之后完全退出并重新打开 DeepSeek Harness。
 
-### 安装报错：pnpm 拦截 koffi 的构建脚本
+npm 不可达时，从 [Releases](https://github.com/wanlez/dsh-agi/releases) 下载最新 `.tgz`，用 `dsh plugin add "<tgz 的绝对路径>"` 安装，再跑同一条 `install.cmd`。
 
-DSH 自带 pnpm 11.x 并启用 `strictDepBuilds`，声明了 `install`/`postinstall` 脚本的依赖会被拒绝，所以 `dsh plugin add` 走到 koffi 时会以 **code 1** 退出。此时包文件其实已经解压，koffi 的 win32-x64 预编译二进制也能正常加载。
+安装包自带代码与运行时依赖（语音、原生模块），安装过程不会访问其他 registry；Electron 运行时与语音模型仍在首次使用时下载。
 
-当前版本已经把运行时依赖打进包并去掉了 manifest 里的 `dependencies`，所以不会再出现；下面的办法只针对旧包。
+### 旧版本的安装报错（0.6.18 及以前）
 
-如果只是这个问题，两种办法：
+老包把 `koffi` 当运行时依赖，而它的二进制要靠 `install` 脚本现编，pnpm 的构建脚本策略会拦下它（`ERR_PNPM_IGNORED_BUILDS`，退出码 1）——包其实装好了，但命令报失败。0.6.19 起改为依赖预编译平台包（`@koromix/koffi-win32-x64`），不再有构建脚本，退出码就是 0，也**不需要**任何 `allowBuilds` 配置。
 
-1. 在 profile 的 `pnpm-workspace.yaml` 里允许（或跳过）koffi 的构建脚本：
+### 卸载
 
-   ```yaml
-   allowBuilds:
-     koffi: false
-   ```
-
-   保存后重新执行 `dsh plugin add`，退出码应变为 0。
-
-2. 或者跑包里的安装脚本，它会先写好这个设置：
-
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File .\install.ps1
-   ```
-
-这只控制构建脚本是否运行，不改变插件行为，因为 koffi 用的是随依赖附带的预编译二进制。
+插件目录里还有 `uninstall.cmd`：删除插件包与加载条目、语音模型与运行时缓存，保留经验库、球工作区与会话留档。
 
 ## 怎么用
 
