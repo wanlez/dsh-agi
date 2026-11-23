@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it } from 'node:test'
+import { CHROMIUM_ASSET, CHROMIUM_URL, CHROMIUM_VERSION, chromiumExecutable, chromiumStatus } from '../src/web/chromium.ts'
 import { detectRemoteEnvironment } from '../src/web/env.ts'
 import { defaultWebSettings, mergeWebSettings, readWebSettings, writeWebSettings } from '../src/web/settings.ts'
 
@@ -46,5 +47,22 @@ describe('remote environment probe', () => {
     assert.equal(typeof env.reason, 'string')
     assert.ok(Array.isArray(env.evidence))
     if (env.blocked) assert.notEqual(env.reason, '')
+  })
+})
+
+describe('bundled chromium', () => {
+  it('downloads from this project, never an upstream CDN', () => {
+    assert.match(CHROMIUM_URL, /^https:\/\/github\.com\/wanlez\/dsh-agi\/releases\/download\/web-chromium-/)
+    assert.ok(CHROMIUM_URL.endsWith(CHROMIUM_ASSET))
+    assert.ok(CHROMIUM_ASSET.includes(CHROMIUM_VERSION))
+  })
+
+  it('reports a missing build instead of a fake path', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'agi-chromium-'))
+    assert.equal(chromiumExecutable(dir), '')
+    const status = chromiumStatus(dir)
+    assert.equal(status.present, false)
+    assert.equal(status.version, CHROMIUM_VERSION)
+    assert.equal(status.phase, 'idle')
   })
 })

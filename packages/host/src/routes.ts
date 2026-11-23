@@ -138,6 +138,10 @@ export interface OrbControl {
   webState?(): Promise<unknown>
   /** Apply a partial web-control change; returns the new state. */
   setWebSettings?(patch: Record<string, unknown>): Promise<unknown>
+  /** Download the pinned bundled browser and point the settings at it. */
+  downloadChromium?(): Promise<unknown>
+  /** Ask the operator for chrome.exe with the system dialog. */
+  pickChrome?(): Promise<unknown>
   /** What this plugin keeps on disk, measured when the settings page asks. */
   spaceReport?(): Promise<SpaceReport>
   /** Deletes the diagnostic logs only; nothing else is removable from that page. */
@@ -459,6 +463,26 @@ async function handle(deps: RouteDeps, req: IncomingMessage, res: ServerResponse
       return
     }
     sendJson(res, 200, await deps.control.setWebSettings(body))
+    return
+  }
+  if (method === 'POST' && path === `${PREFIX}/web/download`) {
+    if (typeof deps.control.downloadChromium !== 'function') {
+      sendJson(res, 409, { error: 'web-unavailable' })
+      return
+    }
+    try {
+      sendJson(res, 200, await deps.control.downloadChromium())
+    } catch (error) {
+      sendJson(res, 500, { error: errorMessage(error) })
+    }
+    return
+  }
+  if (method === 'POST' && path === `${PREFIX}/web/pick-chrome`) {
+    if (typeof deps.control.pickChrome !== 'function') {
+      sendJson(res, 409, { error: 'web-unavailable' })
+      return
+    }
+    sendJson(res, 200, await deps.control.pickChrome())
     return
   }
   if (method === 'GET' && path === `${PREFIX}/space`) {

@@ -2717,6 +2717,16 @@ export class OrbRuntime {
     return this.web?.state() ?? { error: 'web-unavailable' }
   }
 
+  /** Fetch the pinned bundled browser and switch to it. */
+  async downloadChromium(): Promise<WebState | { error: string }> {
+    return this.web === undefined ? { error: 'web-unavailable' } : await this.web.downloadChromium()
+  }
+
+  /** Ask for chrome.exe with the system dialog; nothing is discovered automatically. */
+  async pickChrome(): Promise<WebState | { error: string }> {
+    return this.web === undefined ? { error: 'web-unavailable' } : await this.web.pickChrome()
+  }
+
   /** Apply a settings-page change; the tools appear or disappear at once. */
   async setWebSettings(patch: Record<string, unknown>): Promise<WebState | { error: string }> {
     return this.web?.update(patch as Parameters<WebControl['update']>[0]) ?? { error: 'web-unavailable' }

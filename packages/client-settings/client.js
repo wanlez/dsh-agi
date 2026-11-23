@@ -161,6 +161,28 @@ window.__ModuleLoader__.load({
       workspacePickFailed: '无法打开系统目录选择器。',
       workspacePickerUnavailable: '当前环境不支持系统目录选择。',
       workspaceUseDefault: '恢复默认工作区',
+      webTitle: '网页控制',
+      webDescription: '让球在浏览器里操作网页（登录、表单、后台）。默认关闭；关掉后相关工具立即消失，键鼠照常工作。',
+      webToggle: '启用网页控制',
+      webOn: '已启用：网页工具已注册',
+      webOff: '未启用',
+      webBlockedPrefix: '已停用：',
+      webMode: '浏览器来源',
+      webModeChromium: '内置 Chromium',
+      webModeChrome: '系统 Chrome',
+      webModeAttach: '连接已开的浏览器',
+      webChromePick: '选择 chrome.exe…',
+      webChromeMissing: '尚未选择（不会自动查找）',
+      webChromiumDownload: '下载内置浏览器',
+      webChromiumRedownload: '重新下载',
+      webChromiumReady: '已就绪',
+      webChromiumMissing: '未下载',
+      webChromiumDownloading: '下载中',
+      webChromiumExtracting: '解压中',
+      webChromiumFailed: '下载失败',
+      webCdpLabel: 'CDP 地址（attach 模式）',
+      webCdpSave: '保存',
+      webEvidence: '检测结果',
       workspaceChanged: '工作区已切换。',
       workspaceInvalidPath: '请输入绝对路径。',
       workspaceNotFound: '目录不存在。',
@@ -480,6 +502,22 @@ window.__ModuleLoader__.load({
       webOn: 'Enabled: browser tools are registered',
       webOff: 'Off',
       webBlockedPrefix: 'Disabled: ',
+      webMode: 'Browser source',
+      webModeChromium: 'Bundled Chromium',
+      webModeChrome: 'System Chrome',
+      webModeAttach: 'Attach to a running browser',
+      webChromePick: 'Choose chrome.exe…',
+      webChromeMissing: 'Not chosen (never discovered)',
+      webChromiumDownload: 'Download bundled browser',
+      webChromiumRedownload: 'Download again',
+      webChromiumReady: 'Ready',
+      webChromiumMissing: 'Not downloaded',
+      webChromiumDownloading: 'Downloading',
+      webChromiumExtracting: 'Extracting',
+      webChromiumFailed: 'Download failed',
+      webCdpLabel: 'CDP endpoint (attach mode)',
+      webCdpSave: 'Save',
+      webEvidence: 'Detection result',
       workspaceUseDefault: 'Restore default workspace',
       workspaceChanged: 'Workspace changed.',
       workspaceInvalidPath: 'Enter an absolute path.',
@@ -1783,37 +1821,110 @@ window.__ModuleLoader__.load({
     }
 
 
-    /** The browser switch. Its state lives on its own route, not in the settings snapshot. */
+    /** The browser switch and its source picker. State lives on its own route. */
     function WebCard({ text }) {
-      const [state, setState] = useState({ loading: true, settings: { enabled: false }, active: false, blockedReason: '' })
+      const [state, setState] = useState({ loading: true, settings: { enabled: false, mode: 'chromium' }, active: false, blockedReason: '', evidence: [], chromium: { present: false } })
+      const [busy, setBusy] = useState('')
+      const [cdp, setCdp] = useState('')
+      const apply = (data) => {
+        setState({ loading: false, ...data, settings: data.settings ?? { enabled: false, mode: 'chromium' } })
+        if (typeof data.settings?.cdpUrl === 'string') setCdp(data.settings.cdpUrl)
+      }
       const load = async () => {
         try {
-          const response = await request('/.dsh-agi/web')
-          const data = await response.json()
-          setState({ loading: false, ...data, settings: data.settings ?? { enabled: false } })
+          apply(await (await request('/.dsh-agi/web')).json())
         } catch {
           setState((prev) => ({ ...prev, loading: false }))
         }
       }
       useEffect(() => { void load() }, [])
-      const enabled = state.settings?.enabled === true
+      const chromium = state.chromium ?? { present: false }
+      const phase = chromium.phase ?? 'idle'
+      // While a download runs, follow the status file the Host writes.
+      useEffect(() => {
+        if (phase !== 'downloading' && phase !== 'extracting') return undefined
+        const timer = setTimeout(() => { void load() }, 1500)
+        return () => clearTimeout(timer)
+      }, [phase, chromium.received])
+      const send = async (path, body, tag) => {
+        setBusy(tag)
+        try {
+          const data = await (await request(path, { method: 'POST', body: JSON.stringify(body ?? {}) })).json()
+          if (data.error) throw new Error(data.error)
+          apply(data)
+        } catch {
+          // The card keeps the old state; the error is visible in the status line text below.
+        }
+        setBusy('')
+      }
+      const settings = state.settings ?? { enabled: false, mode: 'chromium' }
+      const enabled = settings.enabled === true
       const status = state.blockedReason
         ? `${text.webBlockedPrefix}${state.blockedReason}`
         : state.active ? text.webOn : text.webOff
-      const send = (next) => {
-        void request('/.dsh-agi/web', { method: 'POST', body: JSON.stringify({ enabled: next }) })
-          .then((response) => response.json())
-          .then((data) => setState({ loading: false, ...data, settings: data.settings ?? { enabled: next } }))
-          .catch(() => undefined)
-      }
+      const percent = chromium.total > 0 ? ` ${Math.round(chromium.received / chromium.total * 100)}%` : ''
+      const chromiumLabel = phase === 'downloading'
+        ? `${text.webChromiumDownloading}${percent}`
+        : phase === 'extracting' ? text.webChromiumExtracting
+          : phase === 'failed' ? `${text.webChromiumFailed}：${chromium.error ?? ''}`
+            : chromium.present ? text.webChromiumReady : text.webChromiumMissing
+      const modes = [
+        ['chromium', text.webModeChromium],
+        ['chrome', text.webModeChrome],
+        ['attach', text.webModeAttach],
+      ]
       return card({
         icon: 'browser',
         title: text.webTitle,
         description: text.webDescription,
         control: toggleHead(text, enabled, text.webToggle, false, (next) => {
-          if (next !== enabled) send(next)
+          if (next !== enabled) void send('/.dsh-agi/web', { enabled: next }, 'toggle')
         }),
-        body: h('div', { className: 'dsh-agi-set-panel' }, h('p', { className: 'dsh-agi-set-note' }, status)),
+        body: h('div', { className: 'dsh-agi-set-panel' },
+          h('p', { className: 'dsh-agi-set-note' }, status),
+          h('div', { className: 'dsh-agi-set-actions' },
+            h('span', { className: 'dsh-agi-set-field-label' }, text.webMode),
+            ...modes.map(([mode, label]) => h('button', {
+              type: 'button',
+              className: 'dsh-agi-set-button',
+              disabled: busy !== '',
+              'aria-pressed': settings.mode === mode ? 'true' : 'false',
+              onClick: () => { if (settings.mode !== mode) void send('/.dsh-agi/web', { mode }, 'mode') },
+            }, label))),
+          h('div', { className: 'dsh-agi-set-actions' },
+            h('span', { className: 'dsh-agi-set-field-label' }, settings.chromePath || text.webChromeMissing),
+            h('button', {
+              type: 'button',
+              className: 'dsh-agi-set-button',
+              disabled: busy !== '',
+              onClick: () => { void send('/.dsh-agi/web/pick-chrome', {}, 'pick') },
+            }, busy === 'pick' ? '…' : text.webChromePick)),
+          h('div', { className: 'dsh-agi-set-actions' },
+            h('span', { className: 'dsh-agi-set-field-label' }, `Chromium ${chromium.version ?? ''}：${chromiumLabel}`),
+            h('button', {
+              type: 'button',
+              className: 'dsh-agi-set-button',
+              disabled: busy !== '' || phase === 'downloading' || phase === 'extracting',
+              onClick: () => { void send('/.dsh-agi/web/download', {}, 'download') },
+            }, chromium.present ? text.webChromiumRedownload : text.webChromiumDownload)),
+          h('div', { className: 'dsh-agi-set-actions' },
+            h('span', { className: 'dsh-agi-set-field-label' }, text.webCdpLabel),
+            h('input', {
+              className: 'dsh-agi-set-input',
+              value: cdp,
+              placeholder: 'http://127.0.0.1:9222',
+              disabled: busy !== '',
+              onInput: (event) => setCdp(event.currentTarget.value),
+            }),
+            h('button', {
+              type: 'button',
+              className: 'dsh-agi-set-button',
+              disabled: busy !== '',
+              onClick: () => { void send('/.dsh-agi/web', { cdpUrl: cdp.trim(), mode: 'attach' }, 'cdp') },
+            }, text.webCdpSave)),
+          state.evidence && state.evidence.length > 0
+            ? h('p', { className: 'dsh-agi-set-note' }, `${text.webEvidence}：${state.evidence.join('；')}`)
+            : null),
       })
     }
 
