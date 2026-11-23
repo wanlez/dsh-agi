@@ -85,6 +85,12 @@ The observation frame (the glowing border drawn while the agent is in control) i
 
 Each release keeps its own section, newest first, so the delta between two versions is always readable.
 
+### 0.6.18
+
+- **Fixes a crash on a clean install**: the voice child (`dist/voice/child.js`) imports `pinyin-pro` statically, TTS needs `sherpa-onnx-node`, and echo cancellation uses `node-cpal`, but none of the three were declared in the package manifest. A development checkout has them installed, so it looked fine; a fresh profile hit `ERR_MODULE_NOT_FOUND` and the crash took the host down with it (`dsh desktop host exited with 1`). All three are now runtime dependencies.
+- **Fixes knowledge-graph tools on newer DSH**: the newer host requires declaring the injection before touching `ctx.tools`. Without it the plugin logged "cannot get property \"tools\" without inject" and silently dropped the whole library tool set. `inject` now includes `tools`.
+- **The release check now scans for undeclared dependencies**: `pnpm release:check` walks every bare import in `dist`/`lib` and fails when a package is missing from `dependencies`/`peerDependencies`, so this class of bug cannot ship again.
+
 ### 0.6.17
 
 - **The updater works with pnpm 12**: pnpm 12 turns an ignored dependency build script into a hard failure (`ERR_PNPM_IGNORED_BUILDS`, exit 1) even though the package installed fine, while pnpm 10 only warns. Installs now pass `--config.strict-dep-builds=false` so it degrades to a warning; whether a build actually runs is still decided by the profile's `allowBuilds`.

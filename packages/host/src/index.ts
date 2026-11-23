@@ -35,6 +35,10 @@ export const inject = [
   'agentDefaultModel',
   // The composer uploads screenshots through this store; a Host without it keeps text-only.
   'attachments',
+  // The knowledge-graph tools register through this registry. DSH refuses an undeclared
+  // service with "cannot get property \"tools\" without inject", which silently lost the
+  // library tools on a fresh install.
+  'tools',
 ]
 
 export type { OrbContext }

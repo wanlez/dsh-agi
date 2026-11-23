@@ -85,6 +85,12 @@ Markdown 笔记会过期、会被跳过。`dsh-agi` 维护一个你真能长期�
 
 每个版本单独一节，最新的在最上面，方便直接对比「上一版到这一版改了什么」。
 
+### 0.6.18
+
+- **修复全新安装后启动崩溃**：语音子进程 `dist/voice/child.js` 静态引用 `pinyin-pro`，TTS 还会用 `sherpa-onnx-node`、回声消除用 `node-cpal`，但这三个包没写进包清单。开发机上因为工作区装过所以看不出，用户干净安装后语音子进程直接 `ERR_MODULE_NOT_FOUND`，连宿主一起被带崩（`dsh desktop host exited with 1`）。现已声明为运行时依赖。
+- **修复经验库工具在 DSH 新版上注册失败**：新版要求访问 `ctx.tools` 前先声明注入，之前会打印 "cannot get property \"tools\" without inject" 并静默丢掉整个经验库工具集。`inject` 已补 `tools`。
+- **发版检查新增"未声明依赖"扫描**：`pnpm release:check` 现在会扫 `dist`/`lib` 里所有裸导入，任何一个包没在 `dependencies`/`peerDependencies` 里声明就直接失败——这次这个 bug 以后在发版前就会拦下来。
+
 ### 0.6.17
 
 - **更新器兼容 pnpm 12**：pnpm 12 会把"被忽略的依赖构建脚本"当成硬失败（`ERR_PNPM_IGNORED_BUILDS`，退出码 1），而包其实已经装好——同样的包在 pnpm 10 上只警告。安装命令现在统一带 `--config.strict-dep-builds=false` 把它降级为警告；是否真的执行构建仍由 profile 的 `allowBuilds` 决定。

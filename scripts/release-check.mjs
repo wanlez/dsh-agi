@@ -68,7 +68,46 @@ for (const file of ['README.md', 'README.zh-CN.md']) {
   if (!text.includes(`### ${manifest.version}`)) fail(`${file} has no "### ${manifest.version}" section`)
 }
 
-// 4. What npm would actually publish: the runtime files in, the workspace and tests out.
+// 4. Every package the built code imports must be declared, or a clean install breaks at runtime.
+//    A missing declaration is invisible on a development checkout and fatal on a fresh profile.
+{
+  // `electron` is built into the helper's preload runtime, so it is never a package dependency.
+  const declared = new Set([
+    ...Object.keys(manifest.dependencies ?? {}),
+    ...Object.keys(manifest.peerDependencies ?? {}),
+    'electron',
+  ])
+  const roots = [join(bundle, 'dist'), join(bundle, 'lib')]
+  const files = []
+  const walk = (dir) => {
+    if (!existsSync(dir)) return
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name)
+      if (entry.isDirectory()) walk(path)
+      else if (/\.(js|mjs|cjs)$/.test(entry.name)) files.push(path)
+    }
+  }
+  for (const root of roots) walk(root)
+  const bare = new Map()
+  for (const file of files) {
+    const text = readFileSync(file, 'utf8')
+    for (const match of text.matchAll(/(?:from\s*|require\(\s*|import\(\s*)["']([^"'.][^"']*)["']/g)) {
+      const specifier = match[1]
+      if (specifier.startsWith('node:') || specifier.startsWith('data:')) continue
+      // Minified code contains English prose inside strings; only a real package name passes.
+      if (!/^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9._-]+)*$/.test(specifier)) continue
+      const name = specifier.startsWith('@')
+        ? specifier.split('/').slice(0, 2).join('/')
+        : specifier.split('/')[0]
+      if (declared.has(name)) continue
+      bare.set(name, file.slice(root.length + 1))
+    }
+  }
+  for (const [name, file] of bare) fail(`undeclared runtime dependency ${name} (imported by ${file})`)
+  if (bare.size === 0) notes.push(`${files.length} built files import only declared packages`)
+}
+
+// 5. What npm would actually publish: the runtime files in, the workspace and tests out.
 let packed
 try {
   const output = execFileSync('npm', ['pack', '--dry-run', '--json'], { cwd: bundle, encoding: 'utf8', shell: process.platform === 'win32' })
@@ -88,7 +127,7 @@ if (packed !== undefined) {
   notes.push(`${packed.files.length} files, ${(packed.size / 1024 / 1024).toFixed(1)} MB`)
 }
 
-// 5. The tag this release is about to create must not exist yet.
+// 6. The tag this release is about to create must not exist yet.
 const tag = `plugin-v${manifest.version}`
 try {
   const existing = execFileSync('git', ['tag', '--list', tag], { cwd: root, encoding: 'utf8' }).trim()
