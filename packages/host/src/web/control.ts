@@ -71,12 +71,20 @@ export class WebControl {
     const settings = this.settings()
     const active = this.dispose !== undefined
     const env = this.environment()
+    const chromium = chromiumStatus(dshHomePath('dsh-agi', 'web'))
+    const executableReady = settings.mode === 'attach'
+      ? settings.cdpUrl !== ''
+      : settings.mode === 'chrome' ? settings.chromePath !== '' : settings.chromiumPath !== '' || chromium.present
     const blockedReason = env.blocked
       ? env.reason
-      : settings.enabled && !active
-        ? '网页通道未能启用，请查看日志'
-        : ''
-    return { settings, active, blockedReason, evidence: env.evidence, chromium: chromiumStatus(dshHomePath('dsh-agi', 'web')) }
+      : settings.enabled && !executableReady
+        ? (settings.mode === 'chrome'
+          ? '还不能用：还没选择 chrome.exe'
+          : settings.mode === 'attach' ? '还不能用：还没填 CDP 地址' : '还不能用：内置 Chromium 还没下载')
+        : settings.enabled && !active
+          ? '网页通道未能启用，请查看日志'
+          : ''
+    return { settings, active, blockedReason, evidence: env.evidence, chromium }
   }
 
   /**

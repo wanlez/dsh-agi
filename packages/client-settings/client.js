@@ -1914,7 +1914,7 @@ window.__ModuleLoader__.load({
               value: cdp,
               placeholder: 'http://127.0.0.1:9222',
               disabled: busy !== '',
-              onInput: (event) => setCdp(event.currentTarget.value),
+              onChange: (event) => setCdp(event.currentTarget.value),
             }),
             h('button', {
               type: 'button',
