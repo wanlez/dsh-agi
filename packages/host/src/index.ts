@@ -285,11 +285,12 @@ export function apply(ctx: OrbContext, config: { autoStart?: boolean } = {}): vo
           id: randomUUID(),
           content: [{
             type: 'text',
-            text: (store.sessionMode() === 'shared'
+            text: '【桌面操作默认】按能力阶梯选通道，从能完成的最高一级开始，绝不先用截图；能命令就命令，网页任务用 web_*，读不到才回截图+键鼠。\n'
+              + (store.sessionMode() === 'shared'
                 ? '【会话模式·共享】你与 DeepSeek Harness 主窗口共用同一个会话：主窗口里发生的事你能看到，你的回复主窗口也看得到。球的历史列表已锁定（共享模式固定绑定重启时锚定的会话），不要引导用户去会话列表切换；用户要更换绑定，请让他在另一个会话发条消息后重启 DSH。如果当前会话没有 computer-use 工具而用户要做键鼠操作，直接说明，并建议切到隔离模式（设置 → 悬浮球 → 球会话模式）。'
                 : '【会话模式·隔离】你运行在球自己的 computer-use 会话里，与主窗口完全独立：主窗口的对话和工具都不属于你，不要假设能看到或操作它们。你的会话属于球的专属工作区，不会出现在主窗口的 dsh_agi 分组里；用户要在主窗口里做的事，请不要替他做假设。'),
           }],
-          source: { kind: 'computer-use', form: 'notice', summary: 'Session mode' },
+          source: { kind: 'computer-use', form: 'notice', summary: 'Desktop defaults and session mode' },
         })
       }
       const pending = runtime.peekPendingImages(sessionId)
