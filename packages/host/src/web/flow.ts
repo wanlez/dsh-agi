@@ -19,7 +19,7 @@ import type { BrowserChannel } from './tools.ts'
 /** One step of a flow. */
 export interface FlowStep {
   /** click / type / select / hover / press / wait / open / back */
-  action: 'click' | 'type' | 'select' | 'hover' | 'press' | 'wait' | 'open' | 'back'
+  action: 'click' | 'type' | 'select' | 'hover' | 'press' | 'wait' | 'open' | 'back' | 'upload' | 'scroll'
   /** Control name for click/type/select/hover; URL for open; key for press. */
   target?: string
   /** Text to type, or the option to select. */
@@ -136,7 +136,7 @@ export async function runFlow(
         throw new Error('这一步没有 expect，不允许直接执行（会"点完就当成功"）。请在流程里补上校验。')
       }
       if (dryRun) {
-        if (step.action === 'click' || step.action === 'type' || step.action === 'select' || step.action === 'hover') {
+        if (step.action === 'click' || step.action === 'type' || step.action === 'select' || step.action === 'hover' || step.action === 'upload') {
           // A dry run stops before the steps that would reveal hidden controls, so hidden
           // matches are reported as such instead of as a failure.
           const found = await channel.find(target, { ...step.role === undefined ? {} : { role: step.role }, includeHidden: true })
@@ -162,6 +162,8 @@ export async function runFlow(
       else if (step.action === 'press') await channel.press(target)
       else if (step.action === 'open') await channel.navigate(target)
       else if (step.action === 'back') await channel.back()
+      else if (step.action === 'upload') await channel.upload({ text: target, filePath: step.value ?? '' })
+      else if (step.action === 'scroll') await channel.scroll({ deltaY: Number(step.value ?? 600) })
       else if (step.action === 'wait') {
         const waited = await channel.wait({
           ...step.expect?.urlContains === undefined ? {} : { urlContains: step.expect.urlContains },

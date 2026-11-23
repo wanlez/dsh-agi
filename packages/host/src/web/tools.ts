@@ -351,6 +351,64 @@ export class BrowserChannel {
     })
   }
 
+  /** Put a local file into an `<input type="file">`; the OS picker never opens. */
+  async upload(target: { text?: string, role?: string, ref?: string, filePath: string }): Promise<Record<string, unknown>> {
+    const control = target.ref !== undefined
+      ? (await this.controls(3000)).controls.find((item) => item.ref === target.ref)
+      : await this.resolve(target.text ?? '', target.role)
+    if (control === undefined) throw new Error(`找不到 ${String(target.ref)}，请重新读取页面拿新编号。`)
+    if (!existsSync(target.filePath)) throw new Error(`本地文件不存在：${target.filePath}`)
+    return await this.withPage(async (page) => {
+      const frame = this.frameOf(page, control.ref)
+      const locator = frame.locator(`[data-agi-ref="${control.ref}"]`).first()
+      await locator.setInputFiles(target.filePath, { timeout: 20_000 })
+      return { ok: true, uploaded: target.filePath, control: control.name, url: page.url() }
+    })
+  }
+
+  /** Every open tab, in the order the browser reports them. */
+  async pages(): Promise<Record<string, unknown>> {
+    return await this.withPage(async (page) => {
+      const all = this.context?.pages() ?? [page]
+      const rows = await Promise.all(all.map(async (item, index) => ({
+        index,
+        url: item.url(),
+        title: await item.title().catch(() => ''),
+        current: item === page,
+      })))
+      return { ok: true, current: rows.find((row) => row.current)?.index ?? 0, pages: rows }
+    })
+  }
+
+  /** Switch the tab every other tool works on. */
+  async switchPage(target: { index?: number, urlContains?: string }): Promise<Record<string, unknown>> {
+    return await this.withPage(async (page) => {
+      const all = this.context?.pages() ?? [page]
+      let next: Page | undefined
+      if (target.index !== undefined) next = all[target.index]
+      else if (target.urlContains !== undefined) next = all.find((item) => item.url().includes(target.urlContains!))
+      if (next === undefined) throw new Error('找不到要切换的标签页，请先 web_pages 看索引')
+      this.page = next
+      await next.bringToFront().catch(() => undefined)
+      return { ok: true, index: all.indexOf(next), url: next.url(), title: await next.title().catch(() => '') }
+    })
+  }
+
+  /** Scroll the page (wheel), for virtualized lists that only render what is near the viewport. */
+  async scroll(options: { deltaY: number, times?: number }): Promise<Record<string, unknown>> {
+    return await this.withPage(async (page) => {
+      const times = Math.max(1, Math.min(options.times ?? 1, 20))
+      const viewport = page.viewportSize() ?? { width: 1280, height: 800 }
+      await page.mouse.move(viewport.width / 2, viewport.height / 2)
+      for (let index = 0; index < times; index += 1) {
+        await page.mouse.wheel(0, options.deltaY)
+        await new Promise((resolve) => setTimeout(resolve, 120))
+      }
+      const scrollY = await page.evaluate(() => window.scrollY).catch(() => 0)
+      return { ok: true, scrolled: options.deltaY * times, scrollY, url: page.url() }
+    })
+  }
+
   /** Visible text of the page and its frames, optionally only the parts around a phrase. */
   async text(query?: string): Promise<Record<string, unknown>> {
     return await this.withPage(async (page) => {
@@ -663,6 +721,58 @@ export function registerWebTools(
         const flow = findFlow(flowDir, asString(args, 'name') ?? '')
         if (flow === undefined) throw new Error('找不到这条流程，请先 web_flow_list 看名字')
         return runFlow(channel, flow, { dryRun: args.dryRun !== false })
+      },
+    })),
+    registry.register(webTool({
+      name: 'web_upload',
+      description: '把本地文件塞进页面的上传控件（input[type=file]），不弹系统选择框。text 或 ref 定位控件，path 给本地路径。',
+      parameters: schema({
+        text: { type: 'string', description: '上传控件的名字/标签' },
+        role: { type: 'string', description: '可选：角色限定' },
+        ref: { type: 'string', description: '可选：控件编号' },
+        path: { type: 'string', description: '本地文件的绝对路径' },
+      }, ['path']),
+      async execute(args) {
+        return channel.upload({
+          ...asString(args, 'text') === undefined ? {} : { text: asString(args, 'text') },
+          ...asString(args, 'role') === undefined ? {} : { role: asString(args, 'role') },
+          ...asString(args, 'ref') === undefined ? {} : { ref: asString(args, 'ref') },
+          filePath: asString(args, 'path') ?? '',
+        })
+      },
+    })),
+    registry.register(webTool({
+      name: 'web_pages',
+      description: '列出浏览器里所有标签页（索引、标题、地址、当前页）。配合 web_switch 切换。',
+      parameters: schema({}),
+      async execute() { return channel.pages() },
+    })),
+    registry.register(webTool({
+      name: 'web_switch',
+      description: '切换标签页：给 index（web_pages 里的序号）或 urlContains（地址片段）。之后所有动作都在切过去的页上。',
+      parameters: schema({
+        index: { type: 'number', description: '标签页索引' },
+        urlContains: { type: 'string', description: '按地址片段切换' },
+      }),
+      async execute(args) {
+        return channel.switchPage({
+          ...args.index === undefined ? {} : { index: Number(args.index) },
+          ...asString(args, 'urlContains') === undefined ? {} : { urlContains: asString(args, 'urlContains') },
+        })
+      },
+    })),
+    registry.register(webTool({
+      name: 'web_scroll',
+      description: '滚动页面（滚轮），用于虚拟列表：只渲染视口附近的行，滚动后重新 web_find/web_snapshot 取新行。',
+      parameters: schema({
+        deltaY: { type: 'number', description: '每次滚动像素，正数向下，默认 600' },
+        times: { type: 'number', description: '滚动几次，默认 1，最大 20' },
+      }),
+      async execute(args) {
+        return channel.scroll({
+          deltaY: Number(args.deltaY ?? 600),
+          ...args.times === undefined ? {} : { times: Number(args.times) },
+        })
       },
     })),
     registry.register(webTool({
