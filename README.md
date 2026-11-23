@@ -85,6 +85,13 @@ The observation frame (the glowing border drawn while the agent is in control) i
 
 Each release keeps its own section, newest first, so the delta between two versions is always readable.
 
+### 0.6.14
+
+- **Any recent pnpm works**: the updater no longer demands the exact major the profile was linked with. Version 9 or newer is accepted from the app runtime, the plugin cache, or PATH — a matching major is preferred, a different one still installs.
+- **The profile keeps its own store**: every install links into `<profile>/.dsh-agi-store/v<major>` instead of the machine's global pnpm store, so a user who upgrades pnpm from 10 to 12 — or moves to another machine — can no longer end up with two stores refusing each other.
+- **One automatic migration**: the first install against the new store hits `ERR_PNPM_UNEXPECTED_STORE`; the updater drops the old link record, rebuilds once, restores it if that fails, and the condition never returns.
+- **Wrappers without a version still work**: if a pnpm is hidden behind a shim that cannot report `--version`, it stays in the candidate list as the last resort instead of being discarded.
+
 ### 0.6.13
 
 - **Updates are reliable now**: before installing, the updater reads the profile's `node_modules/.modules.yaml` to learn which pnpm major that profile was linked with, then picks a **matching** pnpm from "app runtime → plugin cache → PATH". It used to take the app's copy or, failing that, any pnpm on PATH — which breaks as soon as the machine has v10 while the profile is v11.

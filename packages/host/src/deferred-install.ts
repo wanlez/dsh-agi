@@ -525,38 +525,49 @@ try {
   log('could not write approved builds: ' + String(error))
 }
 
+const MIN_PNPM_MAJOR = 9
 const need = profilePnpmMajor()
-let plan
-const rejected = []
+const candidates = []
 for (const candidate of pnpmCandidates()) {
   const major = pnpmMajor(candidate)
   log('pnpm candidate ' + candidate.label + ' major=' + String(major) + ' need=' + String(need))
-  if (need !== undefined && major !== need) {
-    rejected.push(candidate.label + '(v' + String(major) + ')')
-    continue
-  }
-  plan = candidate
-  break
+  // A wrapper that cannot report its version still gets a chance, last: refusing every
+  // candidate would strand an update on a machine whose pnpm is only reachable through a shim.
+  if (major !== undefined && major < MIN_PNPM_MAJOR) continue
+  candidates.push({ candidate, major })
 }
-const argv = plan === undefined ? [] : [...plan.args, 'add', job.spec, '--save-exact', '--registry=' + job.registry]
+// Any pnpm recent enough is fine: the store is pinned per profile below, so a different global
+// major can no longer refuse the links it finds. A major that matches the record is still best.
+candidates.sort((left, right) => {
+  const leftMatch = need !== undefined && left.major === need ? 1 : 0
+  const rightMatch = need !== undefined && right.major === need ? 1 : 0
+  if (leftMatch !== rightMatch) return rightMatch - leftMatch
+  return (right.major ?? 0) - (left.major ?? 0)
+})
+const chosen = candidates[0]
+// One store per profile and per pnpm major: the profile stops depending on the machine's global
+// store, which is what a user's pnpm upgrade used to break.
+const chosenMajor = chosen === undefined ? undefined : chosen.major ?? need ?? MIN_PNPM_MAJOR
+const storeDir = chosen === undefined ? '' : join(job.profileDir, '.dsh-agi-store', 'v' + String(chosenMajor))
+const argv = chosen === undefined ? [] : [...chosen.candidate.args, 'add', job.spec, '--save-exact', '--registry=' + job.registry, '--config.store-dir=' + storeDir]
 const firstError = (text) => text.split('\\n').map((line) => line.trim()).find((line) => line.includes('ERR_PNPM_')) ?? text.trim().split('\\n').pop() ?? 'pnpm failed'
-const runPnpm = () => spawnSync(plan.command, argv, { cwd: job.profileDir, env: plan.env, shell: plan.shell, encoding: 'utf8', windowsHide: true, timeout: 15 * 60 * 1000 })
+const runPnpm = () => spawnSync(chosen.candidate.command, argv, { cwd: job.profileDir, env: chosen.candidate.env, shell: chosen.candidate.shell, encoding: 'utf8', windowsHide: true, timeout: 15 * 60 * 1000 })
 let ok = false
 let detail = ''
-if (plan === undefined) {
-  // Installing with the wrong major is what breaks a profile: say so instead of trying three times.
-  detail = 'pnpm v' + String(need) + ' is required for this profile; tried ' + (rejected.join(', ') || 'nothing')
+if (chosen === undefined) {
+  // Saying which version is needed beats trying three times and giving up with no explanation.
+  detail = 'no pnpm >= ' + MIN_PNPM_MAJOR + ' found (need v' + String(need) + ' for this profile); tried ' + pnpmCandidates().map((candidate) => candidate.label).join(', ')
   log(detail)
 } else {
-  log('using ' + plan.label + ' for ' + job.spec)
+  log('using ' + chosen.candidate.label + ' v' + String(chosenMajor) + ' with store ' + storeDir)
   let run = runPnpm()
   let output = (run.stdout ?? '') + (run.stderr ?? '') + (run.error ? String(run.error) : '')
   log('attempt 1 exited ' + run.status + '\\n' + output)
   ok = run.status === 0
   if (!ok) detail = firstError(output)
   if (!ok && output.includes('ERR_PNPM_UNEXPECTED_STORE')) {
-    // pnpm recorded which store the links came from. Dropping that record lets it rebuild the
-    // links against the store this pnpm owns; the record is put back if the rebuild fails.
+    // The links were made by another store. Dropping pnpm's record lets it rebuild them against
+    // this profile's own store; the record is put back if the rebuild fails.
     const record = join(job.profileDir, 'node_modules', '.modules.yaml')
     const backup = record + '.dsh-agi-backup'
     log('store mismatch: rebuilding the link record and retrying once')
