@@ -79,6 +79,9 @@ function migrateLegacyOrbData(profileDir: string): void {
     for (const name of readdirSync(profileDir)) {
       const match = /^orb-(.+)\.json$/.exec(name)
       if (match === null) continue
+      // Session mode is a post-rename concept and the old default was shared; copying it
+      // would give an upgrading install the main window's session instead of its own.
+      if (match[1] === 'session-mode') continue
       const next = join(profileDir, `agi-${match[1]}.json`)
       if (!existsSync(next)) cpSync(join(profileDir, name), next)
     }

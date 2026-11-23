@@ -359,7 +359,8 @@ export class ProfileStore {
   /** Persist the mode. It is read when the next conversation is elected, not per prompt. */
   setSessionMode(mode: SessionMode): void {
     this.sessionModeValue = mode
-    writeJson(join(this.dir, SESSION_MODE_FILE), { mode })
+    // `source` marks this as the operator's own choice; see readSessionMode.
+    writeJson(join(this.dir, SESSION_MODE_FILE), { mode, source: 'operator' })
   }
 
   /** 'knowledge' answers from the experience library only; 'operate' allows Computer Use. */
@@ -595,8 +596,15 @@ function readSafeMode(dir: string): boolean {
 }
 
 /** A missing or malformed file means isolation: the ball never takes a window's conversation. */
+/**
+ * The ball's conversation source. Only a choice the operator made counts: a file without
+ * `source: 'operator'` is what the pre-rename plugin left behind (its default was shared),
+ * and inheriting that would hand a fresh install the main window's session.
+ */
 function readSessionMode(dir: string): SessionMode {
-  const mode = record(readJson(join(dir, SESSION_MODE_FILE)))?.mode
+  const stored = record(readJson(join(dir, SESSION_MODE_FILE)))
+  const mode = stored?.mode
+  if (stored?.source !== 'operator') return 'isolated'
   return isSessionMode(mode) ? mode : 'isolated'
 }
 

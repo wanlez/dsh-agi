@@ -92,6 +92,7 @@ Markdown 笔记会过期、会被跳过。`dsh-agi` 维护一个你真能长期�
 - **远程/虚拟环境自动停用**：检测到 RDP 会话、VMware/VirtualBox/QEMU/Hyper-V 虚拟机、向日葵/ToDesk/AnyDesk/TeamViewer/RustDesk/VNC 等远控进程时，网页通道运行期停用并在设置里写明原因——那种屏幕上浏览器窗口既看不见也点不准。
 - **只用编号，不给代码执行**：`web_snapshot` 返回可见控件的编号与名称，点击/输入都按编号；不暴露任何"执行脚本"的工具。
 - 浏览器路径必须由操作者自己给：`chrome` 模式读设置里的 `chromePath`，`chromium` 模式读 `chromiumPath`，两者都不自动发现；`attach` 模式只连操作者自己开好的 CDP 端口。
+- **球会话默认隔离**：新装、从旧插件升级都从 `isolated` 开始，球有自己的对话；只有你在设置里手动选过「跟随主窗口」才会保持 `shared`（文件里带 `source: operator` 标记，旧插件留下的没标记文件一律忽略）。
 
 ### 0.6.19
 
