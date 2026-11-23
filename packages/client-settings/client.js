@@ -1904,6 +1904,7 @@ window.__ModuleLoader__.load({
       const status = state.blockedReason
         ? `${text.webBlockedPrefix}${state.blockedReason}`
         : state.active ? text.webOn : text.webOff
+      const modeHint = enabled && state.modeReady === false ? String(state.modeHint || '') : ''
       const option = (value, label) => h('button', {
         key: value,
         type: 'button',
@@ -1924,6 +1925,7 @@ window.__ModuleLoader__.load({
         }),
         body: h('div', { className: 'dsh-agi-set-panel' },
           h('span', hint, status),
+          modeHint !== '' ? h('span', { className: 'dsh-agi-set-error', style: { display: 'block', marginTop: '6px' } }, modeHint) : null,
           state.error !== '' ? h('span', { className: 'dsh-agi-set-error', style: { display: 'block', marginTop: '6px' } }, `${text.webErrorPrefix}${state.error}`) : null,
           state.notice ? h('span', hint, String(state.notice)) : null,
           h('div', { className: 'dsh-agi-set-voice-seg', role: 'radiogroup', 'aria-label': text.webMode, style: { marginTop: '10px' } },

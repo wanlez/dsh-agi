@@ -239,6 +239,17 @@ export function apply(ctx: OrbContext, config: { autoStart?: boolean } = {}): vo
         // availability are facts this process owns, so that is all this injects.
         if (webControl?.state().active === true) {
           const state = webControl.state()
+          if (state.modeReady === false && state.modeHint !== '') {
+            extras.push({
+              role: 'user',
+              id: randomUUID(),
+              content: [{
+                type: 'text',
+                text: `【网页通道·当前模式不可用】${state.modeHint}`,
+              }],
+              source: { kind: 'computer-use', form: 'notice', summary: 'Web mode unavailable' },
+            })
+          }
           const source = state.settings.mode === 'chrome'
             ? '系统 Chrome'
             : state.settings.mode === 'attach' ? '连接已开启的浏览器' : '内置 Chromium'

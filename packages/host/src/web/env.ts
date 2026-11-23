@@ -86,28 +86,25 @@ function remoteTools(): string[] {
 
 /**
  * Probe the machine once per process start.
- * @returns the decision plus the evidence behind it.
+ *
+ * This never turns the channel off. The web layer only ever drives a browser on this machine, so
+ * a remote desktop, a VM or a remote-control tool is a hint about what the operator can see, not a
+ * reason to refuse work: we try the browser, and when a page turns out to be unreachable (a streamed
+ * VM desktop, a canvas-only remote client) the ladder falls back to keyboard and mouse on its own.
+ * @returns the evidence, with `blocked` kept false for callers that still read it.
  */
 export function detectRemoteEnvironment(): RemoteEnvironment {
   const evidence: string[] = []
-  const blocking: string[] = []
   if (process.platform === 'win32') {
     const remote = windowsRemoteSession()
     const virtual = windowsVirtualMachine()
-    blocking.push(...remote, ...virtual)
-    evidence.push(...remote, ...virtual)
-    // A remote-control tool merely being installed does not make this desktop someone else's
-    // screen: the browser still renders on this machine's own display. Report it, do not block.
-    for (const line of remoteTools()) evidence.push(`${line}（未阻止网页通道）`)
+    evidence.push(...remote, ...virtual, ...remoteTools())
   }
-  if (blocking.length === 0) return { blocked: false, reason: '', evidence }
-  const desktop = blocking.some((line) => line.startsWith('SESSIONNAME') || line.includes('RDP') || line.includes('vnc') || line.includes('mstsc'))
+  if (evidence.length === 0) return { blocked: false, reason: '', evidence }
   return {
-    blocked: true,
-    reason: desktop
-      ? '检测到远程桌面会话，网页通道已停用，改用键鼠'
-      : '检测到虚拟机，网页通道已停用，改用键鼠',
-    evidence,
+    blocked: false,
+    reason: '',
+    evidence: evidence.map(line => `${line}（仅提示，网页通道照常尝试；读不到时改用键鼠）`),
   }
 }
 

@@ -22,8 +22,12 @@ export interface WebState {
   readonly settings: WebSettings
   /** True when the tools are registered right now. */
   readonly active: boolean
-  /** Why the channel is off although the switch is on; empty when nothing blocks it. */
+  /** Why the channel could not even register; empty in the normal case. */
   readonly blockedReason: string
+  /** True when the selected mode has everything it needs to launch or attach. */
+  readonly modeReady: boolean
+  /** What the selected mode still needs; empty when ready. Web steps then fall back to the keyhole. */
+  readonly modeHint: string
   /** The probe evidence, so the operator can judge the detection themselves. */
   readonly evidence: readonly string[]
   /** The bundled browser: installed or not, and any download progress. */
@@ -39,6 +43,20 @@ export interface WebState {
 /** A tool registry as the Host exposes it. */
 interface ToolRegistry {
   register(tool: unknown): () => void
+}
+
+/** Whether the selected mode can actually produce a browser right now. */
+function modeReady(settings: WebSettings, chromiumPresent: boolean): boolean {
+  if (settings.mode === 'attach') return settings.cdpUrl.trim() !== ''
+  if (settings.mode === 'chrome') return settings.chromePath.trim() !== ''
+  return settings.chromiumPath.trim() !== '' || chromiumPresent
+}
+
+/** The sentence the page shows when the mode is selected but not usable yet. */
+function modeUnavailable(settings: WebSettings): string {
+  if (settings.mode === 'attach') return '连接模式还没填 CDP 地址：网页步骤会直接走键鼠，不会中断任务。'
+  if (settings.mode === 'chrome') return '系统 Chrome 模式还没选 chrome.exe：网页步骤会直接走键鼠，不会中断任务。'
+  return '内置 Chromium 还没下载：网页步骤会直接走键鼠，不会中断任务。'
 }
 
 /** The web-control channel: settings, environment gate and tool lifetime. */
@@ -77,9 +95,8 @@ export class WebControl {
   refresh(): WebState {
     const settings = this.settings()
     this.stop()
-    const env = this.environment()
     this.lastError = ''
-    if (settings.enabled && !env.blocked) {
+    if (settings.enabled) {
       // The channel re-reads the settings per call, so a mode change applies to the next call.
       this.channel = new BrowserChannel(() => readWebSettings(this.profileDir), dshHomePath('dsh-agi', 'web'))
       try {
@@ -100,19 +117,11 @@ export class WebControl {
     const active = this.dispose !== undefined
     const env = this.environment()
     const chromium = chromiumStatus(this.baseDir())
-    const executableReady = settings.mode === 'attach'
-      ? settings.cdpUrl !== ''
-      : settings.mode === 'chrome' ? settings.chromePath !== '' : settings.chromiumPath !== '' || chromium.present
-    const blockedReason = env.blocked
-      ? env.reason
-      : settings.enabled && !executableReady
-        ? (settings.mode === 'chrome'
-          ? '还不能用：还没选择 chrome.exe'
-          : settings.mode === 'attach' ? '还不能用：还没填 CDP 地址' : '还不能用：内置 Chromium 还没下载')
-        : settings.enabled && !active
-          ? '网页通道未能启用，请查看日志'
-          : ''
-    return { settings, active, blockedReason, evidence: env.evidence, chromium, chromiumDir: this.baseDir(), error: this.lastError, notice: this.lastNotice }
+    const ready = modeReady(settings, chromium.present)
+    const modeHint = ready ? '' : modeUnavailable(settings)
+    // The environment is never a reason to switch off: the browser is always this machine's own.
+    const blockedReason = settings.enabled && !active ? '网页通道未能注册，请查看日志' : ''
+    return { settings, active, modeReady: ready, modeHint, blockedReason, evidence: env.evidence, chromium, chromiumDir: this.baseDir(), error: this.lastError, notice: this.lastNotice }
   }
 
   /**
