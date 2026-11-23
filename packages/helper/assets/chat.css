@@ -879,14 +879,20 @@
   border-radius: var(--dsl-code-block-border-radius);
 }
 
+/* The panel scrolls the whole conversation, so a sticky banner would be pinned to the panel
+   rather than to its own code block: it escaped the bubble and painted over the next message.
+   Keep the banner in flow and clip the block to its own rounded box instead. */
+.cb {
+  overflow: hidden;
+  border-radius: var(--dsl-code-block-border-radius);
+}
+
 .cb:not(:last-child) {
   margin-bottom: 11px;
 }
 
 .cb-banner-wrap {
-  position: sticky;
-  top: 0;
-  z-index: 6;
+  position: relative;
   background-color: var(--dsw-alias-bg-base);
   border-top-left-radius: var(--dsl-code-block-border-radius);
   border-top-right-radius: var(--dsl-code-block-border-radius);
