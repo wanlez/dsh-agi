@@ -22,6 +22,8 @@ export interface WebSettings {
   chromePath: string
   /** A Chromium build we downloaded; empty until the download ran. */
   chromiumPath: string
+  /** Where Chromium builds are kept; empty means the plugin's own data folder. */
+  chromiumDir: string
   /** CDP endpoint for `attach`, for a browser the operator started themselves. */
   cdpUrl: string
   /** Where each mode keeps its persistent profile; empty means the default under the plugin data. */
@@ -32,7 +34,7 @@ const FILE = 'agi-web.json'
 
 /** The shipped defaults: off, bundled Chromium, nothing filled in. */
 export function defaultWebSettings(): WebSettings {
-  return { enabled: false, mode: 'chromium', chromePath: '', chromiumPath: '', cdpUrl: '', profileDir: '' }
+  return { enabled: false, mode: 'chromium', chromePath: '', chromiumPath: '', chromiumDir: '', cdpUrl: '', profileDir: '' }
 }
 
 function isMode(value: unknown): value is WebMode {
@@ -49,6 +51,7 @@ export function readWebSettings(profileDir: string): WebSettings {
       mode: isMode(parsed.mode) ? parsed.mode : fallback.mode,
       chromePath: typeof parsed.chromePath === 'string' ? parsed.chromePath : fallback.chromePath,
       chromiumPath: typeof parsed.chromiumPath === 'string' ? parsed.chromiumPath : fallback.chromiumPath,
+      chromiumDir: typeof parsed.chromiumDir === 'string' ? parsed.chromiumDir : fallback.chromiumDir,
       cdpUrl: typeof parsed.cdpUrl === 'string' ? parsed.cdpUrl : fallback.cdpUrl,
       profileDir: typeof parsed.profileDir === 'string' ? parsed.profileDir : fallback.profileDir,
     }
@@ -71,7 +74,7 @@ export function mergeWebSettings(current: WebSettings, patch: Partial<WebSetting
   const next: WebSettings = { ...current }
   if (typeof patch.enabled === 'boolean') next.enabled = patch.enabled
   if (isMode(patch.mode)) next.mode = patch.mode
-  for (const key of ['chromePath', 'chromiumPath', 'cdpUrl', 'profileDir'] as const) {
+  for (const key of ['chromePath', 'chromiumPath', 'chromiumDir', 'cdpUrl', 'profileDir'] as const) {
     const value = patch[key]
     if (typeof value === 'string') next[key] = value
   }

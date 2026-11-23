@@ -142,6 +142,10 @@ export interface OrbControl {
   downloadChromium?(): Promise<unknown>
   /** Ask the operator for chrome.exe with the system dialog. */
   pickChrome?(): Promise<unknown>
+  /** Ask the operator where Chromium builds should live; moves an existing build there. */
+  pickChromiumDir?(): Promise<unknown>
+  /** Move an existing Chromium build to an explicit directory. */
+  moveChromium?(dir: string): Promise<unknown>
   /** What this plugin keeps on disk, measured when the settings page asks. */
   spaceReport?(): Promise<SpaceReport>
   /** Deletes the diagnostic logs only; nothing else is removable from that page. */
@@ -475,6 +479,27 @@ async function handle(deps: RouteDeps, req: IncomingMessage, res: ServerResponse
     } catch (error) {
       sendJson(res, 500, { error: errorMessage(error) })
     }
+    return
+  }
+  if (method === 'POST' && path === `${PREFIX}/web/pick-dir`) {
+    if (typeof deps.control.pickChromiumDir !== 'function') {
+      sendJson(res, 409, { error: 'web-unavailable' })
+      return
+    }
+    sendJson(res, 200, await deps.control.pickChromiumDir())
+    return
+  }
+  if (method === 'POST' && path === `${PREFIX}/web/chromium/move`) {
+    const dir = asRecord(await readJson(req))?.dir
+    if (typeof dir !== 'string' || dir.trim() === '') {
+      sendJson(res, 400, { error: 'invalid-dir' })
+      return
+    }
+    if (typeof deps.control.moveChromium !== 'function') {
+      sendJson(res, 409, { error: 'web-unavailable' })
+      return
+    }
+    sendJson(res, 200, await deps.control.moveChromium(dir))
     return
   }
   if (method === 'POST' && path === `${PREFIX}/web/pick-chrome`) {

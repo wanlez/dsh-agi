@@ -6,9 +6,11 @@
  */
 
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
+import { cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { chromiumStatus, installChromium, type ChromiumStatus } from './chromium.ts'
+import { CHROMIUM_VERSION, chromiumStatus, installChromium, type ChromiumStatus } from './chromium.ts'
 import { detectRemoteEnvironment, type RemoteEnvironment } from './env.ts'
 import { defaultWebSettings, mergeWebSettings, readWebSettings, writeWebSettings, type WebSettings } from './settings.ts'
 import { BrowserChannel, registerWebTools } from './tools.ts'
@@ -24,6 +26,10 @@ export interface WebState {
   readonly evidence: readonly string[]
   /** The bundled browser: installed or not, and any download progress. */
   readonly chromium: ChromiumStatus
+  /** Where Chromium builds live (empty means the plugin's own folder). */
+  readonly chromiumDir: string
+  /** The last failure from enabling or downloading, for the page to show instead of silence. */
+  readonly error: string
 }
 
 /** A tool registry as the Host exposes it. */
@@ -37,6 +43,8 @@ export class WebControl {
   private channel: BrowserChannel | undefined
   /** Probed once, and only after the switch was ever turned on: the probe spawns processes. */
   private env: RemoteEnvironment | undefined
+  /** Last enable failure; cleared by the next successful refresh. */
+  private lastError = ''
 
   constructor(
     private readonly registry: ToolRegistry,
@@ -46,6 +54,12 @@ export class WebControl {
   private environment(): RemoteEnvironment {
     this.env = this.env ?? detectRemoteEnvironment()
     return this.env
+  }
+
+  /** Where Chromium builds are kept. */
+  private baseDir(): string {
+    const configured = this.settings().chromiumDir
+    return configured !== '' ? configured : dshHomePath('dsh-agi', 'web')
   }
 
   /** The persisted settings, without changing anything. */
@@ -58,10 +72,18 @@ export class WebControl {
     const settings = this.settings()
     this.stop()
     const env = this.environment()
+    this.lastError = ''
     if (settings.enabled && !env.blocked) {
       // The channel re-reads the settings per call, so a mode change applies to the next call.
       this.channel = new BrowserChannel(() => readWebSettings(this.profileDir), dshHomePath('dsh-agi', 'web'))
-      this.dispose = registerWebTools(this.registry, this.channel)
+      try {
+        this.dispose = registerWebTools(this.registry, this.channel)
+      } catch (error) {
+        // A registry that refuses a definition must not leave the switch pretending to be on.
+        this.lastError = error instanceof Error ? error.message : String(error)
+        this.dispose = undefined
+        console.error(`dsh-agi: web tools failed to register: ${this.lastError}`)
+      }
     }
     return this.state()
   }
@@ -71,7 +93,7 @@ export class WebControl {
     const settings = this.settings()
     const active = this.dispose !== undefined
     const env = this.environment()
-    const chromium = chromiumStatus(dshHomePath('dsh-agi', 'web'))
+    const chromium = chromiumStatus(this.baseDir())
     const executableReady = settings.mode === 'attach'
       ? settings.cdpUrl !== ''
       : settings.mode === 'chrome' ? settings.chromePath !== '' : settings.chromiumPath !== '' || chromium.present
@@ -84,7 +106,7 @@ export class WebControl {
         : settings.enabled && !active
           ? '网页通道未能启用，请查看日志'
           : ''
-    return { settings, active, blockedReason, evidence: env.evidence, chromium }
+    return { settings, active, blockedReason, evidence: env.evidence, chromium, chromiumDir: this.baseDir(), error: this.lastError }
   }
 
   /**
@@ -99,9 +121,55 @@ export class WebControl {
 
   /** Download the pinned build and point the settings at it. */
   async downloadChromium(): Promise<WebState> {
-    const exe = await installChromium(dshHomePath('dsh-agi', 'web'))
+    const exe = await installChromium(this.baseDir())
     const next = mergeWebSettings(this.settings(), { chromiumPath: exe, mode: 'chromium' })
     writeWebSettings(this.profileDir, next)
+    return this.refresh()
+  }
+
+  /** Ask for a folder with the system dialog, for where builds should live. */
+  async pickDirectory(): Promise<WebState> {
+    const script = [
+      'Add-Type -AssemblyName System.Windows.Forms',
+      '$d = New-Object System.Windows.Forms.FolderBrowserDialog',
+      '$d.Description = "选择内置浏览器的存放位置"',
+      'if ($d.ShowDialog() -eq "OK") { $d.SelectedPath }',
+    ].join('; ')
+    if (process.platform !== 'win32') return this.state()
+    const picked = (await promisify(execFile)('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: 120_000 })).stdout.trim()
+    if (picked === '') return this.state()
+    return this.moveChromium(picked)
+  }
+
+  /**
+   * Move the existing Chromium folder to `target` and remember the new place.
+   * A build already at the target is left alone; nothing is copied twice.
+   */
+  moveChromium(target: string): WebState {
+    const from = this.baseDir()
+    if (target === from) return this.state()
+    try {
+      mkdirSync(target, { recursive: true })
+      for (const name of existsSync(from) ? readdirSync(from) : []) {
+        if (!name.startsWith('chromium')) continue
+        const src = join(from, name)
+        const dest = join(target, name)
+        if (existsSync(dest)) continue
+        try {
+          renameSync(src, dest)
+        } catch {
+          // Different volume: copy, then drop the old copy.
+          cpSync(src, dest, { recursive: true })
+          rmSync(src, { recursive: true, force: true })
+        }
+      }
+      const next = mergeWebSettings(this.settings(), { chromiumDir: target })
+      const exe = join(target, 'chromium', CHROMIUM_VERSION, 'chrome-win64', 'chrome.exe')
+      if (existsSync(exe)) next.chromiumPath = exe
+      writeWebSettings(this.profileDir, next)
+    } catch (error) {
+      this.lastError = `迁移失败：${error instanceof Error ? error.message : String(error)}`
+    }
     return this.refresh()
   }
 

@@ -2722,6 +2722,16 @@ export class OrbRuntime {
     return this.web === undefined ? { error: 'web-unavailable' } : await this.web.downloadChromium()
   }
 
+  /** Ask where Chromium builds live; an existing build moves there. */
+  async pickChromiumDir(): Promise<WebState | { error: string }> {
+    return this.web === undefined ? { error: 'web-unavailable' } : await this.web.pickDirectory()
+  }
+
+  /** Move the Chromium build to an explicit folder. */
+  async moveChromium(dir: string): Promise<WebState | { error: string }> {
+    return this.web === undefined ? { error: 'web-unavailable' } : this.web.moveChromium(dir)
+  }
+
   /** Ask for chrome.exe with the system dialog; nothing is discovered automatically. */
   async pickChrome(): Promise<WebState | { error: string }> {
     return this.web === undefined ? { error: 'web-unavailable' } : await this.web.pickChrome()
