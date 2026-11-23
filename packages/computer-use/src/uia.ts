@@ -127,15 +127,10 @@ $payload | ConvertTo-Json -Depth 6 -Compress
 /** How long a failure is remembered before the next call tries again. */
 const FAILURE_TTL_MS = 60_000
 
-/** A missing .NET surface is a property of the machine: remember it far longer than a timeout. */
-let capability: { reason: string; at: number } | undefined
-/** Last snapshot failure, so a broken window costs one spawn per minute, not one per call. */
-let lastFailure: { reason: string; at: number } | undefined
-
 /**
  * First rung, free: the OS gate. `System.Windows.Automation` through PowerShell needs Windows 10
  * or newer here — the desktop app itself does not run below that — so an older build answers
- * immediately instead of paying for a PowerShell start that would fail.
+ * immediately instead of paying for a PowerShell start.
  */
 function osGate(): string {
   if (process.platform !== 'win32') return 'uia-unavailable'
@@ -145,24 +140,15 @@ function osGate(): string {
   return ''
 }
 
-/** Probe timeout: a busy target can block a cross-process accessibility call. */
+/** A busy target can block a cross-process accessibility call; one attempt is bounded by this. */
 const TIMEOUT_MS = 2500
 
-/**
- * List the frontmost window's controls.
- * @param limit - maximum controls returned; the tree itself is still counted in full.
- */
-export async function uiaSnapshot(limit = 200): Promise<UiaSnapshot | { error: string }> {
-  const gated = osGate()
-  if (gated !== '') return { error: gated }
-  if (capability !== undefined && Date.now() - capability.at < 10 * 60_000) {
-    return { error: capability.reason }
-  }
-  if (lastFailure !== undefined && Date.now() - lastFailure.at < FAILURE_TTL_MS) {
-    return { error: lastFailure.reason }
-  }
-  const bounded = Math.max(10, Math.min(limit, 300))
-  const script = SCRIPT.replace('__LIMIT__', String(bounded))
+/** Deterministic failures: retrying the same read cannot change the answer. */
+const RETRY_WORTHLESS = new Set(['uia-assembly-missing', 'uia-os-too-old', 'uia-unavailable', 'uia-sensitive-window'])
+
+/** One spawn: probe the surface and read the tree in the same process. */
+async function attempt(limit: number): Promise<UiaSnapshot | { error: string }> {
+  const script = SCRIPT.replace('__LIMIT__', String(limit))
   let stdout = ''
   try {
     const result = await run('powershell', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], {
@@ -174,9 +160,7 @@ export async function uiaSnapshot(limit = 200): Promise<UiaSnapshot | { error: s
     stdout = result.stdout
   } catch (error) {
     const timeout = (error as { killed?: boolean; signal?: string } | undefined)?.killed === true
-    const reason = timeout ? 'uia-timeout' : 'uia-probe-failed'
-    lastFailure = { reason, at: Date.now() }
-    return { error: reason }
+    return { error: timeout ? 'uia-timeout' : 'uia-probe-failed' }
   }
   const line = stdout.trim().split('\n').filter((item) => item.trim().startsWith('{')).pop()
   if (line === undefined) return { error: 'uia-empty-output' }
@@ -194,26 +178,18 @@ export async function uiaSnapshot(limit = 200): Promise<UiaSnapshot | { error: s
   } catch {
     return { error: 'uia-bad-json' }
   }
-  if (parsed.error !== undefined) {
-    if (parsed.error === 'uia-assembly-missing' || parsed.error === 'uia-powershell-missing') {
-      capability = { reason: parsed.error, at: Date.now() }
-    } else {
-      lastFailure = { reason: parsed.error, at: Date.now() }
-    }
-    return { error: parsed.error }
-  }
-  const process_ = parsed.process ?? ''
-  if (SENSITIVE.test(process_) || SENSITIVE.test(parsed.window ?? '')) {
+  if (parsed.error !== undefined) return { error: parsed.error }
+  const processName = parsed.process ?? ''
+  if (SENSITIVE.test(processName) || SENSITIVE.test(parsed.window ?? '')) {
     return { error: 'uia-sensitive-window' }
   }
-  lastFailure = undefined
   const controls = Array.isArray(parsed.controls) ? parsed.controls : []
   const password = controls.some((control) => control.password === true)
   const unusable = password || controls.length < 8
   return {
     window: parsed.window ?? '',
     className: parsed.className ?? '',
-    process: process_,
+    process: processName,
     count: parsed.count ?? controls.length,
     elapsedMs: parsed.elapsedMs ?? 0,
     controls: controls.filter((control) => control.password !== true),
@@ -224,4 +200,25 @@ export async function uiaSnapshot(limit = 200): Promise<UiaSnapshot | { error: s
         ? '这个窗口的 UIA 树太小（Qt/Flutter/旧 Win32 常见，或目标以管理员运行而本进程没有同等权限），按名字定位不可用，请改用截图。'
         : 'center 是相对窗口的 0–1000 比例，可直接作为 click 的 position；点击仍走两段瞄准。',
   }
+}
+
+/**
+ * List the frontmost window's controls.
+ *
+ * One retry per call, no cross-call memory: a transient timeout gets a second chance, and a
+ * deterministic failure (no .NET surface, no window, sensitive process) answers at once.
+ * @param limit - maximum controls returned; the tree itself is still counted in full.
+ */
+export async function uiaSnapshot(limit = 200): Promise<UiaSnapshot | { error: string }> {
+  const gated = osGate()
+  if (gated !== '') return { error: gated }
+  const bounded = Math.max(10, Math.min(limit, 300))
+  let last: { error: string } = { error: 'uia-probe-failed' }
+  for (let attemptNumber = 1; attemptNumber <= 2; attemptNumber += 1) {
+    const outcome = await attempt(bounded)
+    if (!('error' in outcome)) return outcome
+    last = outcome
+    if (RETRY_WORTHLESS.has(outcome.error)) return outcome
+  }
+  return last
 }
