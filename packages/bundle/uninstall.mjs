@@ -13,7 +13,7 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, dirname, join, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline'
 
@@ -69,11 +69,28 @@ function libraryDir() {
 const keptLibrary = libraryDir()
 
 /**
+ * The ball workspace, resolved the same way the plugin does: `agi-workspace.json` may name any
+ * absolute directory, and the shipped default is `~/.dsh/dsh_agi`. Its content is never deleted.
+ */
+function workspaceDir() {
+  try {
+    const stored = JSON.parse(readFileSync(join(profileDir, 'agi-workspace.json'), 'utf8'))?.path
+    if (typeof stored === 'string' && isAbsolute(stored)) return resolve(stored)
+  } catch {
+    // No override recorded: the shipped default applies.
+  }
+  return resolve(join(dshHome, 'dsh_agi'))
+}
+
+const keptWorkspace = workspaceDir()
+
+/**
  * Paths that survive whatever the delete list says: the experience library, the ball workspace
  * and the conversation archive. A delete landing in one of them is refused, not carried out.
  */
 const protectedPaths = [
   keptLibrary,
+  keptWorkspace,
   join(dataDir, 'knowledge'),
   join(dataDir, 'workspace'),
   join(dataDir, 'records'),
@@ -135,7 +152,8 @@ for (const file of profileSettings) say(`  插件设置      ${join(profileDir, 
 say(`  临时日志      ${join(process.env.TEMP ?? '', 'dsh-agi-*')}`)
 say('\n会保留：')
 say(`  经验库        ${keptLibrary}（以及 agi-knowledge*.json）`)
-for (const name of ['knowledge', 'workspace', 'records']) say(`  个人数据      ${join(dataDir, name)}`)
+say(`  球工作区      ${keptWorkspace}（内容一个文件都不动）`)
+for (const name of ['knowledge', 'records']) say(`  个人数据      ${join(dataDir, name)}`)
 say('  DSH 本体、其它插件、会话与附件：一概不动。')
 
 if (!flag('yes')) {
