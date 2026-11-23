@@ -85,6 +85,12 @@ The observation frame (the glowing border drawn while the agent is in control) i
 
 Each release keeps its own section, newest first, so the delta between two versions is always readable.
 
+### 0.6.17
+
+- **The updater works with pnpm 12**: pnpm 12 turns an ignored dependency build script into a hard failure (`ERR_PNPM_IGNORED_BUILDS`, exit 1) even though the package installed fine, while pnpm 10 only warns. Installs now pass `--config.strict-dep-builds=false` so it degrades to a warning; whether a build actually runs is still decided by the profile's `allowBuilds`.
+- **Verified against a real profile shape**: with `nodeLinker: hoisted` plus `allowBuilds` and `minimumReleaseAgeExclude`, pnpm 10.30 / 11.7 / 12.15 all install the same package successfully; a store-record conflict reports `ERR_PNPM_UNEXPECTED_STORE`, and retrying after dropping the record succeeds with the record pointing back at the profile's own isolated store.
+- **The uninstaller also honours a moved workspace**: it reads `path` from `agi-workspace.json` (absolute only), falls back to `~/.dsh/dsh_agi`, and guards that path together with the library and the conversation archive — the summary prints the real path and no workspace file is touched.
+
 ### 0.6.16
 
 - **The uninstaller honours a moved library**: before deleting anything it reads `dir` from `agi-knowledge-graph.json` (falling back to `ACTIVE_GRAPH`) and protects the real location; the summary prints that real path instead of the hard-coded default folder.

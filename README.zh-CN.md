@@ -85,6 +85,12 @@ Markdown 笔记会过期、会被跳过。`dsh-agi` 维护一个你真能长期�
 
 每个版本单独一节，最新的在最上面，方便直接对比「上一版到这一版改了什么」。
 
+### 0.6.17
+
+- **更新器兼容 pnpm 12**：pnpm 12 会把"被忽略的依赖构建脚本"当成硬失败（`ERR_PNPM_IGNORED_BUILDS`，退出码 1），而包其实已经装好——同样的包在 pnpm 10 上只警告。安装命令现在统一带 `--config.strict-dep-builds=false` 把它降级为警告；是否真的执行构建仍由 profile 的 `allowBuilds` 决定。
+- **已按真实 profile 形状实测**：`nodeLinker: hoisted` + `allowBuilds` + `minimumReleaseAgeExclude` 下，pnpm 10.30 / 11.7 / 12.15 装同一份包都成功；store 记录冲突时先报 `ERR_PNPM_UNEXPECTED_STORE`、删记录后重试成功，记录回到 profile 自己的隔离 store。
+- **卸载器也认得住"搬过家"的工作区**：读 `agi-workspace.json` 的 `path`（只认绝对路径），否则用默认 `~/.dsh/dsh_agi`；它和经验库、会话留档一起进入保护清单，汇总里打印真实路径，工作区里的文件一个都不动。
+
 ### 0.6.16
 
 - **卸载器认得住"搬过家"的经验库**：删除前先读 `agi-knowledge-graph.json` 的 `dir`（没有则读 `ACTIVE_GRAPH`），按真实位置保护；提示里打印的也是这条真实路径，不再是写死的默认目录。
