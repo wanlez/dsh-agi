@@ -362,6 +362,18 @@ export function mergeApprovedBuilds(text: string, builds: readonly string[]): st
   return [...lines.slice(0, key + 1), ...kept, ...added, ...lines.slice(index)].join('\n')
 }
 
+/**
+ * The pnpm major a profile's node_modules was linked with. This number is what has to match:
+ * a different major refuses the store it finds and fails with ERR_PNPM_UNEXPECTED_STORE.
+ */
+export function profilePnpmMajorFromYaml(text: string): number | undefined {
+  const declared = /packageManager:\s*pnpm@(\d+)\./u.exec(text)
+  if (declared !== null) return Number(declared[1])
+  const store = /store[\/]v(\d+)/u.exec(text)
+  if (store !== null) return Number(store[1])
+  return undefined
+}
+
 /** `@` cannot start a plain YAML scalar, so a scoped name is quoted the way pnpm writes one. */
 function yamlScalar(name: string): string {
   return name.startsWith('@') ? "'" + name.replaceAll("'", "''") + "'" : name
@@ -383,7 +395,7 @@ function unquote(entry: string): string {
  * tested functions cannot drift apart.
  */
 const APPLY_SCRIPT = `import { spawnSync } from 'node:child_process'
-import { appendFileSync, existsSync, readFileSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, readdirSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
 
 const jobFile = process.argv[2]
@@ -414,11 +426,28 @@ ${unquote.toString()}
 
 ${mergeApprovedBuilds.toString()}
 
-function pnpm() {
+${profilePnpmMajorFromYaml.toString()}
+
+/** The pnpm major this profile needs, or undefined when the profile has no record yet. */
+function profilePnpmMajor() {
+  try {
+    return profilePnpmMajorFromYaml(readFileSync(join(job.profileDir, 'node_modules', '.modules.yaml'), 'utf8'))
+  } catch (error) {
+    return undefined
+  }
+}
+
+/**
+ * Every pnpm this machine can offer, best first: the app runtime, a copy this plugin cached
+ * for one major, then whatever is on PATH. The caller keeps the one whose major matches.
+ */
+function pnpmCandidates() {
   const support = join(dirname(process.execPath), 'resources', 'runtime')
+  const list = []
   const bundled = join(support, 'pnpm', 'bin', 'pnpm.mjs')
   if (existsSync(bundled)) {
-    return {
+    list.push({
+      label: 'runtime/pnpm',
       command: process.execPath,
       args: ['--expose-internals', bundled],
       shell: false,
@@ -428,11 +457,45 @@ function pnpm() {
         DSH_DESKTOP_NODE_EXECUTABLE: process.execPath,
         PATH: join(support, 'bin') + delimiter + (process.env.PATH ?? ''),
       },
+    })
+  }
+  const home = process.env.USERPROFILE ?? process.env.HOME
+  if (home) {
+    const root = join(home, '.dsh', 'dsh-agi', 'update', 'pnpm')
+    let majors = []
+    try { majors = readdirSync(root) } catch (error) { majors = [] }
+    for (const entry of majors) {
+      for (const file of ['pnpm.cjs', join('bin', 'pnpm.cjs'), join('bin', 'pnpm.mjs')]) {
+        const target = join(root, entry, file)
+        if (!existsSync(target)) continue
+        list.push({
+          label: 'cached/' + entry,
+          command: process.execPath,
+          args: [target],
+          shell: false,
+          env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+        })
+        break
+      }
     }
   }
   const env = { ...process.env }
   delete env.ELECTRON_RUN_AS_NODE
-  return { command: 'pnpm', args: [], shell: process.platform === 'win32', env }
+  list.push({ label: 'PATH', command: 'pnpm', args: [], shell: process.platform === 'win32', env })
+  return list
+}
+
+/** The major version a candidate reports, or undefined when it cannot run at all. */
+function pnpmMajor(candidate) {
+  const run = spawnSync(candidate.command, [...candidate.args, '--version'], {
+    env: candidate.env,
+    shell: candidate.shell,
+    encoding: 'utf8',
+    windowsHide: true,
+    timeout: 60 * 1000,
+  })
+  const found = /(\d+)\.\d+\.\d+/u.exec((run.stdout ?? '').trim())
+  return found === null ? undefined : Number(found[1])
 }
 
 log('waiting for process ' + job.parentPid + ' to exit before installing ' + job.spec)
@@ -462,18 +525,56 @@ try {
   log('could not write approved builds: ' + String(error))
 }
 
-const { command, args, shell, env } = pnpm()
-const argv = [...args, 'add', job.spec, '--save-exact', '--registry=' + job.registry]
+const need = profilePnpmMajor()
+let plan
+const rejected = []
+for (const candidate of pnpmCandidates()) {
+  const major = pnpmMajor(candidate)
+  log('pnpm candidate ' + candidate.label + ' major=' + String(major) + ' need=' + String(need))
+  if (need !== undefined && major !== need) {
+    rejected.push(candidate.label + '(v' + String(major) + ')')
+    continue
+  }
+  plan = candidate
+  break
+}
+const argv = plan === undefined ? [] : [...plan.args, 'add', job.spec, '--save-exact', '--registry=' + job.registry]
+const firstError = (text) => text.split('\\n').map((line) => line.trim()).find((line) => line.includes('ERR_PNPM_')) ?? text.trim().split('\\n').pop() ?? 'pnpm failed'
+const runPnpm = () => spawnSync(plan.command, argv, { cwd: job.profileDir, env: plan.env, shell: plan.shell, encoding: 'utf8', windowsHide: true, timeout: 15 * 60 * 1000 })
 let ok = false
 let detail = ''
-for (let attempt = 1; attempt <= 3 && !ok; attempt += 1) {
-  const run = spawnSync(command, argv, { cwd: job.profileDir, env, shell, encoding: 'utf8', windowsHide: true, timeout: 15 * 60 * 1000 })
-  const output = (run.stdout ?? '') + (run.stderr ?? '') + (run.error ? String(run.error) : '')
-  log('attempt ' + attempt + ' exited ' + run.status + '\\n' + output)
+if (plan === undefined) {
+  // Installing with the wrong major is what breaks a profile: say so instead of trying three times.
+  detail = 'pnpm v' + String(need) + ' is required for this profile; tried ' + (rejected.join(', ') || 'nothing')
+  log(detail)
+} else {
+  log('using ' + plan.label + ' for ' + job.spec)
+  let run = runPnpm()
+  let output = (run.stdout ?? '') + (run.stderr ?? '') + (run.error ? String(run.error) : '')
+  log('attempt 1 exited ' + run.status + '\\n' + output)
   ok = run.status === 0
-  if (!ok) {
-    detail = output.split('\\n').map((line) => line.trim()).find((line) => line.includes('ERR_PNPM_')) ?? output.trim().split('\\n').pop() ?? 'pnpm failed'
-    await sleep(3000)
+  if (!ok) detail = firstError(output)
+  if (!ok && output.includes('ERR_PNPM_UNEXPECTED_STORE')) {
+    // pnpm recorded which store the links came from. Dropping that record lets it rebuild the
+    // links against the store this pnpm owns; the record is put back if the rebuild fails.
+    const record = join(job.profileDir, 'node_modules', '.modules.yaml')
+    const backup = record + '.dsh-agi-backup'
+    log('store mismatch: rebuilding the link record and retrying once')
+    try {
+      if (existsSync(record)) renameSync(record, backup)
+      run = runPnpm()
+      output = (run.stdout ?? '') + (run.stderr ?? '') + (run.error ? String(run.error) : '')
+      log('repair attempt exited ' + run.status + '\\n' + output)
+      ok = run.status === 0
+      if (!ok) {
+        detail = firstError(output)
+        try { if (existsSync(backup)) renameSync(backup, record) } catch (error) { log('could not restore the link record: ' + String(error)) }
+      } else {
+        try { if (existsSync(backup)) rmSync(backup, { force: true }) } catch (error) { log('could not drop the backup record: ' + String(error)) }
+      }
+    } catch (error) {
+      log('could not rebuild the link record: ' + String(error))
+    }
   }
 }
 // A headless test run sets DSH_AGI_UPDATE_NO_POPUP: the dialog is modal and would hold the

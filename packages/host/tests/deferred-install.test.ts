@@ -9,6 +9,7 @@ import {
   DEFERRED_INSTALL_PENDING_MS,
   deferredDir,
   deferredInstallInProgress,
+  profilePnpmMajorFromYaml,
   mergeApprovedBuilds,
   pendingDeferredInstall,
   scheduleInstallAfterExit,
@@ -78,6 +79,22 @@ describe('release-age exemption and build approvals share the workspace file', (
       mergeApprovedBuilds('onlyBuiltDependencies:\n  - koffi\n', ['koffi']),
       'onlyBuiltDependencies:\n  - koffi\nallowBuilds:\n  koffi: true\n',
     )
+  })
+})
+
+describe('the pnpm major a profile needs', () => {
+  it('reads the declared package manager first, the store directory second', () => {
+    const nl = String.fromCharCode(10)
+    const record = ['packageManager: pnpm@11.28.5', 'storeDir: C:/pnpm/store/v11', ''].join(nl)
+    assert.equal(profilePnpmMajorFromYaml(record), 11)
+    const older = ['storeDir: /home/u/.pnpm/store/v10', ''].join(nl)
+    assert.equal(profilePnpmMajorFromYaml(older), 10)
+    assert.equal(profilePnpmMajorFromYaml('packageManager: pnpm@10.30.3'), 10)
+  })
+
+  it('reports nothing for a profile without a record', () => {
+    assert.equal(profilePnpmMajorFromYaml(''), undefined)
+    assert.equal(profilePnpmMajorFromYaml('layoutVersion: 5'), undefined)
   })
 })
 

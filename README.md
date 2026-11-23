@@ -85,6 +85,13 @@ The observation frame (the glowing border drawn while the agent is in control) i
 
 Each release keeps its own section, newest first, so the delta between two versions is always readable.
 
+### 0.6.13
+
+- **Updates are reliable now**: before installing, the updater reads the profile's `node_modules/.modules.yaml` to learn which pnpm major that profile was linked with, then picks a **matching** pnpm from "app runtime → plugin cache → PATH". It used to take the app's copy or, failing that, any pnpm on PATH — which breaks as soon as the machine has v10 while the profile is v11.
+- **Store conflicts repair themselves once**: on `ERR_PNPM_UNEXPECTED_STORE` the updater no longer repeats the same command three times; it drops pnpm's link record, rebuilds once, and restores the record if that fails.
+- **Failures say what to do**: when no matching pnpm exists the message names the required major and what was tried, and `apply.log` records every candidate's version instead of a bare "gave up".
+- **Release preflight**: `pnpm release:check` validates the version, that build output is newer than the sources, that both readmes carry this version's section, that the npm payload has the runtime files and no node_modules or tests, and that the tag does not exist yet. Any miss fails the check.
+
 ### 0.6.12
 
 - **Disk usage**: a new settings card reports the plugin's footprint — one total, a file count, a Recalculate button, and a Details view that expands in place with one row per item (name / path / size). It covers the experience library, voice models, ball runtime, workspace, conversation archive, and the installed program. **Only logs can be cleared**; everything else is size only. The official attachment store is not counted (it belongs to every conversation in Harness); the program is measured at its installed size, with development dependencies on their own line and only on a dev machine; items that do not exist on a fresh install are simply not shown; a broken library config now says so instead of falling back silently.

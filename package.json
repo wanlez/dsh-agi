@@ -13,7 +13,8 @@
     "test:graph": "node --experimental-transform-types --disable-warning=ExperimentalWarning --test --test-isolation=none packages/host/tests/knowledge-graph.test.ts packages/host/tests/knowledge-graph-keyword.test.ts packages/host/tests/knowledge-graph-semantic.test.ts packages/host/tests/knowledge-graph-routes.test.ts packages/host/tests/knowledge-graph-library.test.ts packages/host/tests/knowledge-graph-editor.test.ts packages/host/tests/knowledge-graph-write.test.ts",
     "dev:graph": "node --experimental-transform-types packages/host/src/knowledge-graph/dev-server.ts",
     "import:legacy": "node --experimental-transform-types packages/host/tools/import-legacy-experience.ts",
-    "smoke:graph": "node --experimental-transform-types packages/host/tools/graph-smoke.ts"
+    "smoke:graph": "node --experimental-transform-types packages/host/tools/graph-smoke.ts",
+    "release:check": "node scripts/release-check.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.4",
